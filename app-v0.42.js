@@ -343,7 +343,7 @@
     }
     return String(row[h]??'')===String(b.value??'');
   }
-  function storePopup(row){const c=state.columns;const fields=[c.storeId,c.location,...state.subjects].filter(Boolean);const uniq=[...new Set(fields)];const title=row[c.location]||row[c.storeId]||'Store';let html=`<div class="store-popup"><h3>${esc(title)}</h3><table>`;if(c.city||c.province){const city=String(row[c.city]??'').trim();const prov=String(row[c.province]??'').trim();if(city||prov)html+=`<tr><td>City, Pr</td><td>${esc([city,prov].filter(Boolean).join(', ')||'—')}</td></tr>`;}for(const h of uniq){html+=`<tr><td>${esc(h)}</td><td>${esc(formatValue(h,row[h]))}</td></tr>`;}return html+'</table></div>';}
+  function storePopup(row){const c=state.columns;const fields=[c.storeId,c.location,...state.subjects].filter(Boolean);const uniq=[...new Set(fields)];const title=row[c.location]||row[c.storeId]||'Store';let html=`<div class="store-popup"><h3>${esc(title)}</h3><table>`;if(c.storeId)html+=`<tr><td>${esc(c.storeId)}</td><td>${esc(formatValue(c.storeId,row[c.storeId]))}</td></tr>`;if(c.city||c.province){const city=String(row[c.city]??'').trim();const prov=String(row[c.province]??'').trim();if(city||prov)html+=`<tr><td>City, Pr</td><td>${esc([city,prov].filter(Boolean).join(', ')||'—')}</td></tr>`;}for(const h of uniq){if(h===c.storeId)continue;html+=`<tr><td>${esc(h)}</td><td>${esc(formatValue(h,row[h]))}</td></tr>`;}return html+'</table></div>';}
   function handleMarkerClick(marker){
     const nearby=getNearbyMarkers(marker,18);
     if(nearby.length>1){
