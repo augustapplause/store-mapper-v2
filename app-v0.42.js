@@ -275,7 +275,7 @@
       lat:findExact(['latitude','lat'])||findContains(['latitude']),lon:findExact(['longitude','lon','long'])||findContains(['longitude']),
       province:findContains(['province']),city:findContains(['city']),storeId:findContains(['store profile number','store number','store no','store id']),
       location:findContains(['location']),concept:findContains(['store concept','concept']),locationType:findContains(['location type']),grossArea:findContains(['gross area sq ft','gross area']),
-      sales:findContains(['total sales']),wages:findContains(['total wages','wages']),occupancy:findContains(['total occupancy expense','occupancy expense']),
+      sales:findContains(['total sales']),wages:findContains(['total labour expense','labour expense']),occupancy:findContains(['total occupancy expense','occupancy expense']),
       ebit:findExact(['store 4 wall profit ebit','store 4 wall profit']) || lookup.find(x=>x.n.includes('store 4 wall profit') && !x.n.includes('debit'))?.h || null
     };
     const types={};for(const h of headers){const vals=rows.slice(0,400).map(r=>r[h]).filter(v=>v!==null&&v!==''&&v!==undefined);const nums=vals.filter(v=>toNumber(v)!==null).length;types[h]=(vals.length&&nums/vals.length>.8)?'numeric':'text';}return {columns,types};
@@ -288,7 +288,7 @@
   function afterWorkbookLoaded(file,parsed){
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);
     const c=state.columns;
-    const exactDefaultNames=['total sales','gross profit','total wages','total occupancy expense','store 4 wall profit ebit'];
+    const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=[...new Set(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
     state.groups=[c.locationType].filter(Boolean);
