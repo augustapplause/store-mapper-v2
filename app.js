@@ -1,4 +1,4 @@
-/* Store Explorer - v1.01
+/* Store Explorer - v1.08
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -516,24 +516,33 @@
     popup.options.autoPan=false;
     state.openPopupMarker=marker;
     const box=popup.getElement();
-    // Ensure Leaflet has laid out the popup before measuring it.
     popup.update();
     const rect=box.getBoundingClientRect();
     const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
     const p=map.latLngToContainerPoint(marker.getLatLng());
     const size=map.getSize();
-    const margin=12, gap=18, tip=14;
+    const margin=12;
+    const markerEl=marker.getElement?.()?.querySelector('.store-marker');
+    const markerRect=markerEl?.getBoundingClientRect();
+    const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
+    const markerGap=3;
+    const leaderLength=6;
+    const clearance=markerRadius+markerGap+leaderLength;
+    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+    const maxLeft=Math.max(margin,size.x-margin-w);
+    const maxTop=Math.max(margin,size.y-margin-h);
     const candidates=[
-      {name:'above',offset:L.point(0,-(gap+tip)),left:p.x-w/2,top:p.y-h-gap-tip,width:w,height:h,space:p.y-margin},
-      {name:'below',offset:L.point(0,h+gap+tip),left:p.x-w/2,top:p.y+gap+tip,width:w,height:h,space:size.y-p.y-margin},
-      {name:'left',offset:L.point(-(w/2+gap+tip),h/2),left:p.x-w-gap-tip,top:p.y-h/2,width:w,height:h,space:p.x-margin},
-      {name:'right',offset:L.point(w/2+gap+tip,h/2),left:p.x+gap+tip,top:p.y-h/2,width:w,height:h,space:size.x-p.x-margin}
+      {name:'above',left:clamp(p.x-w/2,margin,maxLeft),top:p.y-clearance-h,space:p.y-margin},
+      {name:'below',left:clamp(p.x-w/2,margin,maxLeft),top:p.y+clearance,space:size.y-p.y-margin},
+      {name:'left',left:p.x-clearance-w,top:clamp(p.y-h/2,margin,maxTop),space:p.x-margin},
+      {name:'right',left:p.x+clearance,top:clamp(p.y-h/2,margin,maxTop),space:size.x-p.x-margin}
     ];
     const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
+    for(const c of candidates){c.width=w;c.height=h;}
     const feasible=candidates.filter(fits);
-    // Prefer the side with the most room around the marker rather than a fixed
-    // above-first order. This keeps the popup away from the marker and avoids
-    // pinning a popup into the map edge when another side is clearly better.
+    // Prefer the candidate with the greatest available room. All candidates keep
+    // the popup close to the marker; the connector itself is drawn to the true
+    // nearest point on the final popup rectangle.
     let chosen=feasible.sort((a,b)=>b.space-a.space)[0];
     if(!chosen){
       chosen=candidates.map(c=>({c,overflow:
@@ -543,15 +552,13 @@
         Math.max(c.top+c.height-(size.y-margin),0)}))
         .sort((a,b)=>a.overflow-b.overflow)[0].c;
     }
-    popup.options.offset=chosen.offset;
+    const offsetX=chosen.left-(p.x-w/2);
+    const offsetY=chosen.top-(p.y-h);
+    popup.options.offset=L.point(offsetX,offsetY);
     box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
     box.classList.add(`store-popup-side-${chosen.name}`);
     popup.update();
-    requestAnimationFrame(()=>{
-      // Re-read the final popup rectangle after Leaflet applies the offset so
-      // the connector uses the popup's actual rendered edge.
-      drawStorePopupLeader(marker,chosen.name);
-    });
+    requestAnimationFrame(()=>drawStorePopupLeader(marker));
   }
 
   function ensureStorePopupLeaderLayer(){
@@ -579,7 +586,7 @@
     return svg;
   }
 
-  function drawStorePopupLeader(marker,side){
+  function drawStorePopupLeader(marker){
     const popup=marker?.getPopup();
     const box=popup?.getElement();
     if(!box||!marker||!map)return;
@@ -598,38 +605,39 @@
     const w=boxRect.width;
     const h=boxRect.height;
 
+    // Use the actual core marker size rather than any oversized animation overlay.
     const iconEl=marker.getElement?.();
-    const iconRect=iconEl?.getBoundingClientRect();
+    const coreEl=iconEl?.querySelector('.store-marker');
+    const iconRect=coreEl?.getBoundingClientRect() || iconEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(iconRect?.width||14)/2,(iconRect?.height||14)/2);
-    const gapPx=4;
-    const tipDistance=markerRadius+gapPx;
-    const baseHalf=8;
-    let cx,cy;
-    if(side==='above'){
-      cx=Math.max(bx+baseHalf+2,Math.min(bx+w-baseHalf-2,mx));
-      cy=by+h;
-    }else if(side==='below'){
-      cx=Math.max(bx+baseHalf+2,Math.min(bx+w-baseHalf-2,mx));
-      cy=by;
-    }else if(side==='left'){
-      cx=bx+w;
-      cy=Math.max(by+baseHalf+2,Math.min(by+h-baseHalf-2,my));
-    }else{
-      cx=bx;
-      cy=Math.max(by+baseHalf+2,Math.min(by+h-baseHalf-2,my));
+    const markerGap=3;
+    const maxLeader=6;
+    const targetDistance=markerRadius+markerGap;
+
+    // Nearest point on the popup rectangle to the marker centre. This works for
+    // every side, including cases where the marker lines up with a corner.
+    const edgeX=Math.max(bx,Math.min(mx,bx+w));
+    const edgeY=Math.max(by,Math.min(my,by+h));
+    const dx=mx-edgeX;
+    const dy=my-edgeY;
+    const distance=Math.hypot(dx,dy)||1;
+    const ux=dx/distance, uy=dy/distance;
+
+    // The tip is exactly markerRadius + 3px from the marker centre. The popup
+    // placement keeps the ideal connector at 6px; cap it defensively if a
+    // viewport-edge fallback forces a longer connection.
+    let tipX=mx-ux*targetDistance;
+    let tipY=my-uy*targetDistance;
+    const leaderDistance=Math.hypot(tipX-edgeX,tipY-edgeY);
+    if(leaderDistance>maxLeader){
+      tipX=edgeX+ux*maxLeader;
+      tipY=edgeY+uy*maxLeader;
     }
 
-    // Aim the narrow tip at the marker centre, stopping just outside the marker.
-    const dx=mx-cx;
-    const dy=my-cy;
-    const len=Math.hypot(dx,dy)||1;
-    const ux=dx/len, uy=dy/len;
-    const tx=mx-ux*tipDistance;
-    const ty=my-uy*tipDistance;
-    // Build a triangle with its wide end on the popup edge and its narrow tip toward the marker.
+    const baseHalf=5;
     const px=-uy*baseHalf;
     const py=ux*baseHalf;
-    poly.setAttribute('points',`${cx+px},${cy+py} ${cx-px},${cy-py} ${tx},${ty}`);
+    poly.setAttribute('points',`${edgeX+px},${edgeY+py} ${edgeX-px},${edgeY-py} ${tipX},${tipY}`);
   }
 
   function clearStorePopupLeader(){
@@ -643,7 +651,7 @@
     const box=popup?.getElement();
     if(!marker||!popup||!box||!popup.isOpen())return;
     const side=['above','below','left','right'].find(x=>box.classList.contains(`store-popup-side-${x}`));
-    if(side)drawStorePopupLeader(marker,side);
+    drawStorePopupLeader(marker);
   }
   if(typeof map!=='undefined'&&map){ map.on('move zoomend',refreshOpenStorePopupLeader); }
 

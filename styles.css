@@ -608,3 +608,6 @@ button,
 .store-popup-leader-layer{position:absolute;left:0;top:0;display:block;overflow:visible;pointer-events:none;z-index:0;}
 .store-popup-leader-layer polygon{fill:#fff;stroke:#cfd8df;stroke-width:1;vector-effect:non-scaling-stroke;}
 .leaflet-popup-content-wrapper{position:relative;z-index:2;}
+
+/* v1.08: true nearest-edge leader connector */
+.leaflet-popup .leaflet-popup-tip-container{display:none!important;}
