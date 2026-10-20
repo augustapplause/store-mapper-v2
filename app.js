@@ -1,4 +1,4 @@
-/* Store Explorer - v1.09
+/* Store Explorer - v1.17
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -66,6 +66,8 @@
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
   state.markerCluster = L.layerGroup().addTo(map);
+  map.on('move zoom resize',requestStorePopupLayout);
+  map.on('click',e=>{ if(e?.originalEvent?.target===map.getContainer() && state.openPopupMarker) closeStorePopup(); });
 
   const provinceStyle = {color:'#47677d',weight:1.2,fillColor:'#dce8ef',fillOpacity:.10};
   const provinceSelectedStyle = {color:'#086fb4',weight:3,fillColor:'#58a9d8',fillOpacity:.13};
@@ -412,13 +414,14 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Store markers ----------
   // Every store is a separate marker.  Overlapping markers are only spread apart
   // temporarily when the user clicks an overlapping location (spiderfy behavior).
   function rebuildMarkers(){
+    closeStorePopup();
     unspiderfyMarkers();
     state.markerCluster.clearLayers();
     state.markers=[];
@@ -428,8 +431,7 @@
       if(!rowPassesFilters(row))continue;
       const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
       const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false)});
-      marker.bindPopup(()=>storePopup(row),{maxWidth:350,autoPan:false,offset:L.point(0,-14)});
-      marker.on('popupopen',()=>positionStorePopup(marker));
+      // Store info is rendered by the custom Store Explorer popup overlay.
       const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
       if(profile) marker.bindTooltip(profile,{direction:'top',sticky:true,opacity:.95,offset:[0,-8]});
       marker.__row=row;
@@ -437,7 +439,7 @@
       marker.__visualKey='';
       marker.__filterPass=true;
       marker.__selected=false;
-      marker.on('click',()=>handleMarkerClick(marker));
+      marker.on('click',e=>{ if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent); handleMarkerClick(marker); });
       state.markers.push(marker);
       state.markerCluster.addLayer(marker);
     }
@@ -494,88 +496,195 @@
     }
     return String(row[h]??'')===String(b.value??'');
   }
-  function positionStorePopup(marker){
-    const popup=marker?.getPopup();
-    const mapEl=el('map');
-    if(!popup||!mapEl||!popup.getElement())return;
-    state.openPopupMarker=marker;
-    popup.options.autoPan=false;
+  // ---------- Custom store popup overlay ----------
+  let storePopupLayer = null;
+  let storePopupCard = null;
+  let storePopupSvg = null;
+  let storePopupFrame = null;
+  let storePopupLayoutQueued = false;
 
-    const box=popup.getElement();
-    const mapSize=map.getSize();
-    const baseRect=box.getBoundingClientRect();
-    const mapRect=mapEl.getBoundingClientRect();
-    const w=baseRect.width||350;
-    const h=baseRect.height||180;
-    const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
-    const markerEl=marker.getElement?.()?.querySelector('.store-marker');
-    const markerRect=markerEl?.getBoundingClientRect();
-    const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
-
-    // Popup clearance and the native Leaflet pointer are separate concerns.
-    // The popup must stay comfortably away from the marker while Leaflet keeps
-    // ownership of the popup anchor and native tip.
-    const popupClearance=12;
-    const clearance=markerRadius+popupClearance;
-    const margin=12;
-    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
-    const maxLeft=Math.max(margin,mapSize.x-margin-w);
-    const maxTop=Math.max(margin,mapSize.y-margin-h);
-
-    // Generate a dense ring of candidate popup rectangles around the marker.
-    // A candidate is valid when the popup is fully visible and does not cover
-    // the selected marker. Prefer the closest valid rectangle.
-    const candidates=[];
-    for(let i=0;i<360;i++){
-      const angle=(Math.PI*2*i)/360;
-      const ux=Math.cos(angle), uy=Math.sin(angle);
-      const desiredLeft=ux>=0 ? markerPoint.x+ux*clearance : markerPoint.x+ux*clearance-w;
-      const desiredTop=uy>=0 ? markerPoint.y+uy*clearance : markerPoint.y+uy*clearance-h;
-      const left=clamp(desiredLeft,margin,maxLeft);
-      const top=clamp(desiredTop,margin,maxTop);
-      const right=left+w, bottom=top+h;
-      const overlapX=Math.max(0,Math.min(right,markerPoint.x+markerRadius)-Math.max(left,markerPoint.x-markerRadius));
-      const overlapY=Math.max(0,Math.min(bottom,markerPoint.y+markerRadius)-Math.max(top,markerPoint.y-markerRadius));
-      if(overlapX>0&&overlapY>0)continue;
-      const edgeX=clamp(markerPoint.x,left,right);
-      const edgeY=clamp(markerPoint.y,top,bottom);
-      const distance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
-      candidates.push({left,top,distance});
-    }
-
-    const chosen=candidates.sort((a,b)=>a.distance-b.distance)[0] || {
-      left:clamp(markerPoint.x-w/2,margin,maxLeft),
-      top:clamp(markerPoint.y-h/2,margin,maxTop)
-    };
-
-    // Leaflet owns the popup anchor/tip. Convert our desired visual position
-    // into the popup offset that Leaflet uses to render the entire popup as one
-    // unit. This replaces the old CSS transform approach, which could move the
-    // popup independently of the native Leaflet pointer.
-    const baseLeft=baseRect.left-mapRect.left;
-    const baseTop=baseRect.top-mapRect.top;
-    const deltaX=chosen.left-baseLeft;
-    const deltaY=chosen.top-baseTop;
-    const currentOffset=popup.options.offset || L.point(0,0);
-    popup.options.offset=L.point(currentOffset.x+deltaX,currentOffset.y+deltaY);
-
-    // Force Leaflet to recompute its own popup position and native pointer.
-    popup.update();
+  function ensureStorePopupOverlay(){
+    if(storePopupLayer && storePopupCard && storePopupSvg) return;
+    const container=map.getContainer();
+    storePopupLayer=document.createElement('div');
+    storePopupLayer.className='store-popup-layer';
+    storePopupLayer.setAttribute('aria-hidden','true');
+    storePopupSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    storePopupSvg.classList.add('store-popup-leader');
+    storePopupSvg.setAttribute('aria-hidden','true');
+    storePopupCard=document.createElement('div');
+    storePopupCard.className='store-popup-card';
+    storePopupCard.setAttribute('role','dialog');
+    storePopupCard.setAttribute('aria-modal','false');
+    storePopupCard.addEventListener('click',e=>e.stopPropagation());
+    storePopupLayer.addEventListener('click',e=>{ if(e.target===storePopupLayer) closeStorePopup(); });
+    storePopupLayer.appendChild(storePopupSvg);
+    storePopupLayer.appendChild(storePopupCard);
+    container.appendChild(storePopupLayer);
   }
 
-  function storePopup(row){
+  function popupCardContent(row){
     const c=state.columns;
     const fields=[c.storeId,c.location,...state.subjects].filter(Boolean);
     const uniq=[...new Set(fields)];
     const title=row[c.location]||row[c.storeId]||'Store';
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">↗</a>`:'';
-    let html=`<div class="store-popup"><div class="store-popup-head"><h3>${esc(title)}</h3>${mapsLink}</div><table>`;
+    let html=`<div class="store-popup-head"><h3>${esc(title)}</h3><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
     if(c.storeId)html+=`<tr><td>${esc(c.storeId)}</td><td>${esc(formatValue(c.storeId,row[c.storeId]))}</td></tr>`;
     if(c.location)html+=`<tr><td>${esc(c.location)}</td><td>${esc(formatValue(c.location,row[c.location]))}</td></tr>`;
     if(c.city||c.province){const city=String(row[c.city]??'').trim();const prov=String(row[c.province]??'').trim();if(city||prov)html+=`<tr><td>City, Pr</td><td>${esc([city,prov].filter(Boolean).join(', ')||'—')}</td></tr>`;}
     for(const h of uniq){if(h===c.storeId||h===c.location)continue;html+=`<tr><td>${esc(h)}</td><td>${esc(formatValue(h,row[h]))}</td></tr>`;}
-    return html+'</table></div>';
+    return `<div class="store-popup">${html}</table></div>`;
+  }
+
+  function closeStorePopup(){
+    if(!storePopupLayer)return;
+    if(storePopupFrame)cancelAnimationFrame(storePopupFrame);
+    storePopupFrame=null;
+    storePopupLayoutQueued=false;
+    state.openPopupMarker=null;
+    storePopupLayer.classList.remove('open');
+    storePopupLayer.setAttribute('aria-hidden','true');
+    if(storePopupSvg)storePopupSvg.replaceChildren();
+    if(storePopupCard)storePopupCard.innerHTML='';
+  }
+
+  function requestStorePopupLayout(){
+    if(!state.openPopupMarker || !storePopupLayer?.classList.contains('open'))return;
+    if(storePopupLayoutQueued)return;
+    storePopupLayoutQueued=true;
+    storePopupFrame=requestAnimationFrame(()=>{
+      storePopupFrame=null;
+      storePopupLayoutQueued=false;
+      layoutStorePopup(state.openPopupMarker);
+    });
+  }
+
+  function rectOverlapsMarker(left,top,w,h,px,py,radius,extra=0){
+    const nearestX=clamp(px,left,left+w);
+    const nearestY=clamp(py,top,top+h);
+    const d=Math.hypot(px-nearestX,py-nearestY);
+    return d < radius+extra;
+  }
+
+  function candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius){
+    const margin=12;
+    const popupClearance=12;
+    const baseGap=markerRadius+popupClearance;
+    const maxRadius=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h);
+    let best=null;
+    // Search radially for the closest valid rectangle. Each direction uses the
+    // exact support distance of the popup rectangle so it starts just outside
+    // the marker, then expands only when viewport clearance requires it.
+    for(let i=0;i<360;i++){
+      const angle=(Math.PI*2*i)/360;
+      const ux=Math.cos(angle),uy=Math.sin(angle);
+      const halfW=w/2,halfH=h/2;
+      const support=Math.abs(ux)*halfW+Math.abs(uy)*halfH;
+      let centerDistance=baseGap+support;
+      let accepted=null;
+      while(centerDistance<=maxRadius){
+        const cx=markerPoint.x+ux*centerDistance;
+        const cy=markerPoint.y+uy*centerDistance;
+        const left=cx-halfW,top=cy-halfH;
+        const right=left+w,bottom=top+h;
+        const inside=left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin;
+        if(inside&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
+          const edgeX=clamp(markerPoint.x,left,right);
+          const edgeY=clamp(markerPoint.y,top,bottom);
+          const edgeDistance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
+          accepted={left,top,w,h,edgeDistance,centerDistance,angle};
+          break;
+        }
+        centerDistance+=4;
+      }
+      if(accepted){
+        if(!best || accepted.edgeDistance<best.edgeDistance || (Math.abs(accepted.edgeDistance-best.edgeDistance)<0.01&&accepted.centerDistance<best.centerDistance)){
+          best=accepted;
+        }
+      }
+    }
+    return best;
+  }
+
+  function leaderGeometry(markerPoint,popupRect,markerRadius){
+    const {left,top,w,h}=popupRect;
+    const px=clamp(markerPoint.x,left,left+w);
+    const py=clamp(markerPoint.y,top,top+h);
+    const dx=markerPoint.x-px,dy=markerPoint.y-py;
+    const len=Math.hypot(dx,dy);
+    if(!Number.isFinite(len)||len<0.5)return null;
+    const ux=dx/len,uy=dy/len;
+    const tipGap=Math.max(2,Math.min(4,3));
+    const tipDistance=Math.max(0,len-(markerRadius+tipGap));
+    if(tipDistance<0.5)return null;
+    const tipX=markerPoint.x-ux*(markerRadius+tipGap);
+    const tipY=markerPoint.y-uy*(markerRadius+tipGap);
+    const halfBase=5;
+    const bx=px,by=py;
+    const nx=-uy,ny=ux;
+    return {
+      points:`${bx-halfBase*nx},${by-halfBase*ny} ${bx+halfBase*nx},${by+halfBase*ny} ${tipX},${tipY}`
+    };
+  }
+
+  function layoutStorePopup(marker){
+    if(!marker||!storePopupLayer||!storePopupCard||!storePopupSvg)return;
+    if(marker!==state.openPopupMarker)return;
+    const mapSize=map.getSize();
+    const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
+    const markerEl=marker.getElement?.()?.querySelector('.store-marker');
+    const markerRect=markerEl?.getBoundingClientRect();
+    const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
+    const cardRect=storePopupCard.getBoundingClientRect();
+    const w=cardRect.width||350;
+    const h=cardRect.height||180;
+    const candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
+    if(!candidate){
+      // The popup remains visible inside the viewport even in pathological
+      // edge cases. Place it at the closest safe quadrant, never over the marker.
+      const margin=12;
+      const safeX=markerPoint.x<mapSize.x/2?mapSize.x-margin-w:margin;
+      const safeY=markerPoint.y<mapSize.y/2?mapSize.y-margin-h:margin;
+      candidate={left:clamp(safeX,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(safeY,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
+    }
+    storePopupCard.style.left=`${candidate.left}px`;
+    storePopupCard.style.top=`${candidate.top}px`;
+    const leader=leaderGeometry(markerPoint,candidate,markerRadius);
+    storePopupSvg.setAttribute('width',String(mapSize.x));
+    storePopupSvg.setAttribute('height',String(mapSize.y));
+    storePopupSvg.setAttribute('viewBox',`0 0 ${mapSize.x} ${mapSize.y}`);
+    storePopupSvg.style.width=`${mapSize.x}px`;
+    storePopupSvg.style.height=`${mapSize.y}px`;
+    storePopupSvg.replaceChildren();
+    if(leader){
+      const polygon=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      polygon.setAttribute('points',leader.points);
+      polygon.setAttribute('class','store-popup-leader-arrow');
+      storePopupSvg.appendChild(polygon);
+    }
+  }
+
+  function openStorePopup(marker){
+    ensureStorePopupOverlay();
+    if(state.openPopupMarker===marker && storePopupLayer.classList.contains('open')){ closeStorePopup(); return; }
+    state.openPopupMarker=marker;
+    storePopupCard.innerHTML=popupCardContent(marker.__row);
+    const closeBtn=storePopupCard.querySelector('.store-popup-close');
+    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
+    storePopupLayer.classList.add('open');
+    storePopupLayer.setAttribute('aria-hidden','false');
+    requestStorePopupLayout();
+  }
+
+  function positionStorePopup(marker){
+    // Compatibility wrapper for older call sites; all positioning is custom now.
+    if(state.openPopupMarker===marker) requestStorePopupLayout();
+  }
+
+  function storePopup(row){
+    return `<div class="store-popup">${popupCardContent(row)}</div>`;
   }
 
   function handleMarkerClick(marker){
@@ -583,12 +692,14 @@
     if(nearby.length>1){
       if(state.spiderfyGroup && state.spiderfyGroup.includes(marker)){
         unspiderfyMarkers();
-        marker.openPopup();
+        openStorePopup(marker);
         return;
       }
       unspiderfyMarkers();
       spiderfyMarkers(nearby);
+      return;
     }
+    openStorePopup(marker);
   }
   function getNearbyMarkers(centerMarker,thresholdPx){
     const center=map.latLngToLayerPoint(centerMarker.getLatLng());
@@ -614,7 +725,7 @@
     });
     setTimeout(()=>{
       const first=state.spiderfyGroup?.[0];
-      if(first && !first.isPopupOpen()) first.openPopup();
+      if(first && state.openPopupMarker!==first) openStorePopup(first);
     },0);
   }
   function unspiderfyMarkers(){
