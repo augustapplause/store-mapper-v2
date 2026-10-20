@@ -516,47 +516,52 @@
     popup.options.autoPan=false;
     state.openPopupMarker=marker;
     const box=popup.getElement();
+
+    // Establish a clean baseline at zero popup offset, then measure the
+    // actually rendered popup. All candidate placement is derived from that
+    // real rectangle so the popup and leader geometry stay in the same frame.
+    popup.options.offset=L.point(0,0);
     popup.update();
-    const rect=box.getBoundingClientRect();
-    const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
+    const mapRect=mapEl.getBoundingClientRect();
+    const baseRect=box.getBoundingClientRect();
+    const w=baseRect.width||350, h=baseRect.height||180;
     const p=map.latLngToContainerPoint(marker.getLatLng());
     const size=map.getSize();
     const margin=12;
     const markerEl=marker.getElement?.()?.querySelector('.store-marker');
     const markerRect=markerEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
-    const markerGap=3;
-    const clearance=markerRadius+markerGap;
-    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+    const gap=3;
+    const clearance=markerRadius+gap;
     const maxLeft=Math.max(margin,size.x-margin-w);
     const maxTop=Math.max(margin,size.y-margin-h);
+    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 
-    // Find a popup rectangle that is completely visible, does not cover the
-    // marker, and is as close to the marker as possible. We sample a ring of
-    // candidate directions so the popup may sit anywhere around the marker,
-    // not just at one of four hard-coded sides.
+    // Find the closest fully-visible rectangle that does not intersect the
+    // selected marker. Candidates are sampled around the marker so the popup
+    // can settle anywhere around it instead of being forced to a cardinal side.
     const candidates=[];
-    const angles=[];
-    for(let i=0;i<72;i++)angles.push((Math.PI*2*i)/72);
-    for(const angle of angles){
+    for(let i=0;i<144;i++){
+      const angle=(Math.PI*2*i)/144;
       const ux=Math.cos(angle), uy=Math.sin(angle);
-      // Place the rectangle so its nearest point is clearance away from the
-      // marker centre in the sampled direction, then clamp it into the map.
-      const left=p.x + ux*clearance - (ux>0 ? 0 : w);
-      const top=p.y + uy*clearance - (uy>0 ? 0 : h);
-      const c={left:clamp(left,margin,maxLeft),top:clamp(top,margin,maxTop)};
-      c.width=w;c.height=h;
-      if(c.left>p.x+markerRadius+markerGap || c.left+c.width<p.x-markerRadius-markerGap ||
-         c.top>p.y+markerRadius+markerGap || c.top+c.height<p.y-markerRadius-markerGap){
-        const edgeX=clamp(p.x,c.left,c.left+c.width);
-        const edgeY=clamp(p.y,c.top,c.top+c.height);
-        c.distance=Math.hypot(p.x-edgeX,p.y-edgeY);
-        c.angle=angle;
-        candidates.push(c);
-      }
+      let desiredLeft;
+      let desiredTop;
+      if(ux>=0) desiredLeft=p.x+ux*clearance; else desiredLeft=p.x+ux*clearance-w;
+      if(uy>=0) desiredTop=p.y+uy*clearance; else desiredTop=p.y+uy*clearance-h;
+      const left=clamp(desiredLeft,margin,maxLeft);
+      const top=clamp(desiredTop,margin,maxTop);
+      const rect={left,top,right:left+w,bottom:top+h};
+      const overlapX=Math.max(0,Math.min(rect.right,p.x+markerRadius)-Math.max(rect.left,p.x-markerRadius));
+      const overlapY=Math.max(0,Math.min(rect.bottom,p.y+markerRadius)-Math.max(rect.top,p.y-markerRadius));
+      if(overlapX>0&&overlapY>0)continue;
+      const edgeX=clamp(p.x,left,rect.right);
+      const edgeY=clamp(p.y,top,rect.bottom);
+      const distance=Math.hypot(p.x-edgeX,p.y-edgeY);
+      candidates.push({left,top,width:w,height:h,distance,angle});
     }
 
-    // Always include the four cardinal positions as deterministic fallbacks.
+    // Add deterministic edge-adjacent candidates in case sampling misses a
+    // narrow valid slot near the viewport boundary.
     const cardinal=[
       {left:p.x-w/2,top:p.y-clearance-h},
       {left:p.x-w/2,top:p.y+clearance},
@@ -564,38 +569,32 @@
       {left:p.x+clearance,top:p.y-h/2}
     ];
     for(const c0 of cardinal){
-      const c={...c0,left:clamp(c0.left,margin,maxLeft),top:clamp(c0.top,margin,maxTop),width:w,height:h};
-      const edgeX=clamp(p.x,c.left,c.left+c.width), edgeY=clamp(p.y,c.top,c.top+c.height);
-      c.distance=Math.hypot(p.x-edgeX,p.y-edgeY);
-      if(c.distance>=clearance-0.01) candidates.push(c);
+      const left=clamp(c0.left,margin,maxLeft), top=clamp(c0.top,margin,maxTop);
+      const rect={left,top,right:left+w,bottom:top+h};
+      const overlapX=Math.max(0,Math.min(rect.right,p.x+markerRadius)-Math.max(rect.left,p.x-markerRadius));
+      const overlapY=Math.max(0,Math.min(rect.bottom,p.y+markerRadius)-Math.max(rect.top,p.y-markerRadius));
+      if(overlapX>0&&overlapY>0)continue;
+      const edgeX=clamp(p.x,left,rect.right), edgeY=clamp(p.y,top,rect.bottom);
+      candidates.push({left,top,width:w,height:h,distance:Math.hypot(p.x-edgeX,p.y-edgeY),angle:0});
     }
 
     let chosen=candidates.sort((a,b)=>a.distance-b.distance)[0];
     if(!chosen){
-      // Extremely small map/view fallback: choose the least-overlapping,
-      // least-overflowing rectangle rather than moving the viewport.
-      const fallback=cardinal.map(c0=>{
-        const c={...c0,left:clamp(c0.left,margin,maxLeft),top:clamp(c0.top,margin,maxTop),width:w,height:h};
-        const overlapX=Math.max(0,Math.min(c.left+c.width,p.x+markerRadius)-Math.max(c.left,p.x-markerRadius));
-        const overlapY=Math.max(0,Math.min(c.top+c.height,p.y+markerRadius)-Math.max(c.top,p.y-markerRadius));
-        const edgeX=clamp(p.x,c.left,c.left+c.width), edgeY=clamp(p.y,c.top,c.top+c.height);
-        c.distance=Math.hypot(p.x-edgeX,p.y-edgeY)+overlapX*overlapY*1000;
-        return c;
-      });
-      chosen=fallback.sort((a,b)=>a.distance-b.distance)[0];
+      // Last-resort placement: remain inside the viewport and choose the
+      // least-overlapping candidate; never auto-pan the map.
+      chosen={left:clamp(p.x-w/2,margin,maxLeft),top:clamp(p.y-h/2,margin,maxTop),width:w,height:h,distance:0};
     }
 
-    const offsetX=chosen.left-(p.x-w/2);
-    const offsetY=chosen.top-(p.y-h);
-    popup.options.offset=L.point(offsetX,offsetY);
-    box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
-    const chosenEdgeX=clamp(p.x,chosen.left,chosen.left+chosen.width);
-    const chosenEdgeY=clamp(p.y,chosen.top,chosen.top+chosen.height);
-    if(chosenEdgeY===chosen.top)box.classList.add('store-popup-side-below');
-    else if(chosenEdgeY===chosen.top+chosen.height)box.classList.add('store-popup-side-above');
-    else if(chosenEdgeX===chosen.left)box.classList.add('store-popup-side-right');
-    else box.classList.add('store-popup-side-left');
+    // Move the actual Leaflet popup from its measured zero-offset position to
+    // the chosen top-left. This avoids guessing how Leaflet's popup anchor is
+    // positioned.
+    const baseLeft=baseRect.left-mapRect.left;
+    const baseTop=baseRect.top-mapRect.top;
+    const dx=chosen.left-baseLeft;
+    const dy=chosen.top-baseTop;
+    popup.options.offset=L.point(dx,dy);
     popup.update();
+
     requestAnimationFrame(()=>drawStorePopupLeader(marker));
   }
 
@@ -605,7 +604,9 @@
     if(!pane){
       pane=map.createPane('storeLeaderPane');
       pane.id='storeLeaderPane';
-      pane.style.zIndex='650';
+      // Just below Leaflet's popup pane, but above the map/marker panes, so the
+      // connector visually joins the popup without being clipped by map tiles.
+      pane.style.zIndex='690';
       pane.style.pointerEvents='none';
     }
     let svg=pane.querySelector('#storePopupLeaderLayer');
@@ -627,7 +628,7 @@
   function drawStorePopupLeader(marker){
     const popup=marker?.getPopup();
     const box=popup?.getElement();
-    if(!box||!marker||!map)return;
+    if(!box||!marker||!map||!popup.isOpen())return;
     const svg=ensureStorePopupLeaderLayer();
     const poly=svg?.querySelector('polygon');
     if(!poly)return;
@@ -635,40 +636,44 @@
     const mapEl=el('map');
     const mapRect=mapEl.getBoundingClientRect();
     const boxRect=box.getBoundingClientRect();
-    const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
-    const mx=markerPoint.x;
-    const my=markerPoint.y;
-    const bx=boxRect.left-mapRect.left;
-    const by=boxRect.top-mapRect.top;
-    const w=boxRect.width;
-    const h=boxRect.height;
+    const mp=map.latLngToContainerPoint(marker.getLatLng());
+    const mx=mp.x, my=mp.y;
+    const bx=boxRect.left-mapRect.left, by=boxRect.top-mapRect.top;
+    const bw=boxRect.width, bh=boxRect.height;
 
-    // Use the actual core marker size rather than any oversized animation overlay.
     const iconEl=marker.getElement?.();
     const coreEl=iconEl?.querySelector('.store-marker');
     const iconRect=coreEl?.getBoundingClientRect() || iconEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(iconRect?.width||14)/2,(iconRect?.height||14)/2);
-    const markerGap=3;
-    const targetDistance=markerRadius+markerGap;
-
-    // Nearest point on the popup rectangle to the marker centre. This works for
-    // every side, including cases where the marker lines up with a corner.
-    const edgeX=Math.max(bx,Math.min(mx,bx+w));
-    const edgeY=Math.max(by,Math.min(my,by+h));
-    const dx=mx-edgeX;
-    const dy=my-edgeY;
-    const distance=Math.hypot(dx,dy)||1;
-    const ux=dx/distance, uy=dy/distance;
-
-    // The tip stops a controlled gap before the marker centre. There is no
-    // artificial maximum connector length; the popup placement determines it.
-    const tipX=mx-ux*targetDistance;
-    const tipY=my-uy*targetDistance;
-
+    const gap=3;
+    const tipDistance=markerRadius+gap;
     const baseHalf=5;
+
+    // Find the nearest point on each popup edge, then choose the closest one.
+    // The base is constrained to remain on the edge so the wide end cannot
+    // float beyond a popup corner.
+    const edgeCandidates=[
+      {side:'top',x:Math.max(bx+baseHalf,Math.min(mx,bx+bw-baseHalf)),y:by},
+      {side:'bottom',x:Math.max(bx+baseHalf,Math.min(mx,bx+bw-baseHalf)),y:by+bh},
+      {side:'left',x:bx,y:Math.max(by+baseHalf,Math.min(my,by+bh-baseHalf))},
+      {side:'right',x:bx+bw,y:Math.max(by+baseHalf,Math.min(my,by+bh-baseHalf))}
+    ];
+    let edge=edgeCandidates[0];
+    let best=Infinity;
+    for(const c of edgeCandidates){
+      const d=Math.hypot(mx-c.x,my-c.y);
+      if(d<best){best=d;edge=c;}
+    }
+
+    const vx=mx-edge.x, vy=my-edge.y;
+    const len=Math.hypot(vx,vy)||1;
+    const ux=vx/len, uy=vy/len;
+    const tipX=mx-ux*tipDistance;
+    const tipY=my-uy*tipDistance;
     const px=-uy*baseHalf;
     const py=ux*baseHalf;
-    poly.setAttribute('points',`${edgeX+px},${edgeY+py} ${edgeX-px},${edgeY-py} ${tipX},${tipY}`);
+
+    poly.setAttribute('points',`${edge.x+px},${edge.y+py} ${edge.x-px},${edge.y-py} ${tipX},${tipY}`);
   }
 
   function clearStorePopupLeader(){
@@ -681,7 +686,6 @@
     const popup=marker?.getPopup();
     const box=popup?.getElement();
     if(!marker||!popup||!box||!popup.isOpen())return;
-    const side=['above','below','left','right'].find(x=>box.classList.contains(`store-popup-side-${x}`));
     drawStorePopupLeader(marker);
   }
   if(typeof map!=='undefined'&&map){ map.on('move zoomend',refreshOpenStorePopupLeader); }
