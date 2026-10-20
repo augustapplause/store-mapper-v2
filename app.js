@@ -444,6 +444,7 @@
       const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false)});
       marker.bindPopup(()=>storePopup(row),{maxWidth:350,autoPan:false,offset:L.point(0,-14)});
       marker.on('popupopen',()=>positionStorePopup(marker));
+      marker.on('popupclose',clearStorePopupLeader);
       const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
       if(profile) marker.bindTooltip(profile,{direction:'top',sticky:true,opacity:.95,offset:[0,-8]});
       marker.__row=row;
@@ -513,6 +514,7 @@
     const mapEl=el('map');
     if(!popup||!mapEl||!popup.getElement())return;
     popup.options.autoPan=false;
+    state.openPopupMarker=marker;
     const box=popup.getElement();
     const rect=box.getBoundingClientRect();
     const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
@@ -539,54 +541,101 @@
     box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
     box.classList.add(`store-popup-side-${chosen.name}`);
     popup.update();
-    drawStorePopupLeader(marker,chosen.name);
+    requestAnimationFrame(()=>drawStorePopupLeader(marker,chosen.name));
+  }
+
+  function ensureStorePopupLeaderLayer(){
+    if(!map)return null;
+    let pane=document.getElementById('storeLeaderPane');
+    if(!pane){
+      pane=map.createPane('storeLeaderPane');
+      pane.id='storeLeaderPane';
+      pane.style.zIndex='650';
+      pane.style.pointerEvents='none';
+    }
+    let svg=pane.querySelector('#storePopupLeaderLayer');
+    if(!svg){
+      svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.id='storePopupLeaderLayer';
+      svg.setAttribute('aria-hidden','true');
+      svg.classList.add('store-popup-leader-layer');
+      svg.innerHTML='<polygon></polygon>';
+      pane.appendChild(svg);
+    }
+    const size=map.getSize();
+    svg.setAttribute('width',String(size.x));
+    svg.setAttribute('height',String(size.y));
+    svg.setAttribute('viewBox',`0 0 ${size.x} ${size.y}`);
+    return svg;
   }
 
   function drawStorePopupLeader(marker,side){
     const popup=marker?.getPopup();
     const box=popup?.getElement();
-    if(!box||!marker)return;
-    let svg=box.querySelector('.store-popup-leader');
-    if(!svg){
-      svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-      svg.classList.add('store-popup-leader');
-      svg.setAttribute('aria-hidden','true');
-      svg.innerHTML='<polygon></polygon>';
-      box.prepend(svg);
-    }
-    const poly=svg.querySelector('polygon');
+    if(!box||!marker||!map)return;
+    const svg=ensureStorePopupLeaderLayer();
+    const poly=svg?.querySelector('polygon');
     if(!poly)return;
+
+    const mapEl=el('map');
+    const mapRect=mapEl.getBoundingClientRect();
     const boxRect=box.getBoundingClientRect();
     const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
-    const markerX=markerPoint.x-boxRect.left;
-    const markerY=markerPoint.y-boxRect.top;
+    const mx=markerPoint.x;
+    const my=markerPoint.y;
+    const bx=boxRect.left-mapRect.left;
+    const by=boxRect.top-mapRect.top;
     const w=boxRect.width;
     const h=boxRect.height;
-    const gapPx=4;
-    const baseHalf=8;
-    // Stop the leader just outside the 14px normal marker.
-    const markerRadius=7;
-    let tx=markerX,ty=markerY;
-    if(side==='above') ty-=markerRadius+gapPx;
-    if(side==='below') ty+=markerRadius+gapPx;
-    if(side==='left') tx-=markerRadius+gapPx;
-    if(side==='right') tx+=markerRadius+gapPx;
 
-    let ax=markerX,ay=markerY;
-    let p1x,p1y,p2x,p2y;
-    if(side==='above'||side==='below'){
-      ax=Math.max(baseHalf+2,Math.min(w-baseHalf-2,markerX));
-      ay=side==='above'?h:h;
-      p1x=ax-baseHalf;p1y=ay;
-      p2x=ax+baseHalf;p2y=ay;
+    const iconEl=marker.getElement?.();
+    const iconRect=iconEl?.getBoundingClientRect();
+    const markerRadius=Math.max(7,(iconRect?.width||14)/2,(iconRect?.height||14)/2);
+    const gapPx=4;
+    const tipDistance=markerRadius+gapPx;
+    const baseHalf=8;
+    let cx,cy;
+    if(side==='above'){
+      cx=Math.max(bx+baseHalf+2,Math.min(bx+w-baseHalf-2,mx));
+      cy=by+h;
+    }else if(side==='below'){
+      cx=Math.max(bx+baseHalf+2,Math.min(bx+w-baseHalf-2,mx));
+      cy=by;
+    }else if(side==='left'){
+      cx=bx+w;
+      cy=Math.max(by+baseHalf+2,Math.min(by+h-baseHalf-2,my));
     }else{
-      ay=Math.max(baseHalf+2,Math.min(h-baseHalf-2,markerY));
-      ax=side==='left'?w:0;
-      p1x=ax;p1y=ay-baseHalf;
-      p2x=ax;p2y=ay+baseHalf;
+      cx=bx;
+      cy=Math.max(by+baseHalf+2,Math.min(by+h-baseHalf-2,my));
     }
-    poly.setAttribute('points',`${p1x},${p1y} ${p2x},${p2y} ${tx},${ty}`);
+
+    // Aim the narrow tip at the marker centre, stopping just outside the marker.
+    const dx=mx-cx;
+    const dy=my-cy;
+    const len=Math.hypot(dx,dy)||1;
+    const ux=dx/len, uy=dy/len;
+    const tx=mx-ux*tipDistance;
+    const ty=my-uy*tipDistance;
+    // Build a triangle with its wide end on the popup edge and its narrow tip toward the marker.
+    const px=-uy*baseHalf;
+    const py=ux*baseHalf;
+    poly.setAttribute('points',`${cx+px},${cy+py} ${cx-px},${cy-py} ${tx},${ty}`);
   }
+
+  function clearStorePopupLeader(){
+    const svg=el('storePopupLeaderLayer');
+    svg?.querySelector('polygon')?.setAttribute('points','');
+    state.openPopupMarker=null;
+  }
+  function refreshOpenStorePopupLeader(){
+    const marker=state.openPopupMarker;
+    const popup=marker?.getPopup();
+    const box=popup?.getElement();
+    if(!marker||!popup||!box||!popup.isOpen())return;
+    const side=['above','below','left','right'].find(x=>box.classList.contains(`store-popup-side-${x}`));
+    if(side)drawStorePopupLeader(marker,side);
+  }
+  if(typeof map!=='undefined'&&map){ map.on('move zoomend',refreshOpenStorePopupLeader); }
 
   function storePopup(row){
     const c=state.columns;
