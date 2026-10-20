@@ -1,4 +1,4 @@
-/* Store Explorer - v0.97
+/* Store Explorer - v1.00
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -463,9 +463,13 @@
     const duration=2800;
     const phase=Math.round(performance.now()%duration);
     const delay=animating ? `--marker-animation-delay:-${phase}ms;` : '';
-    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${state.markerAnimation.fadeObject||'smiley'}" aria-hidden="true">${state.markerAnimation.fadeObject==='smiley'?'🙂':''}</span>` : '';
-    const staticObject = animating && state.markerAnimation.type==='static' ? '<span class="marker-static-object" aria-hidden="true"></span>' : '';
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="store-marker ${cls}" style="--store-marker-color:${state.markerColor}"></div>${fadeObject}${staticObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
+    const fadeKey=state.markerAnimation.fadeObject||'smiley';
+    const fadeContent={smiley:'🙂',starburst:'✦',lightning:'⚡',target:''}[fadeKey]||'';
+    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${fadeKey}" aria-hidden="true">${fadeContent}</span>` : '';
+    const staticActive = animating && state.markerAnimation.type==='static';
+    const staticObject = staticActive ? '<span class="marker-static-object" aria-hidden="true"></span>' : '';
+    const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}`;
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${state.markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
@@ -570,7 +574,7 @@
   // ---------- Store marker animation ----------
   const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v096';
   function normalizeMarkerAnimation(config){
-    let type=['ripple','fade'].includes(config?.type)?config.type:'ripple';
+    let type=['ripple','fade','static'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
     const typeMode=config?.typeMode==='text'?'text':'numeric';
     const fadeObject=['smiley','starburst','lightning','target'].includes(config?.fadeObject)?config.fadeObject:'smiley';
