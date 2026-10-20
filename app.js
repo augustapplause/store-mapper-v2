@@ -1175,18 +1175,28 @@
     if(state.filterDraft.length)return;
     state.filterDraft=[filterDraftBlank(),filterDraftBlank(),filterDraftBlank()];
   }
-  function detectFilterDraftType(draft){
-    const selectedColumn=String(draft.column??'');
+  function getFilterTextColumn(draft){
     const formula=String(draft.formula??'').trim();
-    if(selectedColumn && state.types[selectedColumn]==='text' && (!formula || formula===selectedColumn)) return 'text';
-    if(!formula) return state.types[selectedColumn]==='text'?'text':'numeric';
+    if(formula){
+      const tokens=exactFormulaTokens(formula);
+      if(tokens){
+        for(const t of tokens){
+          if(t.type==='header' && state.types[t.value]==='text') return t.value;
+        }
+      }
+    }
+    const selectedColumn=String(draft.column??'');
+    return selectedColumn && state.types[selectedColumn]==='text' ? selectedColumn : '';
+  }
+  function detectFilterDraftType(draft){
+    const formula=String(draft.formula??'').trim();
+    if(getFilterTextColumn(draft)) return 'text';
+    if(!formula) return state.types[String(draft.column??'')]==='text'?'text':'numeric';
     const tokens=exactFormulaTokens(formula);
     if(!tokens) return 'numeric';
     const headers=tokens.filter(t=>t.type==='header').map(t=>t.value);
-    const hasMath=tokens.some(t=>t.type==='op' && ['+','-','*','/','(',')'].includes(t.value));
-    if(!hasMath && headers.length===1 && headers[0]===selectedColumn && state.types[selectedColumn]==='text') return 'text';
     if(headers.length && headers.every(h=>state.types[h]==='numeric')) return 'numeric';
-    return 'text';
+    return 'numeric';
   }
   function formatDiagnosticNumber(v){return Number.isFinite(v)?Number(v).toLocaleString(undefined,{maximumFractionDigits:8}):'ERR';}
   function diagnosticRowLabel(row,index){
@@ -1277,20 +1287,33 @@
     box.querySelectorAll('.filter-column').forEach(sel=>sel.addEventListener('change',e=>{
       const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;if(!h)return;
       const current=String(f.formula||'').trim();
-      const currentType=detectFilterDraftType(f);
       const chosenType=state.types[h]==='text'?'text':'numeric';
-      if(!current || currentType==='text' || chosenType==='text'){
+      if(!current){
         f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';
       }else{
-        f.formula=`${current}${h}`;f.type='numeric';
+        f.formula=`${current}${h}`;
+        f.type=detectFilterDraftType(f);
+        if(f.type==='text'){f.value='';}
       }
-      e.target.value='';
+      renderFilterRows();
       const input=box.querySelector(`.filter-formula[data-index="${i}"]`);
-      if(input)input.value=f.formula;
+      if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}
       updateFilterDiagnostic();
     }));
     box.querySelectorAll('.filter-formula').forEach(inp=>inp.addEventListener('input',e=>{
-      const i=Number(e.target.dataset.index);state.filterDraft[i].formula=e.target.value;state.filterDraft[i].type=detectFilterDraftType(state.filterDraft[i]);updateFilterDiagnostic();
+      const i=Number(e.target.dataset.index);
+      const draft=state.filterDraft[i];
+      const before=detectFilterDraftType(draft);
+      draft.formula=e.target.value;
+      const after=detectFilterDraftType(draft);
+      draft.type=after;
+      if(before!==after){
+        const caret=e.target.selectionStart??draft.formula.length;
+        renderFilterRows();
+        const replacement=box.querySelector(`.filter-formula[data-index="${i}"]`);
+        if(replacement){replacement.focus();const pos=Math.min(caret,replacement.value.length);replacement.setSelectionRange(pos,pos);}
+      }
+      updateFilterDiagnostic();
     }));
     box.querySelectorAll('.filter-condition').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].operator=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-value-input').forEach(inp=>inp.addEventListener('input',e=>{state.filterDraft[Number(e.target.dataset.index)].value=e.target.value;updateFilterDiagnostic();}));
@@ -1302,9 +1325,10 @@
     const dialog=el('filterValueDialog'); if(!dialog)return;
     state.filterValuePickerIndex=index;
     const draft=state.filterDraft[index]||{};
-    const title=el('filterValueDialogTitle'); if(title)title.textContent=draft.column||'Select values';
+    const textColumn=getFilterTextColumn(draft);
+    const title=el('filterValueDialogTitle'); if(title)title.textContent=textColumn||'Select values';
     const list=el('filterValuePickerList'); if(!list)return;
-    const values=uniqueColumnValues(draft.column||'');
+    const values=uniqueColumnValues(textColumn||'');
     const selected=new Set(Array.isArray(draft.values)?draft.values:[]);
     list.innerHTML=values.map(v=>`<label><input type="checkbox" class="filter-picker-check" value="${esc(v)}" ${selected.has(v)?'checked':''}><span>${esc(v||'(blank)')}</span></label>`).join('');
     const all=el('filterPickerSelectAll'); if(all)all.textContent=values.length&&values.every(v=>selected.has(v))?'Clear all':'Select all';
@@ -1321,17 +1345,19 @@
     const formula=String(draft.formula??'').trim();
     if(!formula)return null;
     const type=detectFilterDraftType(draft);
-    if(type==='numeric'){
-      const tokens=exactFormulaTokens(formula);
-      if(!tokens)return `Filter ${index+1} has an invalid formula. Use exact workbook numeric column names, numbers, +, -, *, / and parentheses.`;
-      const headersInFormula=[...new Set(tokens.filter(t=>t.type==='header').map(t=>t.value))];
-      if(!headersInFormula.every(h=>state.types[h]==='numeric'))return `Filter ${index+1} can only use numeric workbook columns in a formula.`;
-      const value=toNumber(draft.value);if(value===null)return `Filter ${index+1} needs a numeric value.`;
-      return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value};
+    if(type==='text'){
+      const textColumn=getFilterTextColumn(draft);
+      const values=Array.isArray(draft.values)?draft.values:[];
+      if(!textColumn)return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value:toNumber(draft.value)};
+      if(!values.length)return `Filter ${index+1} needs at least one selected value.`;
+      return {connector:index===0?'AND':(draft.connector||'AND'),type:'text',column:textColumn,formula,operator:draft.operator||'=',values,wildcard:''};
     }
-    const values=Array.isArray(draft.values)?draft.values:[];
-    if(!values.length)return `Filter ${index+1} needs at least one selected value.`;
-    return {connector:index===0?'AND':(draft.connector||'AND'),type:'text',column:draft.column,formula,operator:draft.operator||'=',values,wildcard:''};
+    const value=toNumber(draft.value);
+    if(value===null)return `Filter ${index+1} needs a numeric value.`;
+    // Broken formulas are intentionally allowed through. The row evaluator returns null
+    // for an invalid expression, causing those rows to fail the numeric filter rather than
+    // closing/resetting the dialog.
+    return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value};
   }
   function rowMatchesFilter(filter,row){
     if(filter.type==='numeric'){

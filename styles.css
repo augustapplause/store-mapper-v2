@@ -414,11 +414,11 @@ button,
 .filter-dialog{width:min(1180px,96vw);max-height:calc(100vh - 16px);}
 .filter-dialog form{max-height:calc(100vh - 16px);}
 .filter-config-scroll{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 14px 12px;}
-.filter-dialog{font-size:11px}.filter-table-head{display:grid;grid-template-columns:1fr 1.55fr .46fr 1.72fr .28fr .38fr;gap:8px;padding:3px 2px 7px;color:var(--muted);font-size:14px;font-weight:600;line-height:1.15}.filter-formula-hint{font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}
+.filter-dialog{font-size:12px}.filter-table-head{display:grid;grid-template-columns:1fr 1.55fr .46fr 1.72fr .28fr .38fr;gap:8px;padding:3px 2px 7px;color:var(--muted);font-size:14px;font-weight:600;line-height:1.15}.filter-formula-hint{font-size:12px;font-weight:500;color:var(--muted);white-space:nowrap}
 .filter-rows{display:flex;flex-direction:column;gap:8px;}
 .filter-line{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;}
 .filter-line-main{display:grid;grid-template-columns:1fr 1.55fr .46fr 1.72fr .28fr .38fr;gap:8px;align-items:stretch;}
-.filter-line-main select,.filter-line-main input{min-width:0;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 9px;background:#fff;color:var(--text);font-size:11px;}
+.filter-line-main select,.filter-line-main input{min-width:0;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 9px;background:#fff;color:var(--text);font-size:12px;}
 .filter-value-cell{min-width:0;display:flex;}
 .filter-value-cell>input{width:100%;}
 .filter-connector-spacer{display:none;}
@@ -461,12 +461,12 @@ button,
 
 /* v0.83 detailed filter diagnostics + modal text value picker */
 .filter-diagnostic{white-space:pre-wrap;overflow:auto;max-height:46vh;border:1px solid var(--line);border-radius:7px;background:#f8fbfd;color:var(--text);padding:9px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;line-height:1.35;}
-.filter-value-select-button{width:100%;min-height:38px;text-align:left;border:1px solid var(--line);border-radius:6px;padding:8px 9px;background:#fff;color:var(--text);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.filter-value-select-button{width:100%;min-height:38px;text-align:left;border:1px solid var(--line);border-radius:6px;padding:8px 9px;background:#fff;color:var(--text);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .filter-value-dialog{width:min(620px,92vw);max-height:min(720px,88vh);padding:0;border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px #0005;}
 .filter-value-dialog form{display:flex;flex-direction:column;max-height:inherit;overflow:hidden;}
 .filter-picker-toolbar{padding:9px 14px;border-bottom:1px solid var(--line);flex:0 0 auto;}
 .filter-picker-list{overflow:auto;min-height:0;max-height:54vh;border:1px solid var(--line);margin:10px 14px;padding:7px;background:#fff;white-space:nowrap;}
-.filter-picker-list label{display:flex;align-items:center;gap:7px;width:max-content;min-width:100%;padding:4px 2px;font-size:11px;}
+.filter-picker-list label{display:flex;align-items:center;gap:7px;width:max-content;min-width:100%;padding:4px 2px;font-size:12px;}
 .filter-picker-list span{white-space:nowrap;}
 .filter-picker-list input{width:auto;}
 
@@ -561,3 +561,11 @@ button,
 .store-popup-card td{padding:3px 0;border-bottom:1px solid #eee;}
 .store-popup-card td:last-child{text-align:right;font-weight:700;padding-left:8px;}
 @media (max-width:600px){.store-popup-card{width:min(350px,calc(100% - 24px));}}
+
+
+/* v1.19: filter readability and automatic text-value picker. */
+.filter-dialog{font-size:12px;}
+.filter-table-head>div{font-size:14px;font-weight:600;}
+.filter-formula-hint{font-size:12px;font-weight:500;}
+.filter-line-main select,.filter-line-main input,.filter-value-select-button{font-size:12px;}
+.filter-picker-list label{font-size:12px;}
