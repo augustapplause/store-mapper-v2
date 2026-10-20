@@ -1,4 +1,4 @@
-/* Store Explorer - v1.00
+/* Store Explorer - v1.01
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -442,7 +442,8 @@
       if(!rowPassesFilters(row))continue;
       const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
       const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false)});
-      marker.bindPopup(()=>storePopup(row),{maxWidth:350});
+      marker.bindPopup(()=>storePopup(row),{maxWidth:350,autoPan:false,offset:L.point(0,-14)});
+      marker.on('popupopen',()=>positionStorePopup(marker));
       const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
       if(profile) marker.bindTooltip(profile,{direction:'top',sticky:true,opacity:.95,offset:[0,-8]});
       marker.__row=row;
@@ -464,10 +465,10 @@
     const phase=Math.round(performance.now()%duration);
     const delay=animating ? `--marker-animation-delay:-${phase}ms;` : '';
     const fadeKey=state.markerAnimation.fadeObject||'smiley';
-    const fadeContent={smiley:'🙂',starburst:'✦',lightning:'⚡',target:''}[fadeKey]||'';
+    const fadeContent={smiley:'🙂',starburst:'✦',lightning:'⚡'}[fadeKey]||'';
     const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${fadeKey}" aria-hidden="true">${fadeContent}</span>` : '';
     const staticActive = animating && state.markerAnimation.type==='static';
-    const staticObject = staticActive ? '<span class="marker-static-object" aria-hidden="true"></span>' : '';
+    const staticObject = staticActive ? `<span class="marker-static-object" aria-hidden="true"><svg class="marker-static-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="15" r="7" fill="#fff" stroke="#c90000" stroke-width="2"/><circle cx="11" cy="15" r="4.3" fill="#c90000" stroke="#fff" stroke-width="1.5"/><circle cx="11" cy="15" r="2" fill="#c90000"/><path d="M24 4 L12.2 15.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/><path d="M24 4 L20.2 4.7 L21.2 8.2 Z" fill="#111"/></svg></span>` : '';
     const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}`;
     return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${state.markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
@@ -507,6 +508,29 @@
     }
     return String(row[h]??'')===String(b.value??'');
   }
+  function positionStorePopup(marker){
+    const popup=marker?.getPopup();
+    const mapEl=el('map');
+    if(!popup||!mapEl||!popup.getElement())return;
+    popup.options.autoPan=false;
+    const box=popup.getElement();
+    const rect=box.getBoundingClientRect();
+    const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
+    const p=map.latLngToContainerPoint(marker.getLatLng());
+    const size=map.getSize();
+    const margin=12, gap=14;
+    const candidates=[
+      {name:'above',offset:L.point(0,-gap),left:p.x-w/2,top:p.y-h-gap,width:w,height:h},
+      {name:'below',offset:L.point(0,h+gap),left:p.x-w/2,top:p.y+gap,width:w,height:h},
+      {name:'left',offset:L.point(-(w/2+gap),h/2),left:p.x-w-gap,top:p.y-h/2,width:w,height:h},
+      {name:'right',offset:L.point(w/2+gap,h/2),left:p.x+gap,top:p.y-h/2,width:w,height:h}
+    ];
+    const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
+    const chosen=candidates.find(fits)||candidates.map(c=>({c,overflow:Math.max(margin-c.left,0)+Math.max(margin-c.top,0)+Math.max(c.left+c.width-(size.x-margin),0)+Math.max(c.top+c.height-(size.y-margin),0)})).sort((a,b)=>a.overflow-b.overflow)[0].c;
+    popup.options.offset=chosen.offset;
+    popup.update();
+  }
+
   function storePopup(row){
     const c=state.columns;
     const fields=[c.storeId,c.location,...state.subjects].filter(Boolean);
@@ -537,7 +561,7 @@
   function getNearbyMarkers(centerMarker,thresholdPx){
     const center=map.latLngToLayerPoint(centerMarker.getLatLng());
     return state.markers.filter(m=>{
-      if(!rowPassesFilters(m.__row)) return false;
+      if(!filterRowPasses(m.__row)) return false;
       const p=map.latLngToLayerPoint(m.getLatLng());
       return p.distanceTo(center)<=thresholdPx;
     });
@@ -577,7 +601,7 @@
     let type=['ripple','fade','static'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
     const typeMode=config?.typeMode==='text'?'text':'numeric';
-    const fadeObject=['smiley','starburst','lightning','target'].includes(config?.fadeObject)?config.fadeObject:'smiley';
+    const fadeObject=['smiley','starburst','lightning'].includes(config?.fadeObject)?config.fadeObject:'smiley';
     const operator=['<=','=','>=','<','>'].includes(config?.operator)?config.operator:'=';
     return {
       enabled:!!config?.enabled, type, fadeObject, column:String(config?.column??''), formula:String(config?.formula??''),
