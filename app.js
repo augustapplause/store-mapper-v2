@@ -531,8 +531,9 @@
     const markerEl=marker.getElement?.()?.querySelector('.store-marker');
     const markerRect=markerEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
-    const gap=3;
-    const clearance=markerRadius+gap;
+    // Separate popup breathing room from the leader-tip gap.
+    const popupClearance=12;
+    const clearance=markerRadius+popupClearance;
     const maxLeft=Math.max(margin,size.x-margin-w);
     const maxTop=Math.max(margin,size.y-margin-h);
     const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
@@ -604,11 +605,12 @@
     if(!pane){
       pane=map.createPane('storeLeaderPane');
       pane.id='storeLeaderPane';
-      // Just below Leaflet's popup pane, but above the map/marker panes, so the
-      // connector visually joins the popup without being clipped by map tiles.
-      pane.style.zIndex='690';
-      pane.style.pointerEvents='none';
     }
+    // Explicit pane geometry and stacking: marker < leader < popup.
+    pane.style.position='absolute';
+    pane.style.inset='0';
+    pane.style.zIndex='680';
+    pane.style.pointerEvents='none';
     let svg=pane.querySelector('#storePopupLeaderLayer');
     if(!svg){
       svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -618,6 +620,12 @@
       svg.innerHTML='<polygon></polygon>';
       pane.appendChild(svg);
     }
+    svg.style.position='absolute';
+    svg.style.inset='0';
+    svg.style.width='100%';
+    svg.style.height='100%';
+    svg.style.pointerEvents='none';
+    svg.style.zIndex='0';
     const size=map.getSize();
     svg.setAttribute('width',String(size.x));
     svg.setAttribute('height',String(size.y));

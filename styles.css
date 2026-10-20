@@ -551,9 +551,11 @@ button,
 
 /* Legacy Leaflet popup-tip leader rules removed in v1.11. The custom SVG leader below is the only leader implementation. */
 /* v1.06: custom point-to-point popup leader in a dedicated pane below popups. */
-.store-popup-leader-layer{position:absolute;left:0;top:0;display:block;overflow:visible;pointer-events:none;z-index:0;}
+.store-popup-leader-layer{position:absolute;inset:0;display:block;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:0;}
 .store-popup-leader-layer polygon{fill:#fff;stroke:#c0cbd3;stroke-width:1.2;vector-effect:non-scaling-stroke;}
 .leaflet-popup-content-wrapper{position:relative;z-index:2;}
 
 /* v1.09: true nearest-edge leader connector */
 .leaflet-popup .leaflet-popup-tip-container{display:none!important;}
+
+/* v1.12: leader layer uses explicit map-container geometry and separate popup clearance. */
