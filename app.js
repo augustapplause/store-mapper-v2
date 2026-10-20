@@ -430,7 +430,6 @@
       const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false)});
       marker.bindPopup(()=>storePopup(row),{maxWidth:350,autoPan:false,offset:L.point(0,-14)});
       marker.on('popupopen',()=>positionStorePopup(marker));
-      marker.on('popupclose',clearStorePopupLeader);
       const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
       if(profile) marker.bindTooltip(profile,{direction:'top',sticky:true,opacity:.95,offset:[0,-8]});
       marker.__row=row;
@@ -499,190 +498,70 @@
     const popup=marker?.getPopup();
     const mapEl=el('map');
     if(!popup||!mapEl||!popup.getElement())return;
-    popup.options.autoPan=false;
     state.openPopupMarker=marker;
-    const box=popup.getElement();
+    popup.options.autoPan=false;
 
-    // Establish a clean baseline at zero popup offset, then measure the
-    // actually rendered popup. All candidate placement is derived from that
-    // real rectangle so the popup and leader geometry stay in the same frame.
-    popup.options.offset=L.point(0,0);
-    popup.update();
-    const mapRect=mapEl.getBoundingClientRect();
+    const box=popup.getElement();
+    const mapSize=map.getSize();
     const baseRect=box.getBoundingClientRect();
-    const w=baseRect.width||350, h=baseRect.height||180;
-    const p=map.latLngToContainerPoint(marker.getLatLng());
-    const size=map.getSize();
-    const margin=12;
+    const mapRect=mapEl.getBoundingClientRect();
+    const w=baseRect.width||350;
+    const h=baseRect.height||180;
+    const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
     const markerEl=marker.getElement?.()?.querySelector('.store-marker');
     const markerRect=markerEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
-    // Separate popup breathing room from the leader-tip gap.
+
+    // Popup clearance and the native Leaflet pointer are separate concerns.
+    // The popup must stay comfortably away from the marker while Leaflet keeps
+    // ownership of the popup anchor and native tip.
     const popupClearance=12;
     const clearance=markerRadius+popupClearance;
-    const maxLeft=Math.max(margin,size.x-margin-w);
-    const maxTop=Math.max(margin,size.y-margin-h);
+    const margin=12;
     const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+    const maxLeft=Math.max(margin,mapSize.x-margin-w);
+    const maxTop=Math.max(margin,mapSize.y-margin-h);
 
-    // Find the closest fully-visible rectangle that does not intersect the
-    // selected marker. Candidates are sampled around the marker so the popup
-    // can settle anywhere around it instead of being forced to a cardinal side.
+    // Generate a dense ring of candidate popup rectangles around the marker.
+    // A candidate is valid when the popup is fully visible and does not cover
+    // the selected marker. Prefer the closest valid rectangle.
     const candidates=[];
-    for(let i=0;i<144;i++){
-      const angle=(Math.PI*2*i)/144;
+    for(let i=0;i<360;i++){
+      const angle=(Math.PI*2*i)/360;
       const ux=Math.cos(angle), uy=Math.sin(angle);
-      let desiredLeft;
-      let desiredTop;
-      if(ux>=0) desiredLeft=p.x+ux*clearance; else desiredLeft=p.x+ux*clearance-w;
-      if(uy>=0) desiredTop=p.y+uy*clearance; else desiredTop=p.y+uy*clearance-h;
+      const desiredLeft=ux>=0 ? markerPoint.x+ux*clearance : markerPoint.x+ux*clearance-w;
+      const desiredTop=uy>=0 ? markerPoint.y+uy*clearance : markerPoint.y+uy*clearance-h;
       const left=clamp(desiredLeft,margin,maxLeft);
       const top=clamp(desiredTop,margin,maxTop);
-      const rect={left,top,right:left+w,bottom:top+h};
-      const overlapX=Math.max(0,Math.min(rect.right,p.x+markerRadius)-Math.max(rect.left,p.x-markerRadius));
-      const overlapY=Math.max(0,Math.min(rect.bottom,p.y+markerRadius)-Math.max(rect.top,p.y-markerRadius));
+      const right=left+w, bottom=top+h;
+      const overlapX=Math.max(0,Math.min(right,markerPoint.x+markerRadius)-Math.max(left,markerPoint.x-markerRadius));
+      const overlapY=Math.max(0,Math.min(bottom,markerPoint.y+markerRadius)-Math.max(top,markerPoint.y-markerRadius));
       if(overlapX>0&&overlapY>0)continue;
-      const edgeX=clamp(p.x,left,rect.right);
-      const edgeY=clamp(p.y,top,rect.bottom);
-      const distance=Math.hypot(p.x-edgeX,p.y-edgeY);
-      candidates.push({left,top,width:w,height:h,distance,angle});
+      const edgeX=clamp(markerPoint.x,left,right);
+      const edgeY=clamp(markerPoint.y,top,bottom);
+      const distance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
+      candidates.push({left,top,distance});
     }
 
-    // Add deterministic edge-adjacent candidates in case sampling misses a
-    // narrow valid slot near the viewport boundary.
-    const cardinal=[
-      {left:p.x-w/2,top:p.y-clearance-h},
-      {left:p.x-w/2,top:p.y+clearance},
-      {left:p.x-clearance-w,top:p.y-h/2},
-      {left:p.x+clearance,top:p.y-h/2}
-    ];
-    for(const c0 of cardinal){
-      const left=clamp(c0.left,margin,maxLeft), top=clamp(c0.top,margin,maxTop);
-      const rect={left,top,right:left+w,bottom:top+h};
-      const overlapX=Math.max(0,Math.min(rect.right,p.x+markerRadius)-Math.max(rect.left,p.x-markerRadius));
-      const overlapY=Math.max(0,Math.min(rect.bottom,p.y+markerRadius)-Math.max(rect.top,p.y-markerRadius));
-      if(overlapX>0&&overlapY>0)continue;
-      const edgeX=clamp(p.x,left,rect.right), edgeY=clamp(p.y,top,rect.bottom);
-      candidates.push({left,top,width:w,height:h,distance:Math.hypot(p.x-edgeX,p.y-edgeY),angle:0});
-    }
+    const chosen=candidates.sort((a,b)=>a.distance-b.distance)[0] || {
+      left:clamp(markerPoint.x-w/2,margin,maxLeft),
+      top:clamp(markerPoint.y-h/2,margin,maxTop)
+    };
 
-    let chosen=candidates.sort((a,b)=>a.distance-b.distance)[0];
-    if(!chosen){
-      // Last-resort placement: remain inside the viewport and choose the
-      // least-overlapping candidate; never auto-pan the map.
-      chosen={left:clamp(p.x-w/2,margin,maxLeft),top:clamp(p.y-h/2,margin,maxTop),width:w,height:h,distance:0};
-    }
-
-    // Move the actual Leaflet popup from its measured zero-offset position to
-    // the chosen top-left. This avoids guessing how Leaflet's popup anchor is
-    // positioned.
+    // Leaflet owns the popup anchor/tip. Convert our desired visual position
+    // into the popup offset that Leaflet uses to render the entire popup as one
+    // unit. This replaces the old CSS transform approach, which could move the
+    // popup independently of the native Leaflet pointer.
     const baseLeft=baseRect.left-mapRect.left;
     const baseTop=baseRect.top-mapRect.top;
-    const dx=chosen.left-baseLeft;
-    const dy=chosen.top-baseTop;
-    popup.options.offset=L.point(dx,dy);
+    const deltaX=chosen.left-baseLeft;
+    const deltaY=chosen.top-baseTop;
+    const currentOffset=popup.options.offset || L.point(0,0);
+    popup.options.offset=L.point(currentOffset.x+deltaX,currentOffset.y+deltaY);
+
+    // Force Leaflet to recompute its own popup position and native pointer.
     popup.update();
-
-    requestAnimationFrame(()=>drawStorePopupLeader(marker));
   }
-
-  function ensureStorePopupLeaderLayer(){
-    if(!map)return null;
-    let pane=document.getElementById('storeLeaderPane');
-    if(!pane){
-      pane=map.createPane('storeLeaderPane');
-      pane.id='storeLeaderPane';
-    }
-    // Explicit pane geometry and stacking: marker < leader < popup.
-    pane.style.position='absolute';
-    pane.style.inset='0';
-    pane.style.zIndex='680';
-    pane.style.pointerEvents='none';
-    let svg=pane.querySelector('#storePopupLeaderLayer');
-    if(!svg){
-      svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-      svg.id='storePopupLeaderLayer';
-      svg.setAttribute('aria-hidden','true');
-      svg.classList.add('store-popup-leader-layer');
-      svg.innerHTML='<polygon></polygon>';
-      pane.appendChild(svg);
-    }
-    svg.style.position='absolute';
-    svg.style.inset='0';
-    svg.style.width='100%';
-    svg.style.height='100%';
-    svg.style.pointerEvents='none';
-    svg.style.zIndex='0';
-    const size=map.getSize();
-    svg.setAttribute('width',String(size.x));
-    svg.setAttribute('height',String(size.y));
-    svg.setAttribute('viewBox',`0 0 ${size.x} ${size.y}`);
-    return svg;
-  }
-
-  function drawStorePopupLeader(marker){
-    const popup=marker?.getPopup();
-    const box=popup?.getElement();
-    if(!box||!marker||!map||!popup.isOpen())return;
-    const svg=ensureStorePopupLeaderLayer();
-    const poly=svg?.querySelector('polygon');
-    if(!poly)return;
-
-    const mapEl=el('map');
-    const mapRect=mapEl.getBoundingClientRect();
-    const boxRect=box.getBoundingClientRect();
-    const mp=map.latLngToContainerPoint(marker.getLatLng());
-    const mx=mp.x, my=mp.y;
-    const bx=boxRect.left-mapRect.left, by=boxRect.top-mapRect.top;
-    const bw=boxRect.width, bh=boxRect.height;
-
-    const iconEl=marker.getElement?.();
-    const coreEl=iconEl?.querySelector('.store-marker');
-    const iconRect=coreEl?.getBoundingClientRect() || iconEl?.getBoundingClientRect();
-    const markerRadius=Math.max(7,(iconRect?.width||14)/2,(iconRect?.height||14)/2);
-    const gap=3;
-    const tipDistance=markerRadius+gap;
-    const baseHalf=5;
-
-    // Find the nearest point on each popup edge, then choose the closest one.
-    // The base is constrained to remain on the edge so the wide end cannot
-    // float beyond a popup corner.
-    const edgeCandidates=[
-      {side:'top',x:Math.max(bx+baseHalf,Math.min(mx,bx+bw-baseHalf)),y:by},
-      {side:'bottom',x:Math.max(bx+baseHalf,Math.min(mx,bx+bw-baseHalf)),y:by+bh},
-      {side:'left',x:bx,y:Math.max(by+baseHalf,Math.min(my,by+bh-baseHalf))},
-      {side:'right',x:bx+bw,y:Math.max(by+baseHalf,Math.min(my,by+bh-baseHalf))}
-    ];
-    let edge=edgeCandidates[0];
-    let best=Infinity;
-    for(const c of edgeCandidates){
-      const d=Math.hypot(mx-c.x,my-c.y);
-      if(d<best){best=d;edge=c;}
-    }
-
-    const vx=mx-edge.x, vy=my-edge.y;
-    const len=Math.hypot(vx,vy)||1;
-    const ux=vx/len, uy=vy/len;
-    const tipX=mx-ux*tipDistance;
-    const tipY=my-uy*tipDistance;
-    const px=-uy*baseHalf;
-    const py=ux*baseHalf;
-
-    poly.setAttribute('points',`${edge.x+px},${edge.y+py} ${edge.x-px},${edge.y-py} ${tipX},${tipY}`);
-  }
-
-  function clearStorePopupLeader(){
-    const svg=el('storePopupLeaderLayer');
-    svg?.querySelector('polygon')?.setAttribute('points','');
-    state.openPopupMarker=null;
-  }
-  function refreshOpenStorePopupLeader(){
-    const marker=state.openPopupMarker;
-    const popup=marker?.getPopup();
-    const box=popup?.getElement();
-    if(!marker||!popup||!box||!popup.isOpen())return;
-    drawStorePopupLeader(marker);
-  }
-  if(typeof map!=='undefined'&&map){ map.on('move zoomend',refreshOpenStorePopupLeader); }
 
   function storePopup(row){
     const c=state.columns;
