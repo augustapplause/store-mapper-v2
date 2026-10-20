@@ -45,7 +45,7 @@
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], radiusLayer: null, selectionOutline: null, spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
+    markerCluster: null, markers: [], radiusLayer: null, spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
     radiusPickMode: false, csdRequestKey: null, moveTimer:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
@@ -268,7 +268,6 @@
         layer.bindTooltip(`${p.CSDNAME||'Municipality'}${p.CSDTYPE?` (${p.CSDTYPE})`:''}`,{sticky:true});
         layer.on('mouseover',()=>layer.setStyle(csdHoverStyle));
         layer.on('mouseout',()=>state.csdLayer?.resetStyle(layer));
-        layer.on('click',e=>{if(state.radiusPickMode)return;L.DomEvent.stopPropagation(e);selectCity(feature,layer);});
       }}).addTo(map);
       state.csdLayer.bringToFront();
       // Header lookup is independent of visible CSD layer.
@@ -286,7 +285,7 @@
   }
 
   function selectProvince(feature,layer){
-    clearRadius();clearOutline();clearDaOverlay();state.censusRequestId++;
+    clearRadius();clearDaOverlay();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();layer.setStyle(provinceSelectedStyle);
     const name=feature.properties.PRNAME||feature.properties.PRENAME||'Province';
     const code=provinceCodeFromFeature(feature);
@@ -296,18 +295,6 @@
     el('censusNote').textContent='Province selected. Search a city/address for the 10 km DA census catchment.';
     fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
     updateSelection();
-  }
-
-  function selectCity(feature,layer){
-    clearRadius();clearOutline();clearDaOverlay();state.censusRequestId++;
-    const p=feature.properties||{};const name=p.CSDNAME||'Municipality';const code=CONFIG.prCodeByUid[String(p.PRUID||'')]||null;
-    state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
-    state.initialNationalView=false;state.mapReadyForViewport=true;
-    state.selectionOutline=L.geoJSON(feature,{style:{color:'#005a91',weight:4,fillColor:'#40a3d8',fillOpacity:.10}}).addTo(map);
-    fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
-    updateSelection();
-    const center=layer.getBounds().getCenter();
-    if(code) loadCityCensusForGeo(center.lat,center.lng,name,code);
   }
 
   async function geocodeAndRadius(query){
@@ -324,7 +311,7 @@
       const immediateCity=c.attributes?.City || c.address?.split(',')[0] || query.trim();
       void immediateCity; void provinceCode;
       setVisualRadius(lat,lng,km,c.address||query);
-      clearOutline();clearDaOverlay();state.censusRequestId++;
+      clearDaOverlay();state.censusRequestId++;
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — ${km} km view`,feature:null,provinceCode,radius:{lat,lng,km}};
       state.initialNationalView=false;state.mapReadyForViewport=true;
@@ -346,7 +333,7 @@
   }
 
   function setRadiusSelection(lat,lng,km,name='Radius reference') {
-    clearOutline();clearDaOverlay();state.censusRequestId++;
+    clearDaOverlay();state.censusRequestId++;
     state.storeJumpTarget=null;
     setVisualRadius(lat,lng,km);
     state.selection={type:'viewport',name:`${name} — ${km} km view`,feature:null,provinceCode:null,radius:{lat,lng,km}};
@@ -359,7 +346,7 @@
   }
 
   function resetCanada(){
-    clearRadius();clearOutline();clearDaOverlay();state.censusRequestId++;
+    clearRadius();clearDaOverlay();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
@@ -368,7 +355,6 @@
   }
 
   function clearRadius(){if(state.radiusLayer){map.removeLayer(state.radiusLayer);state.radiusLayer=null;}}
-  function clearOutline(){if(state.selectionOutline){map.removeLayer(state.selectionOutline);state.selectionOutline=null;}}
   function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
   function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
   function setMapLoading(on){el('mapLoading').classList.toggle('hidden',!on);}
@@ -1545,7 +1531,7 @@
     const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
     // Header resolves from the current map position via the local CSD lookup.
     const km=clamp(Number(el('radiusKm').value)||10,1,200); el('radiusKm').value=km;
-    clearRadius(); clearOutline(); clearDaOverlay(); state.censusRequestId++;
+    clearRadius(); clearDaOverlay(); state.censusRequestId++;
     state.storeJumpTarget=target;
     setVisualRadius(lat,lng,km);
     state.selection={type:'viewport',name:`Store ${query} — ${km} km view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:{lat,lng,km}};
