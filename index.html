@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v0.97</title>
+  <title>Store Explorer v0.98</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css" />
 </head>
@@ -11,7 +11,7 @@
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v0.97</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v0.98</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context</div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -211,15 +211,6 @@
         <div id="tickerMetricList" class="ticker-metric-list"></div>
       </div>
       <div class="dialog-footer ticker-dialog-footer"><button id="tickerAddMetric" type="button" class="secondary">Add ticker</button><label class="ticker-speed-control" for="tickerSpeed"><span>Scroll speed</span><input id="tickerSpeed" type="range" min="50" max="120" step="5" value="70"><strong id="tickerSpeedValue">35</strong></label><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="tickerReset" type="button" class="secondary">Reset defaults</button><button id="tickerApply" value="default">Save ticker</button></div></div>
-    </form>
-  </dialog>
-
-  <dialog id="markerAnimationValueDialog" class="filter-value-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="filter-picker-toolbar"><button id="markerAnimationSelectAll" type="button" class="secondary">Select all</button></div>
-      <div id="markerAnimationValuePickerList" class="filter-picker-list"></div>
-      <div class="dialog-footer"><button id="markerAnimationValueCancel" type="button" class="secondary">Cancel</button><button id="markerAnimationValueApply" type="button">Apply</button></div>
     </form>
   </dialog>
 

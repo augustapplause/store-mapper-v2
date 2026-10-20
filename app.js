@@ -483,7 +483,7 @@
   }
   function markerVisualKey(row,inSelection,dist1=null,dist2=null){
     const focusActive=markerFocusActive(row,dist1,dist2);
-    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${state.markerColor}`;
+    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${markerRowAnimationPasses(row)&&state.markerAnimation.type==='fade'?(state.markerAnimation.fadeObject||'smiley'):'none'}|${state.markerColor}`;
   }
   function rowMatchesSelectedGroup(row){
     if(state.selectedGroupKey===null||!state.groups.length)return false;
@@ -567,7 +567,7 @@
     state.spiderfyOriginalPositions.clear();
   }
   // ---------- Store marker animation ----------
-  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v096';
+  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v098';
   function normalizeMarkerAnimation(config){
     let type=['ripple','fade'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
