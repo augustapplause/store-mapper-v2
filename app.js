@@ -463,8 +463,9 @@
     const duration=2800;
     const phase=Math.round(performance.now()%duration);
     const delay=animating ? `--marker-animation-delay:-${phase}ms;` : '';
-    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${state.markerAnimation.fadeObject||'smiley'}" aria-hidden="true"></span>` : '';
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="store-marker ${cls}" style="--store-marker-color:${state.markerColor}"></div>${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
+    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${state.markerAnimation.fadeObject||'smiley'}" aria-hidden="true">${state.markerAnimation.fadeObject==='smiley'?'🙂':''}</span>` : '';
+    const staticObject = animating && state.markerAnimation.type==='static' ? '<span class="marker-static-object" aria-hidden="true"></span>' : '';
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="store-marker ${cls}" style="--store-marker-color:${state.markerColor}"></div>${fadeObject}${staticObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
@@ -483,7 +484,7 @@
   }
   function markerVisualKey(row,inSelection,dist1=null,dist2=null){
     const focusActive=markerFocusActive(row,dist1,dist2);
-    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${markerRowAnimationPasses(row)&&state.markerAnimation.type==='fade'?(state.markerAnimation.fadeObject||'smiley'):'none'}|${state.markerColor}`;
+    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${state.markerAnimation.fadeObject||''}|${state.markerColor}`;
   }
   function rowMatchesSelectedGroup(row){
     if(state.selectedGroupKey===null||!state.groups.length)return false;
@@ -567,7 +568,7 @@
     state.spiderfyOriginalPositions.clear();
   }
   // ---------- Store marker animation ----------
-  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v098';
+  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v096';
   function normalizeMarkerAnimation(config){
     let type=['ripple','fade'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
@@ -1383,7 +1384,7 @@
     el('markerAnimationType').value=a.type;
     const fadeRow=el('markerFadeObjectRow'); if(fadeRow) fadeRow.style.display=a.type==='fade'?'flex':'none';
     const fadeObject=el('markerFadeObject'); if(fadeObject) fadeObject.value=a.fadeObject||'smiley';
-    const typeSummary=el('markerAnimationTypeSummary'); if(typeSummary) typeSummary.textContent=a.type==='fade'?'Fade':'Ripple';
+    const typeSummary=el('markerAnimationTypeSummary'); if(typeSummary) typeSummary.textContent=a.type==='fade'?'Fade':(a.type==='static'?'Static':'Ripple');
     el('markerAnimationFormula').value=a.formula||'';
     el('markerAnimationCondition').value=a.operator||'=';
     el('markerAnimationStatus').textContent=markerAnimationConditionSummary();
@@ -1401,7 +1402,7 @@
   function refreshMarkerAnimationUI(){rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();}
   function wireMarkerAnimationControls(){
     el('markerAnimationEnabled').addEventListener('change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
-    el('markerAnimationType').addEventListener('change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
+    el('markerAnimationType').addEventListener('change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
     el('markerFadeObject').addEventListener('change',e=>{state.markerAnimation.fadeObject=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
     el('markerAnimationColumn').addEventListener('change',e=>{const h=e.target.value;state.markerAnimation.column=h;state.markerAnimation.formula=h;state.markerAnimation.value='';state.markerAnimation.values=[];state.markerAnimation.typeMode=state.types[h]==='text'?'text':'numeric';saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
     el('markerAnimationFormula').addEventListener('input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
