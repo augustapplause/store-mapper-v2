@@ -557,3 +557,13 @@ button,
 .leaflet-popup.store-popup-side-left .leaflet-popup-tip{transform:rotate(45deg);}
 .leaflet-popup.store-popup-side-right .leaflet-popup-tip-container{top:50%;left:-20px;margin-top:-10px;transform:rotate(-90deg);}
 .leaflet-popup.store-popup-side-right .leaflet-popup-tip{transform:rotate(45deg);}
+
+/* v1.03: popup leader is a directional triangle whose point always aims at the marker. */
+.leaflet-popup.store-popup-side-above .leaflet-popup-tip-container{top:auto;bottom:-14px;left:50%;margin-left:-7px;transform:none;width:14px;height:14px;}
+.leaflet-popup.store-popup-side-above .leaflet-popup-tip{width:14px;height:14px;margin:0;background:#fff;border:1px solid #cfd8df;border-top:0;border-left:0;box-shadow:none;transform:none;clip-path:polygon(0 0,100% 0,50% 100%);}
+.leaflet-popup.store-popup-side-below .leaflet-popup-tip-container{top:-14px;bottom:auto;left:50%;margin-left:-7px;transform:none;width:14px;height:14px;}
+.leaflet-popup.store-popup-side-below .leaflet-popup-tip{width:14px;height:14px;margin:0;background:#fff;border:1px solid #cfd8df;border-bottom:0;border-right:0;box-shadow:none;transform:none;clip-path:polygon(50% 0,100% 100%,0 100%);}
+.leaflet-popup.store-popup-side-left .leaflet-popup-tip-container{top:50%;left:auto;right:-14px;margin-top:-7px;margin-left:0;transform:none;width:14px;height:14px;}
+.leaflet-popup.store-popup-side-left .leaflet-popup-tip{width:14px;height:14px;margin:0;background:#fff;border:1px solid #cfd8df;border-left:0;border-bottom:0;box-shadow:none;transform:none;clip-path:polygon(0 0,0 100%,100% 50%);}
+.leaflet-popup.store-popup-side-right .leaflet-popup-tip-container{top:50%;left:-14px;right:auto;margin-top:-7px;margin-left:0;transform:none;width:14px;height:14px;}
+.leaflet-popup.store-popup-side-right .leaflet-popup-tip{width:14px;height:14px;margin:0;background:#fff;border:1px solid #cfd8df;border-right:0;border-bottom:0;box-shadow:none;transform:none;clip-path:polygon(100% 0,100% 100%,0 50%);}
