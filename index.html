@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.17</title>
+  <title>Store Explorer v1.18</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css" />
 </head>
@@ -11,7 +11,7 @@
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.17</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.18</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context</div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -168,7 +168,7 @@
       <div class="dialog-header"><div><h2>Filter</h2><p>Build filter lines from workbook columns or numeric formulas. Each line explicitly uses AND or OR to relate it to the line above.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
       <div class="filter-config-scroll">
         <div id="filterError" class="filter-error" role="alert" aria-live="polite"></div><div class="filter-diagnostic-toggle-row"><button id="filterDiagnosticToggle" type="button" class="secondary">Show diagnostic</button></div><div id="filterDiagnostic" class="filter-diagnostic hidden" aria-live="polite"></div>
-        <div class="filter-table-head" aria-hidden="true"><div>Choose column</div><div>Variable or Formula</div><div>Condition</div><div>Value</div><div>Operator</div><div></div></div>
+        <div class="filter-table-head" aria-hidden="true"><div>Choose column</div><div>Variable or Formula <span class="filter-formula-hint">( ), +, -, *, /</span></div><div>Condition</div><div>Value</div><div>Operator</div><div></div></div>
         <div id="filterRows" class="filter-rows"></div>
       </div>
       <div class="dialog-footer filter-dialog-footer">

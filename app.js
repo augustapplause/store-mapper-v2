@@ -1,4 +1,4 @@
-/* Store Explorer - v1.17
+/* Store Explorer - v1.18
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -1252,14 +1252,11 @@
     const box=el('filterRows');if(!box)return;
     const rows=state.filterDraft||[];
     if(!rows.length){box.innerHTML='<div class="empty-message">No filter lines. Use Add filter to create one.</div>';return;}
-    const numericCols=state.headers.filter(h=>state.types[h]==='numeric');
     const allCols=state.headers;
     box.innerHTML=rows.map((f,i)=>{
       const type=detectFilterDraftType(f);
       const formula=f.formula||'';
-      const textValues=type==='text'?uniqueColumnValues(f.column||''):[];
       const selectedTextValues=Array.isArray(f.values)?f.values:[];
-      const allTextValuesSelected=textValues.length>0 && textValues.every(v=>selectedTextValues.includes(v));
       const valuePicker=type==='text'
         ? `<button type="button" class="filter-value-select-button" data-index="${i}">${selectedTextValues.length?esc(selectedTextValues.join(', ')):'Select values...'}</button>`
         : `<input class="filter-value-input" data-index="${i}" type="number" step="any" placeholder="Enter value" value="${esc(f.value??'')}">`;
@@ -1267,22 +1264,30 @@
       const connector=`<select class="filter-connector" data-index="${i}">${FILTER_CONNECTORS.map(op=>`<option value="${op}" ${f.connector===op?'selected':''}>${op}</option>`).join('')}</select>`;
       return `<div class="filter-line" data-index="${i}">
         <div class="filter-line-main">
-          <select class="filter-column" data-index="${i}"><option value="">Choose column</option>${allCols.map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select>
+          <select class="filter-column" data-index="${i}"><option value="">Choose column</option>${allCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select>
           <input class="filter-formula" data-index="${i}" type="text" placeholder="Variable or Formula" value="${esc(formula)}" autocomplete="off">
           ${condition}
           <div class="filter-value-cell">${valuePicker}</div>
           ${connector}
           <button type="button" class="filter-delete" data-index="${i}">Delete</button>
         </div>
-        <div class="filter-line-help">
-          <select class="filter-operand-insert" data-index="${i}"><option value="">Insert numeric column...</option>${numericCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select>
-          <span>Formula: (), +, -, *, /</span>
-        </div>
       </div>`;
     }).join('');
 
     box.querySelectorAll('.filter-column').forEach(sel=>sel.addEventListener('change',e=>{
-      const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;f.column=h;f.formula=h;f.type=state.types[h]==='text'?'text':'numeric';f.value='';f.values=[];f.wildcard='';renderFilterRows();
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;if(!h)return;
+      const current=String(f.formula||'').trim();
+      const currentType=detectFilterDraftType(f);
+      const chosenType=state.types[h]==='text'?'text':'numeric';
+      if(!current || currentType==='text' || chosenType==='text'){
+        f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';
+      }else{
+        f.formula=`${current}${h}`;f.type='numeric';
+      }
+      e.target.value='';
+      const input=box.querySelector(`.filter-formula[data-index="${i}"]`);
+      if(input)input.value=f.formula;
+      updateFilterDiagnostic();
     }));
     box.querySelectorAll('.filter-formula').forEach(inp=>inp.addEventListener('input',e=>{
       const i=Number(e.target.dataset.index);state.filterDraft[i].formula=e.target.value;state.filterDraft[i].type=detectFilterDraftType(state.filterDraft[i]);updateFilterDiagnostic();
@@ -1292,10 +1297,6 @@
     box.querySelectorAll('.filter-value-select-button').forEach(btn=>btn.addEventListener('click',e=>openFilterValuePicker(Number(e.target.dataset.index))));
     box.querySelectorAll('.filter-connector').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].connector=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-delete').forEach(btn=>btn.addEventListener('click',e=>{state.filterDraft.splice(Number(e.target.dataset.index),1);renderFilterRows();}));
-    box.querySelectorAll('.filter-operand-insert').forEach(sel=>sel.addEventListener('change',e=>{
-      const i=Number(e.target.dataset.index),h=e.target.value;if(!h)return;const input=box.querySelector(`.filter-formula[data-index="${i}"]`);const current=String(state.filterDraft[i].formula||'').trim();const next=current?`${current}${h}`:h;state.filterDraft[i].formula=next;state.filterDraft[i].column=state.filterDraft[i].column||h;state.filterDraft[i].type='numeric';if(input)input.value=next;e.target.value='';
-      updateFilterDiagnostic();
-  }));
   }
   function openFilterValuePicker(index){
     const dialog=el('filterValueDialog'); if(!dialog)return;
