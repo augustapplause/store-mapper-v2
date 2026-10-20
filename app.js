@@ -516,19 +516,25 @@
     popup.options.autoPan=false;
     state.openPopupMarker=marker;
     const box=popup.getElement();
+    // Ensure Leaflet has laid out the popup before measuring it.
+    popup.update();
     const rect=box.getBoundingClientRect();
     const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
     const p=map.latLngToContainerPoint(marker.getLatLng());
     const size=map.getSize();
     const margin=12, gap=18, tip=14;
     const candidates=[
-      {name:'above',offset:L.point(0,-(gap+tip)),left:p.x-w/2,top:p.y-h-gap-tip,width:w,height:h},
-      {name:'below',offset:L.point(0,h+gap+tip),left:p.x-w/2,top:p.y+gap+tip,width:w,height:h},
-      {name:'left',offset:L.point(-(w/2+gap+tip),h/2),left:p.x-w-gap-tip,top:p.y-h/2,width:w,height:h},
-      {name:'right',offset:L.point(w/2+gap+tip,h/2),left:p.x+gap+tip,top:p.y-h/2,width:w,height:h}
+      {name:'above',offset:L.point(0,-(gap+tip)),left:p.x-w/2,top:p.y-h-gap-tip,width:w,height:h,space:p.y-margin},
+      {name:'below',offset:L.point(0,h+gap+tip),left:p.x-w/2,top:p.y+gap+tip,width:w,height:h,space:size.y-p.y-margin},
+      {name:'left',offset:L.point(-(w/2+gap+tip),h/2),left:p.x-w-gap-tip,top:p.y-h/2,width:w,height:h,space:p.x-margin},
+      {name:'right',offset:L.point(w/2+gap+tip,h/2),left:p.x+gap+tip,top:p.y-h/2,width:w,height:h,space:size.x-p.x-margin}
     ];
     const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
-    let chosen=candidates.find(fits);
+    const feasible=candidates.filter(fits);
+    // Prefer the side with the most room around the marker rather than a fixed
+    // above-first order. This keeps the popup away from the marker and avoids
+    // pinning a popup into the map edge when another side is clearly better.
+    let chosen=feasible.sort((a,b)=>b.space-a.space)[0];
     if(!chosen){
       chosen=candidates.map(c=>({c,overflow:
         Math.max(margin-c.left,0)+
@@ -541,7 +547,11 @@
     box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
     box.classList.add(`store-popup-side-${chosen.name}`);
     popup.update();
-    requestAnimationFrame(()=>drawStorePopupLeader(marker,chosen.name));
+    requestAnimationFrame(()=>{
+      // Re-read the final popup rectangle after Leaflet applies the offset so
+      // the connector uses the popup's actual rendered edge.
+      drawStorePopupLeader(marker,chosen.name);
+    });
   }
 
   function ensureStorePopupLeaderLayer(){
