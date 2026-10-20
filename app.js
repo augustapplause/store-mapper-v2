@@ -1,4 +1,4 @@
-/* Store Explorer - v0.95
+/* Store Explorer - v0.97
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -36,7 +36,7 @@
     subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [],
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     markerColor: '#d34c4c',
-    markerAnimation: {enabled:false,type:'pulse',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
+    markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
     selectedRows: [],
@@ -463,8 +463,8 @@
     const duration=2800;
     const phase=Math.round(performance.now()%duration);
     const delay=animating ? `--marker-animation-delay:-${phase}ms;` : '';
-    const smiley = animating && state.markerAnimation.type==='fade' ? '<span class="marker-smiley" aria-hidden="true"></span>' : '';
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="store-marker ${cls}" style="--store-marker-color:${state.markerColor}"></div>${smiley}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
+    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${state.markerAnimation.fadeObject||'smiley'}" aria-hidden="true"></span>` : '';
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="store-marker ${cls}" style="--store-marker-color:${state.markerColor}"></div>${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
@@ -567,14 +567,15 @@
     state.spiderfyOriginalPositions.clear();
   }
   // ---------- Store marker animation ----------
-  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v093';
+  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v096';
   function normalizeMarkerAnimation(config){
     let type=['ripple','fade'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
     const typeMode=config?.typeMode==='text'?'text':'numeric';
+    const fadeObject=['smiley','starburst','lightning','target'].includes(config?.fadeObject)?config.fadeObject:'smiley';
     const operator=['<=','=','>=','<','>'].includes(config?.operator)?config.operator:'=';
     return {
-      enabled:!!config?.enabled, type, column:String(config?.column??''), formula:String(config?.formula??''),
+      enabled:!!config?.enabled, type, fadeObject, column:String(config?.column??''), formula:String(config?.formula??''),
       operator, value:String(config?.value??''), values:Array.isArray(config?.values)?config.values.map(String):[], typeMode
     };
   }
@@ -1380,6 +1381,8 @@
     }
     el('markerAnimationEnabled').checked=!!a.enabled;
     el('markerAnimationType').value=a.type;
+    const fadeRow=el('markerFadeObjectRow'); if(fadeRow) fadeRow.style.display=a.type==='fade'?'flex':'none';
+    const fadeObject=el('markerFadeObject'); if(fadeObject) fadeObject.value=a.fadeObject||'smiley';
     const typeSummary=el('markerAnimationTypeSummary'); if(typeSummary) typeSummary.textContent=a.type==='fade'?'Fade':'Ripple';
     el('markerAnimationFormula').value=a.formula||'';
     el('markerAnimationCondition').value=a.operator||'=';
@@ -1399,6 +1402,7 @@
   function wireMarkerAnimationControls(){
     el('markerAnimationEnabled').addEventListener('change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
     el('markerAnimationType').addEventListener('change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
+    el('markerFadeObject').addEventListener('change',e=>{state.markerAnimation.fadeObject=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
     el('markerAnimationColumn').addEventListener('change',e=>{const h=e.target.value;state.markerAnimation.column=h;state.markerAnimation.formula=h;state.markerAnimation.value='';state.markerAnimation.values=[];state.markerAnimation.typeMode=state.types[h]==='text'?'text':'numeric';saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
     el('markerAnimationFormula').addEventListener('input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
     el('markerAnimationCondition').addEventListener('change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
