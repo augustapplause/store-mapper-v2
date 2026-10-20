@@ -518,15 +518,26 @@
     const w=Math.max(220,rect.width||350), h=Math.max(120,rect.height||180);
     const p=map.latLngToContainerPoint(marker.getLatLng());
     const size=map.getSize();
-    const margin=12, gap=14;
+    const margin=12, gap=18, tip=14;
+
+    // Keep the popup body completely clear of the marker.  The leader tip then
+    // occupies the gap and its narrow point faces the marker.
     const candidates=[
-      {name:'above',offset:L.point(0,-gap),left:p.x-w/2,top:p.y-h-gap,width:w,height:h},
-      {name:'below',offset:L.point(0,h+gap),left:p.x-w/2,top:p.y+gap,width:w,height:h},
-      {name:'left',offset:L.point(-(w/2+gap),h/2),left:p.x-w-gap,top:p.y-h/2,width:w,height:h},
-      {name:'right',offset:L.point(w/2+gap,h/2),left:p.x+gap,top:p.y-h/2,width:w,height:h}
+      {name:'above',offset:L.point(0,-(gap+tip)),left:p.x-w/2,top:p.y-h-gap-tip,width:w,height:h,clear:Math.max(0,Math.abs((p.x)-(p.x)) )},
+      {name:'below',offset:L.point(0,h+gap+tip),left:p.x-w/2,top:p.y+gap+tip,width:w,height:h,clear:Math.max(0,Math.abs((p.x)-(p.x)) )},
+      {name:'left',offset:L.point(-(w/2+gap+tip),h/2),left:p.x-w-gap-tip,top:p.y-h/2,width:w,height:h,clear:Math.max(0,Math.abs((p.y)-(p.y)) )},
+      {name:'right',offset:L.point(w/2+gap+tip,h/2),left:p.x+gap+tip,top:p.y-h/2,width:w,height:h,clear:Math.max(0,Math.abs((p.y)-(p.y)) )}
     ];
     const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
-    const chosen=candidates.find(fits)||candidates.map(c=>({c,overflow:Math.max(margin-c.left,0)+Math.max(margin-c.top,0)+Math.max(c.left+c.width-(size.x-margin),0)+Math.max(c.top+c.height-(size.y-margin),0)})).sort((a,b)=>a.overflow-b.overflow)[0].c;
+    let chosen=candidates.find(fits);
+    if(!chosen){
+      chosen=candidates.map(c=>({c,overflow:
+        Math.max(margin-c.left,0)+
+        Math.max(margin-c.top,0)+
+        Math.max(c.left+c.width-(size.x-margin),0)+
+        Math.max(c.top+c.height-(size.y-margin),0)}))
+        .sort((a,b)=>a.overflow-b.overflow)[0].c;
+    }
     popup.options.offset=chosen.offset;
     box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
     box.classList.add(`store-popup-side-${chosen.name}`);
