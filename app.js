@@ -528,6 +528,8 @@
     const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
     const chosen=candidates.find(fits)||candidates.map(c=>({c,overflow:Math.max(margin-c.left,0)+Math.max(margin-c.top,0)+Math.max(c.left+c.width-(size.x-margin),0)+Math.max(c.top+c.height-(size.y-margin),0)})).sort((a,b)=>a.overflow-b.overflow)[0].c;
     popup.options.offset=chosen.offset;
+    box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
+    box.classList.add(`store-popup-side-${chosen.name}`);
     popup.update();
   }
 
@@ -596,7 +598,7 @@
     state.spiderfyOriginalPositions.clear();
   }
   // ---------- Store marker animation ----------
-  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v096';
+  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v102';
   function normalizeMarkerAnimation(config){
     let type=['ripple','fade','static'].includes(config?.type)?config.type:'ripple';
     if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
