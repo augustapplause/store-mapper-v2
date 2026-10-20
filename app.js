@@ -1,4 +1,4 @@
-/* Store Explorer - v1.08
+/* Store Explorer - v1.09
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -526,37 +526,75 @@
     const markerRect=markerEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
     const markerGap=3;
-    const leaderLength=6;
-    const clearance=markerRadius+markerGap+leaderLength;
+    const clearance=markerRadius+markerGap;
     const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
     const maxLeft=Math.max(margin,size.x-margin-w);
     const maxTop=Math.max(margin,size.y-margin-h);
-    const candidates=[
-      {name:'above',left:clamp(p.x-w/2,margin,maxLeft),top:p.y-clearance-h,space:p.y-margin},
-      {name:'below',left:clamp(p.x-w/2,margin,maxLeft),top:p.y+clearance,space:size.y-p.y-margin},
-      {name:'left',left:p.x-clearance-w,top:clamp(p.y-h/2,margin,maxTop),space:p.x-margin},
-      {name:'right',left:p.x+clearance,top:clamp(p.y-h/2,margin,maxTop),space:size.x-p.x-margin}
-    ];
-    const fits=c=>c.left>=margin&&c.top>=margin&&c.left+c.width<=size.x-margin&&c.top+c.height<=size.y-margin;
-    for(const c of candidates){c.width=w;c.height=h;}
-    const feasible=candidates.filter(fits);
-    // Prefer the candidate with the greatest available room. All candidates keep
-    // the popup close to the marker; the connector itself is drawn to the true
-    // nearest point on the final popup rectangle.
-    let chosen=feasible.sort((a,b)=>b.space-a.space)[0];
-    if(!chosen){
-      chosen=candidates.map(c=>({c,overflow:
-        Math.max(margin-c.left,0)+
-        Math.max(margin-c.top,0)+
-        Math.max(c.left+c.width-(size.x-margin),0)+
-        Math.max(c.top+c.height-(size.y-margin),0)}))
-        .sort((a,b)=>a.overflow-b.overflow)[0].c;
+
+    // Find a popup rectangle that is completely visible, does not cover the
+    // marker, and is as close to the marker as possible. We sample a ring of
+    // candidate directions so the popup may sit anywhere around the marker,
+    // not just at one of four hard-coded sides.
+    const candidates=[];
+    const angles=[];
+    for(let i=0;i<72;i++)angles.push((Math.PI*2*i)/72);
+    for(const angle of angles){
+      const ux=Math.cos(angle), uy=Math.sin(angle);
+      // Place the rectangle so its nearest point is clearance away from the
+      // marker centre in the sampled direction, then clamp it into the map.
+      const left=p.x + ux*clearance - (ux>0 ? 0 : w);
+      const top=p.y + uy*clearance - (uy>0 ? 0 : h);
+      const c={left:clamp(left,margin,maxLeft),top:clamp(top,margin,maxTop)};
+      c.width=w;c.height=h;
+      if(c.left>p.x+markerRadius+markerGap || c.left+c.width<p.x-markerRadius-markerGap ||
+         c.top>p.y+markerRadius+markerGap || c.top+c.height<p.y-markerRadius-markerGap){
+        const edgeX=clamp(p.x,c.left,c.left+c.width);
+        const edgeY=clamp(p.y,c.top,c.top+c.height);
+        c.distance=Math.hypot(p.x-edgeX,p.y-edgeY);
+        c.angle=angle;
+        candidates.push(c);
+      }
     }
+
+    // Always include the four cardinal positions as deterministic fallbacks.
+    const cardinal=[
+      {left:p.x-w/2,top:p.y-clearance-h},
+      {left:p.x-w/2,top:p.y+clearance},
+      {left:p.x-clearance-w,top:p.y-h/2},
+      {left:p.x+clearance,top:p.y-h/2}
+    ];
+    for(const c0 of cardinal){
+      const c={...c0,left:clamp(c0.left,margin,maxLeft),top:clamp(c0.top,margin,maxTop),width:w,height:h};
+      const edgeX=clamp(p.x,c.left,c.left+c.width), edgeY=clamp(p.y,c.top,c.top+c.height);
+      c.distance=Math.hypot(p.x-edgeX,p.y-edgeY);
+      if(c.distance>=clearance-0.01) candidates.push(c);
+    }
+
+    let chosen=candidates.sort((a,b)=>a.distance-b.distance)[0];
+    if(!chosen){
+      // Extremely small map/view fallback: choose the least-overlapping,
+      // least-overflowing rectangle rather than moving the viewport.
+      const fallback=cardinal.map(c0=>{
+        const c={...c0,left:clamp(c0.left,margin,maxLeft),top:clamp(c0.top,margin,maxTop),width:w,height:h};
+        const overlapX=Math.max(0,Math.min(c.left+c.width,p.x+markerRadius)-Math.max(c.left,p.x-markerRadius));
+        const overlapY=Math.max(0,Math.min(c.top+c.height,p.y+markerRadius)-Math.max(c.top,p.y-markerRadius));
+        const edgeX=clamp(p.x,c.left,c.left+c.width), edgeY=clamp(p.y,c.top,c.top+c.height);
+        c.distance=Math.hypot(p.x-edgeX,p.y-edgeY)+overlapX*overlapY*1000;
+        return c;
+      });
+      chosen=fallback.sort((a,b)=>a.distance-b.distance)[0];
+    }
+
     const offsetX=chosen.left-(p.x-w/2);
     const offsetY=chosen.top-(p.y-h);
     popup.options.offset=L.point(offsetX,offsetY);
     box.classList.remove('store-popup-side-above','store-popup-side-below','store-popup-side-left','store-popup-side-right');
-    box.classList.add(`store-popup-side-${chosen.name}`);
+    const chosenEdgeX=clamp(p.x,chosen.left,chosen.left+chosen.width);
+    const chosenEdgeY=clamp(p.y,chosen.top,chosen.top+chosen.height);
+    if(chosenEdgeY===chosen.top)box.classList.add('store-popup-side-below');
+    else if(chosenEdgeY===chosen.top+chosen.height)box.classList.add('store-popup-side-above');
+    else if(chosenEdgeX===chosen.left)box.classList.add('store-popup-side-right');
+    else box.classList.add('store-popup-side-left');
     popup.update();
     requestAnimationFrame(()=>drawStorePopupLeader(marker));
   }
@@ -611,7 +649,6 @@
     const iconRect=coreEl?.getBoundingClientRect() || iconEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(iconRect?.width||14)/2,(iconRect?.height||14)/2);
     const markerGap=3;
-    const maxLeader=6;
     const targetDistance=markerRadius+markerGap;
 
     // Nearest point on the popup rectangle to the marker centre. This works for
@@ -623,16 +660,10 @@
     const distance=Math.hypot(dx,dy)||1;
     const ux=dx/distance, uy=dy/distance;
 
-    // The tip is exactly markerRadius + 3px from the marker centre. The popup
-    // placement keeps the ideal connector at 6px; cap it defensively if a
-    // viewport-edge fallback forces a longer connection.
-    let tipX=mx-ux*targetDistance;
-    let tipY=my-uy*targetDistance;
-    const leaderDistance=Math.hypot(tipX-edgeX,tipY-edgeY);
-    if(leaderDistance>maxLeader){
-      tipX=edgeX+ux*maxLeader;
-      tipY=edgeY+uy*maxLeader;
-    }
+    // The tip stops a controlled gap before the marker centre. There is no
+    // artificial maximum connector length; the popup placement determines it.
+    const tipX=mx-ux*targetDistance;
+    const tipY=my-uy*targetDistance;
 
     const baseHalf=5;
     const px=-uy*baseHalf;
