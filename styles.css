@@ -543,8 +543,9 @@ button,
 }
 
 /* v1.01: compact marker animation selector and popup positioning support */
-.marker-animation-type-inline{width:82px;min-width:82px;}
-.marker-animation-head-controls{gap:6px;}
+.marker-animation-type-inline{width:70px;min-width:70px;}
+.marker-animation-head{gap:10px;}
+.marker-animation-head-controls{gap:8px;}
 .marker-animation-head>span{font-weight:600;}
 .marker-animation-dialog{width:min(1040px,96vw);}
 
@@ -569,7 +570,7 @@ button,
 .leaflet-popup.store-popup-side-right .leaflet-popup-tip{width:14px;height:14px;margin:0;background:#fff;border:1px solid #cfd8df;border-right:0;border-bottom:0;box-shadow:none;transform:none;clip-path:polygon(100% 0,100% 100%,0 50%);}
 
 
-/* v1.04 popup leader geometry: wide end attaches to popup, narrow point faces marker. */
+/* v1.04 popup leader geometry retained for fallback; v1.05 custom leader replaces it. */
 .leaflet-popup.store-popup-side-above .leaflet-popup-tip-container{
   top:auto!important;bottom:-16px!important;left:50%!important;right:auto!important;
   margin:0 0 0 -8px!important;transform:none!important;width:16px!important;height:16px!important;
@@ -602,3 +603,13 @@ button,
   width:16px!important;height:16px!important;margin:0!important;border:0!important;box-shadow:none!important;
   background:#fff!important;clip-path:polygon(100% 0,100% 100%,0 50%)!important;transform:none!important;
 }
+
+/* v1.05: custom point-to-point popup leader. The default Leaflet tip is hidden; app.js
+   draws a directional triangular leader with a variable connection point and marker gap. */
+.leaflet-popup.store-popup-side-above .leaflet-popup-tip-container,
+.leaflet-popup.store-popup-side-below .leaflet-popup-tip-container,
+.leaflet-popup.store-popup-side-left .leaflet-popup-tip-container,
+.leaflet-popup.store-popup-side-right .leaflet-popup-tip-container{display:none!important;}
+.store-popup-leader{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:0;}
+.store-popup-leader polygon{fill:#fff;stroke:#cfd8df;stroke-width:1;}
+.leaflet-popup-content-wrapper{position:relative;z-index:2;}
