@@ -1,4 +1,4 @@
-/* Store Explorer - v1.22
+/* Store Explorer - v1.23
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -1992,7 +1992,7 @@
     return `${km.toFixed(km<1?2:1)} km`;
   }
   function makeCircleRadiusLabel(latlng,radiusMeters){
-    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[64,24],iconAnchor:[32,-6]})});
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,-14]})});
   }
   function updateCircleLabel(){
     const circle=state.circleSelection?.circle;
