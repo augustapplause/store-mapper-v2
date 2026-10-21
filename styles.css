@@ -258,7 +258,6 @@ select,
 .config-button-inline,
 #searchForm button,
 .store-jump button,
-#radiusModeBtn,
 .configure-filter-button {
   background: var(--blue) !important;
   color: #fff !important;
@@ -272,7 +271,6 @@ select,
 .config-button-inline:hover,
 #searchForm button:hover,
 .store-jump button:hover,
-#radiusModeBtn:hover,
 .configure-filter-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 3px 0 #0b4f85;
@@ -281,7 +279,6 @@ select,
 .config-button-inline:active,
 #searchForm button:active,
 .store-jump button:active,
-#radiusModeBtn:active,
 .configure-filter-button:active {
   transform: translateY(2px);
   border-bottom-width: 1px !important;
@@ -399,7 +396,6 @@ button,
 .left-panel .store-jump{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
 .left-panel .store-jump button{width:100%;margin:0;}
 .left-panel .store-jump input{width:100%;}
-.left-panel #radiusModeBtn{white-space:normal;min-height:52px;line-height:1.2;padding-left:9px;padding-right:9px;}
 .left-panel .filter-actions{grid-template-columns:1fr;gap:6px;}
 .left-panel .filter-action-button{min-height:48px;}
 .left-panel .legend-card{padding:12px;}
@@ -569,3 +565,17 @@ button,
 .filter-formula-hint{font-size:12px;font-weight:500;}
 .filter-line-main select,.filter-line-main input,.filter-value-select-button{font-size:12px;}
 .filter-picker-list label{font-size:12px;}
+
+/* v1.20: editable analytical selection circle controls. */
+.circle-controls{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.circle-control-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.circle-control-buttons button{min-height:42px;padding:8px 9px;font-size:12px;font-weight:700}
+.circle-status-row{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;color:var(--muted)}
+.circle-status-row strong{font-size:12px;color:var(--text);min-width:46px;text-align:right}
+.circle-indicator-off,.circle-indicator-on{width:10px;height:10px;border-radius:50%;flex:0 0 10px;border:1px solid #bbb;background:#d6d6d6;box-shadow:0 0 0 1px #fff}
+.circle-indicator-on{background:#d33e46;border-color:#a9232d;box-shadow:0 0 0 1px #fff,0 0 5px #d33e4680}
+.circle-edit-handle{background:transparent!important;border:0!important}
+.circle-edit-handle span{display:block;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #d33e46;box-shadow:0 1px 3px #0004;box-sizing:border-box}
+.circle-radius-handle span{background:#d33e46;border-color:#fff}
+
+.circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;padding:3px 7px;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}

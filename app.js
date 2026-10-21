@@ -1,4 +1,4 @@
-/* Store Explorer - v1.18
+/* Store Explorer - v1.20
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -45,8 +45,8 @@
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], radiusLayer: null, spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
-    radiusPickMode: false, csdRequestKey: null, moveTimer:null,
+    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
+    circleSelection: null, circleDrawMode: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -63,6 +63,9 @@
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 
   const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
+  const selectionCirclePane = map.createPane('selectionCirclePane');
+  selectionCirclePane.style.zIndex = '550';
+  selectionCirclePane.style.pointerEvents = 'auto';
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
   state.markerCluster = L.layerGroup().addTo(map);
@@ -287,14 +290,14 @@
   }
 
   function selectProvince(feature,layer){
-    clearRadius();clearDaOverlay();state.censusRequestId++;
+    clearCircle();clearDaOverlay();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();layer.setStyle(provinceSelectedStyle);
     const name=feature.properties.PRNAME||feature.properties.PRENAME||'Province';
     const code=provinceCodeFromFeature(feature);
     state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
     state.initialNationalView=false;state.mapReadyForViewport=true;
     el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';
-    el('censusNote').textContent='Province selected. Search a city/address for the 10 km DA census catchment.';
+    el('censusNote').textContent='Province selected. Search a city/address or draw a selection circle for a more specific catchment.';
     fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
     updateSelection();
   }
@@ -308,47 +311,23 @@
       if(token!==state.searchToken)return;
       const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');
       const lat=c.location.y,lng=c.location.x;
-      const km=clamp(Number(el('radiusKm').value)||10,1,200);el('radiusKm').value=km;
       const provinceCode=provinceCodeFromAddress(query,c)||await queryProvinceAt(lat,lng);
-      const immediateCity=c.attributes?.City || c.address?.split(',')[0] || query.trim();
-      void immediateCity; void provinceCode;
-      setVisualRadius(lat,lng,km,c.address||query);
-      clearDaOverlay();state.censusRequestId++;
+      clearCircle();clearDaOverlay();state.censusRequestId++;
       state.storeJumpTarget=null;
-      state.selection={type:'viewport',name:`${c.address||query} — ${km} km view`,feature:null,provinceCode,radius:{lat,lng,km}};
+      state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
       state.initialNationalView=false;state.mapReadyForViewport=true;
-      const targetBounds=L.latLngBounds([[lat-km/110.5,lng-km/(111*Math.cos(lat*Math.PI/180))],[lat+km/110.5,lng+km/(111*Math.cos(lat*Math.PI/180))]]);
+      const km=10;
+      const dLat=km/110.5,dLon=km/(111*Math.cos(lat*Math.PI/180));
+      const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
       map.once('moveend',()=>{if(token===state.searchToken)updateSelection();});
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      // Fallback for the rare case where Leaflet does not emit moveend because the bounds did not change.
       setTimeout(()=>{if(token===state.searchToken){updateSelection();loadCityCensusForGeo(lat,lng,c.address||query,provinceCode);}},250);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
 
-  function setVisualRadius(lat,lng,km){
-    clearRadius();
-    const ll=L.latLng(lat,lng);
-    const circle=L.circle(ll,{radius:km*1000,color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06});
-    const centreMarker=L.marker(ll,{interactive:false,icon:L.divIcon({className:'',html:'<div style="width:10px;height:10px;background:#1f78b4;border:2px solid white;border-radius:50%;box-shadow:0 0 0 1px #3334"></div>',iconSize:[10,10],iconAnchor:[5,5]})});
-    state.radiusLayer=L.featureGroup([circle,centreMarker]).addTo(map);
-  }
-
-  function setRadiusSelection(lat,lng,km,name='Radius reference') {
-    clearDaOverlay();state.censusRequestId++;
-    state.storeJumpTarget=null;
-    setVisualRadius(lat,lng,km);
-    state.selection={type:'viewport',name:`${name} — ${km} km view`,feature:null,provinceCode:null,radius:{lat,lng,km}};
-    state.initialNationalView=false;state.mapReadyForViewport=true;
-    updateSelection();
-    const targetBounds=L.latLngBounds([[lat-km/110.5,lng-km/(111*Math.cos(lat*Math.PI/180))],[lat+km/110.5,lng+km/(111*Math.cos(lat*Math.PI/180))]]);
-    map.once('moveend',()=>updateSelection());
-    fitMapProgrammatically(targetBounds,{padding:[25,25]});
-    setTimeout(()=>updateSelection(),250);
-  }
-
   function resetCanada(){
-    clearRadius();clearDaOverlay();state.censusRequestId++;
+    clearCircle();clearDaOverlay();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
@@ -356,7 +335,6 @@
     fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});updateSelection();
   }
 
-  function clearRadius(){if(state.radiusLayer){map.removeLayer(state.radiusLayer);state.radiusLayer=null;}}
   function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
   function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
   function setMapLoading(on){el('mapLoading').classList.toggle('hidden',!on);}
@@ -414,7 +392,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Store markers ----------
@@ -688,6 +666,7 @@
   }
 
   function handleMarkerClick(marker){
+    if(state.markerClickSuppressed)return;
     const nearby=getNearbyMarkers(marker,18);
     if(nearby.length>1){
       if(state.spiderfyGroup && state.spiderfyGroup.includes(marker)){
@@ -821,7 +800,7 @@
     state.markers.forEach(m=>{
       const passes=filterRowPasses(m.__row);
       const inSelection=selectedSet.has(m.__row)||state.selection.type==='national';
-      const animateVisible=passes && bounds.contains(m.__trueLatLng||m.getLatLng());
+      const animateVisible=passes && selectedSet.has(m.__row) && bounds.contains(m.__trueLatLng||m.getLatLng());
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
@@ -867,8 +846,18 @@
     if(!state.rows.length)return[];
     const c=state.columns;
     if(!c.lat||!c.lon) return state.rows.filter(filterRowPasses);
-    const b=map.getBounds();
-    return state.rows.filter(r=>filterRowPasses(r)&&hasCoords(r)&&b.contains([toNumber(r[c.lat]),toNumber(r[c.lon])]));
+    const bounds=map.getBounds();
+    const circle=state.circleSelection;
+    const circleVisible=!!(circle && circle.circle && circle.circle.getBounds().intersects(bounds));
+    const centre=circleVisible?circle.circle.getLatLng():null;
+    const radiusMeters=circleVisible?circle.circle.getRadius():0;
+    return state.rows.filter(r=>{
+      if(!filterRowPasses(r)||!hasCoords(r))return false;
+      const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
+      if(!bounds.contains(ll))return false;
+      if(!circleVisible)return true;
+      return map.distance(centre,ll)<=radiusMeters+0.0001;
+    });
   }
   function getFilteredRows(){return state.rows.filter(filterRowPasses);}
   function updateSelection(){
@@ -877,7 +866,7 @@
     // Header lookup is independent of visible CSD layer.
     const filtered=getFilteredRows();
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
-    el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current map view${filterNote}.`:'Load a workbook to calculate store results.';
+    el('geoStatus').textContent=state.rows.length?(state.circleSelection && state.circleSelection.circle && state.circleSelection.circle.getBounds().intersects(map.getBounds()) ? `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current selection circle and viewport${filterNote}.` : `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current map view${filterNote}.`):'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
     updateKpis();updateSubjects();updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();renderTicker();
@@ -1427,7 +1416,7 @@
     state.filters=next;
     state.filterPassCache=candidateCache;
     if(state.storeJumpTarget && !rowPassesFilters(state.storeJumpTarget)){
-      clearRadius();state.storeJumpTarget=null;
+      clearCircle();state.storeJumpTarget=null;
     }
     redrawAfterFilterChange();
     updateSelection();
@@ -1547,11 +1536,10 @@
     const storeCity=state.columns.city?String(target[state.columns.city]??'').trim():'';
     const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
     // Header resolves from the current map position via the local CSD lookup.
-    const km=clamp(Number(el('radiusKm').value)||10,1,200); el('radiusKm').value=km;
-    clearRadius(); clearDaOverlay(); state.censusRequestId++;
+    const km=10;
+    clearCircle(); clearDaOverlay(); state.censusRequestId++;
     state.storeJumpTarget=target;
-    setVisualRadius(lat,lng,km);
-    state.selection={type:'viewport',name:`Store ${query} — ${km} km view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:{lat,lng,km}};
+    state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
     state.initialNationalView=false; state.mapReadyForViewport=true;
     const dLat=km/110.5, dLon=km/(111*Math.cos(lat*Math.PI/180));
     const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
@@ -1999,8 +1987,142 @@
   el('storeNumberBtn').addEventListener('click',goToStoreNumber);
   el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();goToStoreNumber();}});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
-  el('radiusModeBtn').addEventListener('click',()=>{state.radiusPickMode=!state.radiusPickMode;el('radiusModeBtn').textContent=state.radiusPickMode?'Click map to set radius centre':'Pick radius centre on map';map.getContainer().style.cursor=state.radiusPickMode?'crosshair':'';});
-  map.on('click',e=>{if(!state.radiusPickMode){unspiderfyMarkers();return;}state.radiusPickMode=false;map.getContainer().style.cursor='';el('radiusModeBtn').textContent='Pick radius centre on map';const km=clamp(Number(el('radiusKm').value)||10,1,200);queryProvinceAt(e.latlng.lat,e.latlng.lng).then(code=>{setRadiusSelection(e.latlng.lat,e.latlng.lng,km,'Map point',code);loadCityCensusForGeo(e.latlng.lat,e.latlng.lng,'Map point',code);});});
+  function circleRadiusLabelText(radiusMeters){
+    const km=radiusMeters/1000;
+    return `Radius: ${km.toFixed(km<1?2:1)} km`;
+  }
+  function makeCircleRadiusLabel(latlng,radiusMeters){
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[96,24],iconAnchor:[48,12]})});
+  }
+  function updateCircleLabel(){
+    const circle=state.circleSelection?.circle;
+    const label=state.circleSelection?.label;
+    if(!circle||!label)return;
+    label.setLatLng(circleEdgeLatLng(circle.getLatLng(),circle.getRadius()));
+    const node=label.getElement()?.querySelector('span');
+    if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
+  }
+
+  // ---------- Selection circle interaction ----------
+  function setCircleIndicator(active){
+    const dot=el('circleIndicator');
+    if(!dot)return;
+    dot.className=active?'circle-indicator-on':'circle-indicator-off';
+    dot.setAttribute('aria-label',active?'Selection circle active':'No selection circle active');
+    el('clearCircleBtn').disabled=!active;
+  }
+  function updateCircleRadiusCounter(){
+    const km=state.circleSelection?.circle?state.circleSelection.circle.getRadius()/1000:NaN;
+    el('circleRadiusCounter').textContent=Number.isFinite(km)?km.toFixed(km<1?2:1):'—';
+  }
+  function removeCircleHandles(){
+    state.circleEditHandles.forEach(h=>map.removeLayer(h));
+    state.circleEditHandles=[];
+  }
+  function circleEdgeLatLng(center,meters){
+    return L.latLng(center.lat,center.lng + meters/(111320*Math.cos(center.lat*Math.PI/180)));
+  }
+  function showCircleHandles(){
+    removeCircleHandles();
+    const circle=state.circleSelection?.circle;if(!circle)return;
+    const center=circle.getLatLng();
+    const edge=circleEdgeLatLng(center,circle.getRadius());
+    const centerHandle=L.marker(center,{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span></span>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+    const radiusHandle=L.marker(edge,{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span></span>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+    centerHandle.on('drag',e=>{
+      if(!state.circleSelection)return;
+      const ll=e.target.getLatLng();
+      circle.setLatLng(ll);
+      radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
+      updateCircleRadiusCounter();updateCircleLabel();updateSelection();
+    });
+    radiusHandle.on('drag',e=>{
+      if(!state.circleSelection)return;
+      const ll=e.target.getLatLng();
+      const center=circle.getLatLng();
+      const radius=Math.max(10,map.distance(center,ll));
+      circle.setRadius(radius);
+      radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
+      updateCircleRadiusCounter();updateCircleLabel();updateSelection();
+    });
+    state.circleEditHandles=[centerHandle,radiusHandle];
+  }
+  function enterCircleDrawMode(){
+    state.circleDrawMode=true;state.markerClickSuppressed=true;
+    map.getContainer().style.cursor='crosshair';
+    el('drawCircleBtn').textContent='Drawing… drag on map';
+    removeCircleHandles();
+  }
+  function exitCircleDrawMode(){
+    state.circleDrawMode=false;state.circleDrawing=null;
+    map.getContainer().style.cursor='';
+    el('drawCircleBtn').textContent='Draw circle';
+  }
+  function createOrReplaceCircle(center,radiusMeters){
+    clearCircle();
+    const circle=L.circle(center,{pane:'selectionCirclePane',radius:Math.max(10,radiusMeters),color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true});
+    circle.addTo(map);
+    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,circle.getRadius()),circle.getRadius()).addTo(map);
+    circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
+    state.circleSelection={circle,label};
+    setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
+    updateSelection();
+    if(!map.getBounds().contains(circle.getBounds().getNorthEast()) || !map.getBounds().contains(circle.getBounds().getSouthWest())){
+      fitMapProgrammatically(circle.getBounds(),{padding:[30,30],maxZoom:map.getZoom()});
+    }
+  }
+  function clearCircle(){
+    removeCircleHandles();
+    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    state.circleSelection=null;
+    state.circleDrawing=null;
+    setCircleIndicator(false);
+    if(state.circleDrawMode)exitCircleDrawMode();
+    updateCircleRadiusCounter();
+  }
+  el('drawCircleBtn').addEventListener('click',()=>{
+    if(state.circleDrawMode){exitCircleDrawMode();return;}
+    enterCircleDrawMode();
+  });
+  el('clearCircleBtn').addEventListener('click',()=>{clearCircle();updateSelection();});
+  map.on('mousedown',e=>{
+    if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
+    state.circleDrawing={center:e.latlng};
+    map.dragging.disable();
+    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:false}).addTo(map);
+    const label=makeCircleRadiusLabel(e.latlng,1).addTo(map);
+    state.circleDrawing.temp=temp;
+    state.circleDrawing.label=label;
+    map.getContainer().style.cursor='crosshair';
+  });
+  map.on('mousemove',e=>{
+    if(!state.circleDrawing?.temp)return;
+    const r=map.distance(state.circleDrawing.center,e.latlng);
+    state.circleDrawing.temp.setRadius(Math.max(1,r));
+    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,Math.max(1,r)));
+    const node=state.circleDrawing.label.getElement()?.querySelector('span');
+    if(node)node.textContent=circleRadiusLabelText(r);
+    el('circleRadiusCounter').textContent=(r/1000).toFixed(r<1000?2:1);
+  });
+  map.on('mouseup',e=>{
+    if(!state.circleDrawing?.temp)return;
+    const draw=state.circleDrawing;
+    const r=map.distance(draw.center,e.latlng);
+    map.removeLayer(draw.temp);
+    if(draw.label)map.removeLayer(draw.label);
+    state.circleDrawing=null;
+    map.dragging.enable();
+    createOrReplaceCircle(draw.center,Math.max(10,r));
+    exitCircleDrawMode();
+    setTimeout(()=>{state.markerClickSuppressed=false;},100);
+  });
+  map.on('click',e=>{
+    if(state.circleDrawMode)return;
+    if(state.circleSelection && e.originalEvent?.target===state.circleSelection.circle?._path)return;
+    unspiderfyMarkers();
+    if(state.openPopupMarker)closeStorePopup();
+  });
   map.on('dragstart',()=>{
     unspiderfyMarkers();
     if(state.programmaticMoveDepth===0) state.userMapInteraction = true;
@@ -2010,6 +2132,13 @@
     if(state.programmaticMoveDepth===0) state.userMapInteraction = true;
   });
   map.on('moveend',()=>{
+    if(state.circleSelection?.circle && state.circleEditHandles.length){
+      const center=state.circleSelection.circle.getLatLng();
+      const edge=circleEdgeLatLng(center,state.circleSelection.circle.getRadius());
+      state.circleEditHandles[0].setLatLng(center);
+      state.circleEditHandles[1].setLatLng(edge);
+      updateCircleLabel();
+    }
     const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
     if(programmatic){
       state.programmaticMoveDepth=Math.max(0,state.programmaticMoveDepth-1);
