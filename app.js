@@ -1,4 +1,4 @@
-/* Store Explorer - v1.21
+/* Store Explorer - v1.22
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -1992,13 +1992,13 @@
     return `Radius: ${km.toFixed(km<1?2:1)} km`;
   }
   function makeCircleRadiusLabel(latlng,radiusMeters){
-    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[96,24],iconAnchor:[48,12]})});
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[120,24],iconAnchor:[60,-22]})});
   }
   function updateCircleLabel(){
     const circle=state.circleSelection?.circle;
     const label=state.circleSelection?.label;
     if(!circle||!label)return;
-    label.setLatLng(circleEdgeLatLng(circle.getLatLng(),circle.getRadius()));
+    label.setLatLng(circle.getLatLng());
     const node=label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
   }
@@ -2027,8 +2027,8 @@
     const circle=state.circleSelection?.circle;if(!circle)return;
     const center=circle.getLatLng();
     const edge=circleEdgeLatLng(center,circle.getRadius());
-    const centerHandle=L.marker(center,{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span></span>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
-    const radiusHandle=L.marker(edge,{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span></span>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+    const centerHandle=L.marker(center,{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const radiusHandle=L.marker(edge,{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     centerHandle.on('drag',e=>{
       if(!state.circleSelection)return;
       const ll=e.target.getLatLng();
@@ -2062,7 +2062,7 @@
     clearCircle();
     const circle=L.circle(center,{pane:'selectionCirclePane',radius:Math.max(10,radiusMeters),color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true});
     circle.addTo(map);
-    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,circle.getRadius()),circle.getRadius()).addTo(map);
+    const label=makeCircleRadiusLabel(center,circle.getRadius()).addTo(map);
     circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
     state.circleSelection={circle,label};
     setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
@@ -2100,7 +2100,7 @@
     if(!state.circleDrawing?.temp)return;
     const r=map.distance(state.circleDrawing.center,e.latlng);
     state.circleDrawing.temp.setRadius(Math.max(1,r));
-    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,Math.max(1,r)));
+    state.circleDrawing.label.setLatLng(state.circleDrawing.center);
     const node=state.circleDrawing.label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(r);
     el('circleRadiusCounter').textContent=(r/1000).toFixed(r<1000?2:1);

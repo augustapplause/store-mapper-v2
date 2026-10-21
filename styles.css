@@ -575,12 +575,13 @@ button,
 .circle-indicator-off,.circle-indicator-on{width:10px;height:10px;border-radius:50%;flex:0 0 10px;border:1px solid #bbb;background:#d6d6d6;box-shadow:0 0 0 1px #fff}
 .circle-indicator-on{background:#d33e46;border-color:#a9232d;box-shadow:0 0 0 1px #fff,0 0 5px #d33e4680}
 .circle-edit-handle{background:transparent!important;border:0!important}
-.circle-edit-handle span{display:block;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #d33e46;box-shadow:0 1px 3px #0004;box-sizing:border-box}
-.circle-radius-handle span{background:#d33e46;border-color:#fff}
-
+.circle-edit-handle span{position:relative;display:block;width:20px;height:20px;box-sizing:border-box;filter:drop-shadow(0 1px 2px #0004)}
+.circle-edit-handle span::before,.circle-edit-handle span::after{content:"";position:absolute;left:50%;top:50%;background:#d33e46;border-radius:2px;transform:translate(-50%,-50%)}
+.circle-edit-handle span::before{width:20px;height:5px}
+.circle-edit-handle span::after{width:5px;height:20px}
 .circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;padding:3px 7px;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}
 
-/* v1.21: selection-circle buttons match Go-style 3D controls while using the diamond orange. */
+/* v1.22: selection-circle buttons match Go-style 3D controls while using the diamond orange. */
 .circle-action-button{
   min-height:42px;
   padding:8px 9px;
