@@ -1,4 +1,4 @@
-/* Store Explorer - v1.20
+/* Store Explorer - v1.21
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -1007,7 +1007,7 @@
       const key=row.dataset.groupKey;
       state.selectedGroupKey=state.selectedGroupKey===key?null:key;
       if(state.selectedGroupKey!==null){state.distributionBinKey=null;state.distributionBinKey2=null;state.selectedStoreRow=null;}
-      updateGroups();updateDistribution();
+      updateGroups();updateDistribution();updateSelectedStoresList();
       refreshMarkerStyles();
     }));
   }
@@ -1068,7 +1068,7 @@
     let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${state.selectedRows.length.toLocaleString()} stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of selected column">`;
     for(const b of bins){const active=activeKey===b.key;const width=Math.max(2,(b.count/maxCount)*100);html+=`<button type="button" class="distribution-bar${active?' active-distribution':''}" data-bin-key="${esc(b.key)}" title="${esc(b.label)}: ${b.count} stores"><span class="distribution-label">${esc(b.label)}</span><span class="distribution-track"><span class="distribution-fill" style="width:${width}%"></span></span><strong>${b.count}</strong></button>`;}
     html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
-    box.querySelectorAll('.distribution-bar').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.binKey;setDistributionBinKey(slot,getDistributionBinKey(slot)===key?null:key);if(getDistributionBinKey(slot)!==null){state.selectedGroupKey=null;state.selectedStoreRow=null;if(slot===1)state.distributionBinKey2=null;else state.distributionBinKey=null;}updateGroups();updateDistribution();refreshMarkerStyles();}));
+    box.querySelectorAll('.distribution-bar').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.binKey;setDistributionBinKey(slot,getDistributionBinKey(slot)===key?null:key);if(getDistributionBinKey(slot)!==null){state.selectedGroupKey=null;state.selectedStoreRow=null;if(slot===1)state.distributionBinKey2=null;else state.distributionBinKey=null;}updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}));
   }
   function updateDistribution(){updateDistributionSlot(1,'distributionSummary');updateDistributionSlot(2,'distributionSummary2');}
 
@@ -2050,13 +2050,13 @@
   function enterCircleDrawMode(){
     state.circleDrawMode=true;state.markerClickSuppressed=true;
     map.getContainer().style.cursor='crosshair';
-    el('drawCircleBtn').textContent='Drawing… drag on map';
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag on map';
     removeCircleHandles();
   }
   function exitCircleDrawMode(){
     state.circleDrawMode=false;state.circleDrawing=null;
     map.getContainer().style.cursor='';
-    el('drawCircleBtn').textContent='Draw circle';
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Draw';
   }
   function createOrReplaceCircle(center,radiusMeters){
     clearCircle();

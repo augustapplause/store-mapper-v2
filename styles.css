@@ -579,3 +579,28 @@ button,
 .circle-radius-handle span{background:#d33e46;border-color:#fff}
 
 .circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;padding:3px 7px;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}
+
+/* v1.21: selection-circle buttons match Go-style 3D controls while using the diamond orange. */
+.circle-action-button{
+  min-height:42px;
+  padding:8px 9px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  font-size:13px !important;
+  font-weight:600 !important;
+  line-height:1.1;
+  background:#ff9d2e !important;
+  color:#fff !important;
+  border:1px solid #e18a1b !important;
+  border-bottom:3px solid #c36f0d !important;
+  border-radius:0 !important;
+  box-shadow:0 2px 0 #c36f0d;
+  transform:translateY(0);
+  transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
+}
+.circle-action-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #c36f0d;filter:brightness(.98)}
+.circle-action-button:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #c36f0d}
+.circle-action-button:disabled{opacity:.45;cursor:not-allowed}
+.circle-button-icon{width:14px;height:14px;border:2px solid #fff;border-radius:50%;display:inline-block;flex:0 0 14px}

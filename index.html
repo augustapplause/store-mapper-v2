@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.20</title>
+  <title>Store Explorer v1.21</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css" />
 </head>
@@ -11,7 +11,7 @@
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.20</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.21</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context</div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -46,8 +46,8 @@
         </form>
         <div class="circle-controls" aria-label="Map selection circle controls">
           <div class="circle-control-buttons">
-            <button id="drawCircleBtn" type="button" class="secondary">Draw circle</button>
-            <button id="clearCircleBtn" type="button" class="secondary" disabled>Clear circle</button>
+            <button id="drawCircleBtn" type="button" class="circle-action-button"><span class="circle-button-icon" aria-hidden="true"></span><span>Draw</span></button>
+            <button id="clearCircleBtn" type="button" class="circle-action-button" disabled><span class="circle-button-icon" aria-hidden="true"></span><span>Clear</span></button>
           </div>
           <div class="circle-status-row">
             <span class="circle-indicator-off" id="circleIndicator" aria-label="No selection circle active"></span>
