@@ -579,7 +579,7 @@ button,
 .circle-edit-handle span::before,.circle-edit-handle span::after{content:"";position:absolute;left:50%;top:50%;background:#d33e46;border-radius:2px;transform:translate(-50%,-50%)}
 .circle-edit-handle span::before{width:20px;height:5px}
 .circle-edit-handle span::after{width:5px;height:20px}
-.circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;padding:3px 7px;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}
+.circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;box-sizing:border-box;width:64px;padding:3px 5px;text-align:center;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}
 
 /* v1.22: selection-circle buttons match Go-style 3D controls while using the diamond orange. */
 .circle-action-button{

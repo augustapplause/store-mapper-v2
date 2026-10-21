@@ -1989,16 +1989,16 @@
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
   function circleRadiusLabelText(radiusMeters){
     const km=radiusMeters/1000;
-    return `Radius: ${km.toFixed(km<1?2:1)} km`;
+    return `${km.toFixed(km<1?2:1)} km`;
   }
   function makeCircleRadiusLabel(latlng,radiusMeters){
-    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[120,24],iconAnchor:[60,-22]})});
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[64,24],iconAnchor:[32,-6]})});
   }
   function updateCircleLabel(){
     const circle=state.circleSelection?.circle;
     const label=state.circleSelection?.label;
     if(!circle||!label)return;
-    label.setLatLng(circle.getLatLng());
+    label.setLatLng(circleEdgeLatLng(circle.getLatLng(),circle.getRadius()));
     const node=label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
   }
@@ -2062,7 +2062,7 @@
     clearCircle();
     const circle=L.circle(center,{pane:'selectionCirclePane',radius:Math.max(10,radiusMeters),color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true});
     circle.addTo(map);
-    const label=makeCircleRadiusLabel(center,circle.getRadius()).addTo(map);
+    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,circle.getRadius()),circle.getRadius()).addTo(map);
     circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
     state.circleSelection={circle,label};
     setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
@@ -2100,7 +2100,7 @@
     if(!state.circleDrawing?.temp)return;
     const r=map.distance(state.circleDrawing.center,e.latlng);
     state.circleDrawing.temp.setRadius(Math.max(1,r));
-    state.circleDrawing.label.setLatLng(state.circleDrawing.center);
+    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,r));
     const node=state.circleDrawing.label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(r);
     el('circleRadiusCounter').textContent=(r/1000).toFixed(r<1000?2:1);
