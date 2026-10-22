@@ -578,8 +578,8 @@ button,
 .circle-edit-handle span{position:relative;display:block;width:20px;height:20px;box-sizing:border-box;filter:drop-shadow(0 1px 2px #0004)}
 .circle-edit-handle span::before,.circle-edit-handle span::after{content:"";position:absolute;left:50%;top:50%;background:#d33e46;border-radius:2px;transform:translate(-50%,-50%)}
 .circle-edit-handle span::before,.circle-edit-handle span::after{width:16px;height:5px}
-.circle-edit-handle span::before{transform:translate(-50%,-50%) rotate(45deg);transform-origin:center center}
-.circle-edit-handle span::after{transform:translate(-50%,-50%) rotate(-45deg);transform-origin:center center}
+.circle-edit-handle span::before{transform:translate(-50%,-50%)}
+.circle-edit-handle span::after{transform:translate(-50%,-50%) rotate(90deg);transform-origin:center center}
 .circle-radius-label{background:transparent!important;border:0!important;pointer-events:none!important}.circle-radius-label span{display:block;box-sizing:border-box;width:54px;padding:3px 5px;text-align:center;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003}
 
 /* v1.22: selection-circle buttons match Go-style 3D controls while using the diamond orange. */
@@ -611,7 +611,12 @@ button,
 
 
 /* v1.24: collapsible left control panel and persistent circle indicator. */
-.circle-radius-handle span::before{width:18px;height:5px;transform:translate(-50%,-50%) rotate(45deg);transform-origin:center center}.circle-radius-handle span::after{width:18px;height:5px;transform:translate(-50%,-50%) rotate(-45deg);transform-origin:center center}
+/* v1.25: center handle is a plus; radius handle is a spaced inward/outward chevron pair. */
+.circle-center-handle span::before,.circle-center-handle span::after{width:16px;height:5px;transform:translate(-50%,-50%);transform-origin:center center}
+.circle-center-handle span::after{transform:translate(-50%,-50%) rotate(90deg)}
+.circle-radius-handle span::before,.circle-radius-handle span::after{width:auto;height:auto;background:transparent;border-radius:0;top:50%;font-family:Arial,sans-serif;font-size:25px;line-height:20px;font-weight:700;color:#d33e46;transform:none}
+.circle-radius-handle span::before{content:'<';left:28%;transform:translate(-50%,-50%);}
+.circle-radius-handle span::after{content:'>';left:72%;transform:translate(-50%,-50%);}
 .left-panel-toggle{position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:1200;width:20px;height:54px;padding:0;background:#eef3f6;color:var(--navy);border:1px solid var(--line);border-left:0;border-radius:0 7px 7px 0;font-size:25px;font-weight:700;line-height:1;box-shadow:2px 2px 0 #b9c7d1;display:flex;align-items:center;justify-content:center;}
 .left-panel-toggle:hover{background:#f8fbfd}
 body.left-panel-collapsed .app-shell{grid-template-columns:0 minmax(420px,1fr) 350px;}
