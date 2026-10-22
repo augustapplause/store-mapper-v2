@@ -2052,85 +2052,6 @@
     state.circleEditHandles.forEach(h=>map.removeLayer(h));
     state.circleEditHandles=[];
   }
-  const CIRCLE_RENDER_POINTS=360;
-  const EARTH_RADIUS_METERS=6371008.8;
-  function destinationPoint(center,meters,bearingDeg){
-    const lat1=center.lat*Math.PI/180;
-    const lon1=center.lng*Math.PI/180;
-    const bearing=bearingDeg*Math.PI/180;
-    const ang=meters/EARTH_RADIUS_METERS;
-    const sinLat1=Math.sin(lat1), cosLat1=Math.cos(lat1);
-    const sinAng=Math.sin(ang), cosAng=Math.cos(ang);
-    const lat2=Math.asin(sinLat1*cosAng + cosLat1*sinAng*Math.cos(bearing));
-    const lon2=lon1 + Math.atan2(
-      Math.sin(bearing)*sinAng*cosLat1,
-      cosAng-sinLat1*Math.sin(lat2)
-    );
-    let lon=lon2*180/Math.PI;
-    lon=((lon+540)%360)-180;
-    return L.latLng(lat2*180/Math.PI,lon);
-  }
-  function circleEdgeLatLng(center,meters){
-    return destinationPoint(center,meters,90);
-  }
-  function geodesicCircleLatLngs(center,meters){
-    const points=[];
-    for(let i=0;i<CIRCLE_RENDER_POINTS;i++) points.push(destinationPoint(center,meters,(i/CIRCLE_RENDER_POINTS)*360));
-    points.push(points[0]);
-    return points;
-  }
-  function geodesicCircleSegments(center,meters){
-    const points=geodesicCircleLatLngs(center,meters);
-    const segments=[];
-    let current=[points[0]];
-    for(let i=1;i<points.length;i++){
-      const a=points[i-1], b=points[i];
-      const rawDiff=b.lng-a.lng;
-      if(Math.abs(rawDiff)<=180){
-        current.push(b);
-        continue;
-      }
-      const lonA=a.lng;
-      const lonB=rawDiff>0?b.lng-360:b.lng+360;
-      const seam=rawDiff>0?-180:180;
-      const t=(seam-lonA)/(lonB-lonA);
-      const lat=a.lat+(b.lat-a.lat)*t;
-      const firstSeam=rawDiff>0?180:-180;
-      current.push(L.latLng(lat,firstSeam));
-      segments.push(current);
-      current=[L.latLng(lat,seam),b];
-    }
-    if(current.length>1) segments.push(current);
-    return segments;
-  }
-  function createGeodesicCircleVisual(center,meters,{interactive=false}={}){
-    const group=L.featureGroup();
-    const addSegments=()=>{
-      geodesicCircleSegments(center,meters).forEach(segment=>{
-        const line=L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fill:false,interactive, smoothFactor:1, lineCap:'round',lineJoin:'round'});
-        line.addTo(group);
-      });
-    };
-    addSegments();
-    group.setLatLngs=(latlngs)=>{
-      const origin=latlngs?.[0];
-      if(!origin)return;
-      const radius=map.distance(origin,latlngs[Math.floor(latlngs.length/4)]||origin);
-      group.clearLayers();
-      geodesicCircleSegments(origin,radius).forEach(segment=>{
-        L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive, smoothFactor:1, lineCap:'round',lineJoin:'round'}).addTo(group);
-      });
-    };
-    return group;
-  }
-  function updateCircleVisual(circle){
-    const selection=state.circleSelection;
-    if(!selection?.visual||!circle)return;
-    selection.visual.clearLayers();
-    geodesicCircleSegments(circle.getLatLng(),circle.getRadius()).forEach(segment=>{
-      L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive:true, smoothFactor:1, lineCap:'round',lineJoin:'round'}).addTo(selection.visual);
-    });
-  }
   function showCircleHandles(){
     removeCircleHandles();
     const circle=state.circleSelection?.circle;if(!circle)return;
@@ -2142,7 +2063,6 @@
       if(!state.circleSelection)return;
       const ll=e.target.getLatLng();
       circle.setLatLng(ll);
-      updateCircleVisual(circle);
       radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
       updateCircleRadiusCounter();updateCircleLabel();updateSelection();
     });
@@ -2152,7 +2072,6 @@
       const center=circle.getLatLng();
       const radius=Math.max(10,map.distance(center,ll));
       circle.setRadius(radius);
-      updateCircleVisual(circle);
       radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
       updateCircleRadiusCounter();updateCircleLabel();updateSelection();
     });
@@ -2172,13 +2091,10 @@
   function createOrReplaceCircle(center,radiusMeters){
     clearCircle();
     const radius=Math.max(10,radiusMeters);
-    const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false});
-    circle.addTo(map);
-    const visual=createGeodesicCircleVisual(center,radius,{interactive:true});
-    visual.addTo(map);
+    const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineCap:'round',lineJoin:'round'}).addTo(map);
+    circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
-    visual.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
-    state.circleSelection={circle,visual,label};
+    state.circleSelection={circle,label};
     setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
     updateSelection();
     if(!map.getBounds().contains(circle.getBounds().getNorthEast()) || !map.getBounds().contains(circle.getBounds().getSouthWest())){
@@ -2188,7 +2104,6 @@
   function clearCircle(){
     removeCircleHandles();
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
-    if(state.circleSelection?.visual)map.removeLayer(state.circleSelection.visual);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
     state.circleSelection=null;
     state.circleDrawing=null;
@@ -2205,11 +2120,9 @@
     if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
     state.circleDrawing={center:e.latlng};
     map.dragging.disable();
-    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false}).addTo(map);
-    const visual=createGeodesicCircleVisual(e.latlng,1,{interactive:false}).addTo(map);
-    const label=makeCircleRadiusLabel(e.latlng,1).addTo(map);
+    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(map);
+    const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
     state.circleDrawing.temp=temp;
-    state.circleDrawing.visual=visual;
     state.circleDrawing.label=label;
     map.getContainer().style.cursor='crosshair';
   });
@@ -2218,8 +2131,6 @@
     const r=map.distance(state.circleDrawing.center,e.latlng);
     const rr=Math.max(1,r);
     state.circleDrawing.temp.setRadius(rr);
-    state.circleDrawing.visual.clearLayers();
-    geodesicCircleSegments(state.circleDrawing.center,rr).forEach(segment=>L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive:false,smoothFactor:1,lineCap:'round',lineJoin:'round'}).addTo(state.circleDrawing.visual));
     state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,rr));
     const node=state.circleDrawing.label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(r);
@@ -2230,7 +2141,6 @@
     const draw=state.circleDrawing;
     const r=map.distance(draw.center,e.latlng);
     map.removeLayer(draw.temp);
-    if(draw.visual)map.removeLayer(draw.visual);
     if(draw.label)map.removeLayer(draw.label);
     state.circleDrawing=null;
     map.dragging.enable();
@@ -2256,7 +2166,6 @@
     if(state.circleSelection?.circle && state.circleEditHandles.length){
       const center=state.circleSelection.circle.getLatLng();
       const edge=circleEdgeLatLng(center,state.circleSelection.circle.getRadius());
-      updateCircleVisual(state.circleSelection.circle);
       state.circleEditHandles[0].setLatLng(center);
       state.circleEditHandles[1].setLatLng(edge);
       updateCircleLabel();
