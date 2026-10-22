@@ -1994,6 +1994,14 @@
   function makeCircleRadiusLabel(latlng,radiusMeters){
     return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,-14]})});
   }
+  // Keep the resize handle / radius label on the east side of the circle.
+  // This is intentionally a lightweight local approximation because the visible
+  // selection circle itself is rendered by Leaflet's native L.Circle.
+  function circleEdgeLatLng(center,meters){
+    const latRad=center.lat*Math.PI/180;
+    const cosLat=Math.max(Math.cos(latRad),1e-6);
+    return L.latLng(center.lat,center.lng + meters/(111320*cosLat));
+  }
   function updateCircleLabel(){
     const circle=state.circleSelection?.circle;
     const label=state.circleSelection?.label;
@@ -2139,14 +2147,24 @@
   map.on('mouseup',e=>{
     if(!state.circleDrawing?.temp)return;
     const draw=state.circleDrawing;
-    const r=map.distance(draw.center,e.latlng);
-    map.removeLayer(draw.temp);
-    if(draw.label)map.removeLayer(draw.label);
-    state.circleDrawing=null;
-    map.dragging.enable();
-    createOrReplaceCircle(draw.center,Math.max(10,r));
-    exitCircleDrawMode();
-    setTimeout(()=>{state.markerClickSuppressed=false;},100);
+    try{
+      const r=map.distance(draw.center,e.latlng);
+      if(draw.temp)map.removeLayer(draw.temp);
+      if(draw.label)map.removeLayer(draw.label);
+      state.circleDrawing=null;
+      createOrReplaceCircle(draw.center,Math.max(10,r));
+      exitCircleDrawMode();
+    }catch(err){
+      console.error('Circle draw completion failed:',err);
+      if(draw.temp)map.removeLayer(draw.temp);
+      if(draw.label)map.removeLayer(draw.label);
+      state.circleDrawing=null;
+      exitCircleDrawMode();
+    }finally{
+      // Never leave Leaflet's normal map-drag state disabled after a failed draw.
+      map.dragging.enable();
+      setTimeout(()=>{state.markerClickSuppressed=false;},100);
+    }
   });
   map.on('click',e=>{
     if(state.circleDrawMode)return;
