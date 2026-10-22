@@ -2052,7 +2052,7 @@
     state.circleEditHandles.forEach(h=>map.removeLayer(h));
     state.circleEditHandles=[];
   }
-  const CIRCLE_RENDER_POINTS=180;
+  const CIRCLE_RENDER_POINTS=360;
   const EARTH_RADIUS_METERS=6371008.8;
   function destinationPoint(center,meters,bearingDeg){
     const lat1=center.lat*Math.PI/180;
@@ -2079,10 +2079,57 @@
     points.push(points[0]);
     return points;
   }
+  function geodesicCircleSegments(center,meters){
+    const points=geodesicCircleLatLngs(center,meters);
+    const segments=[];
+    let current=[points[0]];
+    for(let i=1;i<points.length;i++){
+      const a=points[i-1], b=points[i];
+      const rawDiff=b.lng-a.lng;
+      if(Math.abs(rawDiff)<=180){
+        current.push(b);
+        continue;
+      }
+      const lonA=a.lng;
+      const lonB=rawDiff>0?b.lng-360:b.lng+360;
+      const seam=rawDiff>0?-180:180;
+      const t=(seam-lonA)/(lonB-lonA);
+      const lat=a.lat+(b.lat-a.lat)*t;
+      const firstSeam=rawDiff>0?180:-180;
+      current.push(L.latLng(lat,firstSeam));
+      segments.push(current);
+      current=[L.latLng(lat,seam),b];
+    }
+    if(current.length>1) segments.push(current);
+    return segments;
+  }
+  function createGeodesicCircleVisual(center,meters,{interactive=false}={}){
+    const group=L.featureGroup();
+    const addSegments=()=>{
+      geodesicCircleSegments(center,meters).forEach(segment=>{
+        const line=L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fill:false,interactive, smoothFactor:1, lineCap:'round',lineJoin:'round'});
+        line.addTo(group);
+      });
+    };
+    addSegments();
+    group.setLatLngs=(latlngs)=>{
+      const origin=latlngs?.[0];
+      if(!origin)return;
+      const radius=map.distance(origin,latlngs[Math.floor(latlngs.length/4)]||origin);
+      group.clearLayers();
+      geodesicCircleSegments(origin,radius).forEach(segment=>{
+        L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive, smoothFactor:1, lineCap:'round',lineJoin:'round'}).addTo(group);
+      });
+    };
+    return group;
+  }
   function updateCircleVisual(circle){
     const selection=state.circleSelection;
     if(!selection?.visual||!circle)return;
-    selection.visual.setLatLngs(geodesicCircleLatLngs(circle.getLatLng(),circle.getRadius()));
+    selection.visual.clearLayers();
+    geodesicCircleSegments(circle.getLatLng(),circle.getRadius()).forEach(segment=>{
+      L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive:true, smoothFactor:1, lineCap:'round',lineJoin:'round'}).addTo(selection.visual);
+    });
   }
   function showCircleHandles(){
     removeCircleHandles();
@@ -2127,7 +2174,7 @@
     const radius=Math.max(10,radiusMeters);
     const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false});
     circle.addTo(map);
-    const visual=L.polygon(geodesicCircleLatLngs(center,radius),{pane:'selectionCirclePane',color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true,smoothFactor:0,noClip:false});
+    const visual=createGeodesicCircleVisual(center,radius,{interactive:true});
     visual.addTo(map);
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     visual.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
@@ -2159,7 +2206,7 @@
     state.circleDrawing={center:e.latlng};
     map.dragging.disable();
     const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false}).addTo(map);
-    const visual=L.polygon(geodesicCircleLatLngs(e.latlng,1),{pane:'selectionCirclePane',color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:false,smoothFactor:0}).addTo(map);
+    const visual=createGeodesicCircleVisual(e.latlng,1,{interactive:false}).addTo(map);
     const label=makeCircleRadiusLabel(e.latlng,1).addTo(map);
     state.circleDrawing.temp=temp;
     state.circleDrawing.visual=visual;
@@ -2171,7 +2218,8 @@
     const r=map.distance(state.circleDrawing.center,e.latlng);
     const rr=Math.max(1,r);
     state.circleDrawing.temp.setRadius(rr);
-    state.circleDrawing.visual.setLatLngs(geodesicCircleLatLngs(state.circleDrawing.center,rr));
+    state.circleDrawing.visual.clearLayers();
+    geodesicCircleSegments(state.circleDrawing.center,rr).forEach(segment=>L.polyline(segment,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,interactive:false,smoothFactor:1,lineCap:'round',lineJoin:'round'}).addTo(state.circleDrawing.visual));
     state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,rr));
     const node=state.circleDrawing.label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(r);
