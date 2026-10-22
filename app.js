@@ -1,7 +1,9 @@
-/* Store Explorer - v1.26
+/* Store Explorer - v1.31
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
-   province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
+   Census catchment logic is boundary-driven: an active selection circle controls DA selection when
+   present; otherwise the visible map viewport controls DA selection. DAs qualify when the exact
+   intersection area / DA area is >= the persistent threshold. A qualifying DA contributes its full
+   Census population totals; store presence has no bearing on DA selection.
 */
 (() => {
   'use strict';
@@ -27,8 +29,8 @@
     },
     prCodeByUid: {'10':'NL','11':'PE','12':'NS','13':'NB','24':'QC','35':'ON','46':'MB','47':'SK','48':'AB','59':'BC','60':'YT','61':'NT','62':'NU'},
     csdMinZoom: 6,
-    cityCensusRadiusKm: 10,
-    minDaOverlapPct: 5
+    censusDefaultThresholdPct: 50,
+    censusStorageKey: 'storeExplorer.censusDaThresholdPct'
   };
 
   const state = {
@@ -43,7 +45,7 @@
     selectedGroupKey: null,
     selectedStoreRow: null,
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
-    daCache: new Map(), currentDaProvince: null, daLayer: null,
+    daCache: new Map(), currentDaProvince: null, daLayer: null, daFeatureMeta: new WeakMap(),
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
     circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
@@ -51,7 +53,7 @@
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
     userMapInteraction: false,
-    censusRequestId:0, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusSelectedDAs:[], censusThresholdPct:50, censusRefreshTimer:null, censusBoundaryKey:'', censusHasResult:false, censusActivated:false, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
   const el = id => document.getElementById(id);
@@ -59,10 +61,14 @@
   const fmtPct = v => Number.isFinite(v) ? `${(v*100).toFixed(1)}%` : '—';
   const fmtMoney = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(v) : '—';
   const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
+  const fmtRatio = v => Number.isFinite(v) ? `${(v*100).toFixed(1)}%` : '—';
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 
   const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
+  const censusDaPane = map.createPane('censusDaPane');
+  censusDaPane.style.zIndex = '360';
+  censusDaPane.style.pointerEvents = 'auto';
   const selectionCirclePane = map.createPane('selectionCirclePane');
   selectionCirclePane.style.zIndex = '550';
   selectionCirclePane.style.pointerEvents = 'auto';
@@ -76,7 +82,7 @@
   const provinceSelectedStyle = {color:'#086fb4',weight:3,fillColor:'#58a9d8',fillOpacity:.13};
   const csdStyle = {color:'#5e8399',weight:1,fillColor:'#64a3c5',fillOpacity:.035};
   const csdHoverStyle = {color:'#0877bd',weight:2,fillOpacity:.08};
-  const daStyle = {color:'#298ac2',weight:.6,fillColor:'#45a3d4',fillOpacity:.08};
+  const daStyle = {color:'#4b83a1',weight:.7,fillColor:'#8fc0d8',fillOpacity:.16,interactive:false};
 
   async function fetchJson(url, options={}) {
     const controller = new AbortController();
@@ -296,8 +302,7 @@
     const code=provinceCodeFromFeature(feature);
     state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
     state.initialNationalView=false;state.mapReadyForViewport=true;
-    el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';
-    el('censusNote').textContent='Province selected. Search a city/address or draw a selection circle for a more specific catchment.';
+    activateCensusCatchment('province selection');
     fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
     updateSelection();
   }
@@ -316,12 +321,13 @@
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
       state.initialNationalView=false;state.mapReadyForViewport=true;
+      activateCensusCatchment('address search');
       const km=10;
       const dLat=km/110.5,dLon=km/(111*Math.cos(lat*Math.PI/180));
       const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
       map.once('moveend',()=>{if(token===state.searchToken)updateSelection();});
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      setTimeout(()=>{if(token===state.searchToken){updateSelection();loadCityCensusForGeo(lat,lng,c.address||query,provinceCode);}},250);
+      setTimeout(()=>{if(token===state.searchToken)updateSelection();},250);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
@@ -331,11 +337,11 @@
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
-    el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';el('censusNote').textContent='Search or click a city to load the 10 km DA census catchment.';
+    setCensusDisplayEmpty('Waiting for geographic selection…');
     fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});updateSelection();
   }
 
-  function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
+  function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;state.censusSelectedDAs=[];state.censusBoundaryKey='';state.censusHasResult=false;renderCensusDaList([]);}
   function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
   function setMapLoading(on){el('mapLoading').classList.toggle('hidden',!on);}
 
@@ -869,7 +875,7 @@
     el('geoStatus').textContent=state.rows.length?(state.circleSelection && state.circleSelection.circle && state.circleSelection.circle.getBounds().intersects(map.getBounds()) ? `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current selection circle and viewport${filterNote}.` : `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current map view${filterNote}.`):'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
-    updateKpis();updateSubjects();updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();renderTicker();
+    updateKpis();updateSubjects();updateGroups();updateDistribution();updateSelectedStoresList();updateCensusDerivedMetrics();refreshMarkerStyles();renderTicker();
   }
   function fmtThousands(v){return Number.isFinite(v)?Math.round(v/1000).toLocaleString('en-CA'):'—';}
   function updateKpis(){
@@ -1424,7 +1430,58 @@
     el('filterDialog').close();
   }
 
-  // ---------- Census: translated from supplied Streamlit DA methodology ----------
+  // ---------- Census DA catchment ----------
+  const DA_FIELD_ALIASES = {
+    id: ['DA_ID','DAUID','DAUID_2021','DGUID'],
+    total: ['total_population','population_total','total_pop'],
+    senior: ['population_65_plus','population_65plus','pop_65_plus','65_plus_population'],
+    forty: ['population_40_plus','population_40plus','pop_40_plus','40_plus_population']
+  };
+
+  function readStoredCensusThreshold(){
+    try{
+      const raw=Number(localStorage.getItem(CONFIG.censusStorageKey));
+      return Number.isFinite(raw)?clamp(raw,0,100):CONFIG.censusDefaultThresholdPct;
+    }catch{return CONFIG.censusDefaultThresholdPct;}
+  }
+
+  function setCensusThreshold(value,{persist=true,refresh=true}={}){
+    const raw=typeof value==='number'?value:parseFloat(String(value).replace('%','').trim());
+    const pct=Number.isFinite(raw)?clamp(raw,0,100):CONFIG.censusDefaultThresholdPct;
+    state.censusThresholdPct=pct;
+    const input=el('censusThreshold');
+    if(input && document.activeElement!==input) input.value=String(Number.isInteger(pct)?pct:pct.toFixed(1));
+    if(persist){try{localStorage.setItem(CONFIG.censusStorageKey,String(pct));}catch{}}
+    if(refresh)scheduleCensusCatchmentRefresh();
+  }
+
+  function daId(feature){
+    const p=feature?.properties||{};
+    for(const key of DA_FIELD_ALIASES.id){
+      if(p[key]!==undefined && p[key]!==null && String(p[key]).trim()!=='')return String(p[key]);
+    }
+    return '—';
+  }
+
+  function daNumeric(feature,kind){
+    const p=feature?.properties||{};
+    for(const key of DA_FIELD_ALIASES[kind]||[]){
+      const value=toNumber(p[key]);
+      if(value!==null)return value;
+    }
+    return 0;
+  }
+
+  function daMeta(feature){
+    let meta=state.daFeatureMeta.get(feature);
+    if(meta)return meta;
+    const bbox=feature?.bbox || turf.bbox(feature);
+    const area=turf.area(feature);
+    meta={bbox,area,id:daId(feature)};
+    state.daFeatureMeta.set(feature,meta);
+    return meta;
+  }
+
   async function loadDaGeoJSON(provinceCode){
     if(!provinceCode)throw new Error('Province could not be identified for this census request.');
     if(state.daCache.has(provinceCode))return state.daCache.get(provinceCode);
@@ -1432,22 +1489,32 @@
     if(!file)throw new Error(`No DA file configured for ${provinceCode}.`);
     const errors=[];
 
-    // 1) Local GitHub Pages data/da/ copy, if supplied.
-    for(const template of [CONFIG.daSources[0]]){
-      const url=template.replace('{file}',encodeURIComponent(file));
-      try{const geo=await fetchJson(url,{timeout:180000});if(!geo?.features)throw new Error('GeoJSON contained no features.');state.daCache.set(provinceCode,geo);return geo;}
-      catch(err){errors.push(`local: ${err.message}`);}
+    // Repository-root paths are the primary source. Keep compatibility fallbacks
+    // for the packaged app so the same v1.31 build can run from GitHub Pages/local hosting.
+    for(const template of [`${file}`, 'data/da/{file}']){
+      const url=template.includes('{file}')?template.replace('{file}',encodeURIComponent(file)):encodeURIComponent(file);
+      try{
+        const geo=await fetchJson(url,{timeout:180000});
+        if(!geo?.features)throw new Error('GeoJSON contained no features.');
+        state.daCache.set(provinceCode,geo);return geo;
+      }catch(err){errors.push(`local: ${err.message}`);}
     }
 
-    // 2) Original GitHub branch path.
-    try{
-      const url=CONFIG.daSources[1].replace('{file}',encodeURIComponent(file));
-      const geo=await fetchJson(url,{timeout:180000});if(!geo?.features)throw new Error('GeoJSON contained no features.');state.daCache.set(provinceCode,geo);return geo;
-    }catch(err){errors.push(`branch: ${err.message}`);}
+    // Existing release/branch fallbacks retained for compatibility.
+    for(const template of [
+      'https://raw.githubusercontent.com/augustapplause/python-project-v1/v1/{file}',
+      'https://github.com/augustapplause/python-project-v1/releases/download/v1/{file}'
+    ]){
+      try{
+        const url=template.replace('{file}',encodeURIComponent(file));
+        const geo=await fetchJson(url,{timeout:180000});
+        if(!geo?.features)throw new Error('GeoJSON contained no features.');
+        state.daCache.set(provinceCode,geo);return geo;
+      }catch(err){errors.push(`fallback: ${err.message}`);}
+    }
 
-    // 3) Resolve the actual release asset URL from GitHub, then download it.
     try{
-      const rel=await fetchJson(CONFIG.daReleaseApi,{timeout:30000});
+      const rel=await fetchJson('https://api.github.com/repos/augustapplause/python-project-v1/releases/tags/v1',{timeout:30000});
       const asset=(rel.assets||[]).find(a=>a.name===file);
       if(!asset?.browser_download_url)throw new Error(`Release asset ${file} not found.`);
       const geo=await fetchJson(asset.browser_download_url,{timeout:180000});
@@ -1455,66 +1522,184 @@
       state.daCache.set(provinceCode,geo);return geo;
     }catch(err){errors.push(`release: ${err.message}`);}
 
-    // 4) Original direct release URL as final compatibility fallback.
-    try{
-      const url=CONFIG.daSources[2].replace('{file}',encodeURIComponent(file));
-      const geo=await fetchJson(url,{timeout:180000});if(!geo?.features)throw new Error('GeoJSON contained no features.');state.daCache.set(provinceCode,geo);return geo;
-    }catch(err){errors.push(`direct-release: ${err.message}`);}
-
     throw new Error(`Could not load ${provinceCode} DA census file ${file}. ${errors.join(' | ')}`);
   }
 
-  function featureBBoxIntersects(a,b){
-    const aa=a.bbox||turf.bbox(a),bb=b.bbox||turf.bbox(b);
-    return !(aa[2]<bb[0]||aa[0]>bb[2]||aa[3]<bb[1]||aa[1]>bb[3]);
+  function boundaryForCensus(){
+    const circle=state.circleSelection?.circle;
+    if(circle){
+      const centre=circle.getLatLng();
+      const radiusKm=circle.getRadius()/1000;
+      const polygon=turf.circle([centre.lng,centre.lat],radiusKm,{steps:96,units:'kilometers'});
+      return {type:'circle',shape:polygon,label:'selection circle',center:centre,radiusKm};
+    }
+    const b=map.getBounds();
+    const bbox=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()];
+    return {type:'viewport',shape:turf.bboxPolygon(bbox),label:'visible map',bbox};
   }
 
-  async function buildDaCatchment(lat,lng,radiusKm,provinceCode){
-    const daGeo=await loadDaGeoJSON(provinceCode);
-    const point=turf.point([lng,lat]);
-    const circle=turf.buffer(point,radiusKm,{units:'kilometers',steps:64});
-    let subject=null;
-    for(const f of daGeo.features||[]){
-      try{if(turf.booleanPointInPolygon(point,f)){subject=f;break;}}catch{}
+  function provinceCodesForBoundary(boundary){
+    const result=[];
+    if(state.provinceGeo?.features?.length){
+      const bb=turf.bbox(boundary.shape);
+      for(const feature of state.provinceGeo.features){
+        if(!feature?.geometry)continue;
+        try{
+          const pbb=feature.bbox||turf.bbox(feature);
+          if(pbb[2]<bb[0]||pbb[0]>bb[2]||pbb[3]<bb[1]||pbb[1]>bb[3])continue;
+          if(turf.booleanIntersects(feature,boundary.shape)){
+            const code=provinceCodeFromFeature(feature);
+            if(code && !result.includes(code))result.push(code);
+          }
+        }catch{}
+      }
     }
-    const selected=[];
-    const cb=turf.bbox(circle);
-    for(const f of daGeo.features||[]){
-      if(!f.geometry)continue;
-      try{
-        if(f===subject){selected.push(f);continue;}
-        const fb=f.bbox||turf.bbox(f);if(fb[2]<cb[0]||fb[0]>cb[2]||fb[3]<cb[1]||fb[1]>cb[3])continue;
-        if(!turf.booleanIntersects(f,circle))continue;
-        const inter=turf.intersect(turf.featureCollection([f,circle]));
-        if(!inter)continue;
-        const interArea=turf.area(inter), daArea=turf.area(f);if(daArea>0&&(interArea/daArea*100)>=CONFIG.minDaOverlapPct)selected.push(f);
-      }catch{}
+    if(!result.length){
+      const fallback=state.selection.provinceCode || null;
+      if(fallback)result.push(fallback);
     }
-    return {selected,subject,daGeo,circle};
+    return result;
   }
 
-  function sumDaField(features,field){return features.reduce((s,f)=>s+(toNumber(f.properties?.[field])||0),0);}
+  function censusBoundaryKey(boundary,threshold){
+    if(boundary.type==='circle'){
+      return ['circle',boundary.center.lat.toFixed(5),boundary.center.lng.toFixed(5),boundary.radiusKm.toFixed(3),threshold.toFixed(2)].join('|');
+    }
+    const b=map.getBounds();
+    return ['viewport',b.getWest().toFixed(5),b.getSouth().toFixed(5),b.getEast().toFixed(5),b.getNorth().toFixed(5),map.getZoom().toFixed(2),threshold.toFixed(2)].join('|');
+  }
 
-  async function loadCityCensusForGeo(lat,lng,label,provinceCode){
+  function setCensusDisplayLoading(note='Recalculating Census DAs…'){
+    el('censusPopulation').textContent='…';
+    el('censusSeniors').textContent='…';
+    el('censusForty').textContent='…';
+    el('censusDaCount').textContent='…';
+    el('censusPopPerStore').textContent='…';
+    el('censusSeniorShare').textContent='…';
+    el('censusNote').textContent=note;
+  }
+
+  function setCensusDisplayEmpty(note=''){
+    ['censusPopulation','censusSeniors','censusForty','censusDaCount','censusPopPerStore','censusSeniorShare'].forEach(id=>{if(el(id))el(id).textContent='—';});
+    el('censusNote').textContent=note;
+  }
+
+  function activateCensusCatchment(reason='geographic selection'){
+    if(state.censusActivated)return false;
+    state.censusActivated=true;
+    setCensusDisplayLoading(`Census catchment activated by ${reason}. Calculating…`);
+    scheduleCensusCatchmentRefresh();
+    return true;
+  }
+
+  function updateCensusDerivedMetrics(){
+    if(!state.censusHasResult)return;
+    const selected=state.censusSelectedDAs||[];
+    const pop=selected.reduce((sum,f)=>sum+daNumeric(f,'total'),0);
+    const seniors=selected.reduce((sum,f)=>sum+daNumeric(f,'senior'),0);
+    const forty=selected.reduce((sum,f)=>sum+daNumeric(f,'forty'),0);
+    const storeCount=state.selectedRows.length;
+    el('censusPopulation').textContent=fmtInt(pop);
+    el('censusSeniors').textContent=fmtInt(seniors);
+    el('censusForty').textContent=fmtInt(forty);
+    el('censusDaCount').textContent=fmtInt(selected.length);
+    el('censusPopPerStore').textContent=fmtNum(storeCount>0?pop/storeCount:NaN);
+    el('censusSeniorShare').textContent=fmtRatio(pop>0?seniors/pop:NaN);
+  }
+
+  function renderCensusDaList(features){
+    const host=el('censusDaList');
+    if(!host)return;
+    if(!features?.length){
+      host.innerHTML='<div class="empty-message">No Census DAs currently meet the catchment threshold.</div>';
+      return;
+    }
+    const sorted=[...features].sort((a,b)=>daId(a).localeCompare(daId(b),undefined,{numeric:true,sensitivity:'base'}));
+    host.innerHTML='<table class="census-da-table"><thead><tr><th>DA ID</th><th>Population</th><th>65+</th><th>40+</th></tr></thead><tbody>'+sorted.map(f=>`<tr><td>${esc(daId(f))}</td><td>${fmtInt(daNumeric(f,'total'))}</td><td>${fmtInt(daNumeric(f,'senior'))}</td><td>${fmtInt(daNumeric(f,'forty'))}</td></tr>`).join('')+'</tbody></table>';
+  }
+
+  function renderCensusDaOverlay(features){
+    if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}
+    if(!features.length)return;
+    state.daLayer=L.geoJSON(turf.featureCollection(features),{
+      pane:'censusDaPane',
+      style:daStyle,
+      interactive:false,
+      onEachFeature:(feature,layer)=>{
+        const p=feature.properties||{};
+        layer.bindTooltip(`DA ${esc(daId(feature))} • Population ${fmtInt(daNumeric(feature,'total'))} • 65+ ${fmtInt(daNumeric(feature,'senior'))} • 40+ ${fmtInt(daNumeric(feature,'forty'))}`,{sticky:true});
+      }
+    }).addTo(map);
+  }
+
+  async function refreshCensusCatchment(){
     const requestId=++state.censusRequestId;
-    el('censusPopulation').textContent='…';el('censusSeniors').textContent='…';el('censusDaCount').textContent='…';el('censusNote').textContent=`Loading ${provinceCode||''} DA census data for a ${CONFIG.cityCensusRadiusKm} km catchment…`;
-    clearDaOverlay();
+    const threshold=state.censusThresholdPct;
+    const boundary=boundaryForCensus();
+    const key=censusBoundaryKey(boundary,threshold);
+    if(key===state.censusBoundaryKey && state.censusHasResult){updateCensusDerivedMetrics();return;}
+    setCensusDisplayLoading(`Selecting DAs from the ${boundary.label} at ≥${Number.isInteger(threshold)?threshold:threshold.toFixed(1)}% boundary overlap…`);
+
     try{
-      if(!provinceCode)provinceCode=await queryProvinceAt(lat,lng);
-      if(!provinceCode)throw new Error('Could not identify the province at the searched location.');
-      const result=await buildDaCatchment(lat,lng,CONFIG.cityCensusRadiusKm,provinceCode);
+      const provinceCodes=provinceCodesForBoundary(boundary);
+      if(!provinceCodes.length)throw new Error('No province boundary intersects the active Census catchment.');
+
+      const selected=[];
+      for(const provinceCode of provinceCodes){
+        const daGeo=await loadDaGeoJSON(provinceCode);
+        if(requestId!==state.censusRequestId)return;
+        const boundaryBbox=turf.bbox(boundary.shape);
+        for(const feature of daGeo.features||[]){
+          if(!feature?.geometry)continue;
+          let meta;
+          try{meta=daMeta(feature);}catch{continue;}
+          const bb=meta.bbox;
+          if(bb[2]<boundaryBbox[0]||bb[0]>boundaryBbox[2]||bb[3]<boundaryBbox[1]||bb[1]>boundaryBbox[3])continue;
+          if(!meta.area || meta.area<=0)continue;
+          try{
+            if(!turf.booleanIntersects(feature,boundary.shape))continue;
+            const inter=turf.intersect(turf.featureCollection([feature,boundary.shape]));
+            if(!inter)continue;
+            const overlapPct=(turf.area(inter)/meta.area)*100;
+            if(overlapPct+1e-9>=threshold)selected.push(feature);
+          }catch{}
+        }
+      }
       if(requestId!==state.censusRequestId)return;
-      const selected=result.selected;
-      const pop=sumDaField(selected,'total_population');
-      const seniors=sumDaField(selected,'population_65_plus');
-      el('censusPopulation').textContent=fmtInt(pop);el('censusSeniors').textContent=fmtInt(seniors);el('censusDaCount').textContent=fmtInt(selected.length);el('censusNote').textContent=`2021 DA catchment: ${CONFIG.minDaOverlapPct}% minimum overlap, plus containing DA. ${provinceCode}.`;
-      state.currentDaProvince=provinceCode;
-      state.daLayer=L.geoJSON(turf.featureCollection(selected),{style:daStyle,onEachFeature:(feature,layer)=>{const p=feature.properties||{};layer.bindTooltip(`DA ${p.DA_ID||''} • Population ${fmtInt(toNumber(p.total_population)||0)} • Seniors 65+ ${fmtInt(toNumber(p.population_65_plus)||0)}`,{sticky:true});}}).addTo(map);
-      state.daLayer.bringToBack();
+
+      const deduped=[];
+      const seen=new Set();
+      for(const feature of selected){
+        const keyId=`${daId(feature)}`;
+        if(seen.has(keyId))continue;
+        seen.add(keyId);deduped.push(feature);
+      }
+      deduped.sort((a,b)=>daId(a).localeCompare(daId(b),undefined,{numeric:true,sensitivity:'base'}));
+      state.censusSelectedDAs=deduped;
+      state.currentDaProvince=provinceCodes.join(',');
+      state.censusBoundaryKey=key;
+      state.censusHasResult=true;
+
+      updateCensusDerivedMetrics();
+      el('censusNote').textContent=`2021 Census DAs • ${boundary.label} • include at ≥${Number.isInteger(threshold)?threshold:threshold.toFixed(1)}% overlap • full DA population counted • store selection is independent.`;
+      renderCensusDaList(deduped);
+      renderCensusDaOverlay(deduped);
     }catch(err){
       if(requestId!==state.censusRequestId)return;
-      el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';el('censusNote').textContent=`Census DA load failed: ${err.message}`;
+      state.censusSelectedDAs=[];state.censusBoundaryKey='';state.censusHasResult=false;
+      if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}
+      renderCensusDaList([]);
+      setCensusDisplayEmpty(`Census DA load failed: ${err.message}`);
     }
+  }
+
+  function scheduleCensusCatchmentRefresh(){
+    if(!state.censusActivated)return;
+    if(state.censusRefreshTimer)clearTimeout(state.censusRefreshTimer);
+    state.censusRefreshTimer=setTimeout(()=>{
+      state.censusRefreshTimer=null;
+      refreshCensusCatchment();
+    },180);
   }
 
   function goToStoreNumber(){
@@ -1541,6 +1726,7 @@
     state.storeJumpTarget=target;
     state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
     state.initialNationalView=false; state.mapReadyForViewport=true;
+    activateCensusCatchment('store search');
     const dLat=km/110.5, dLon=km/(111*Math.cos(lat*Math.PI/180));
     const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
     fitMapProgrammatically(targetBounds,{padding:[25,25]});
@@ -1981,10 +2167,17 @@
     el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
   }
+  state.censusThresholdPct=readStoredCensusThreshold();
+
   // ---------- UI wiring ----------
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
   el('clearFileBtn').addEventListener('click',clearFinancial);
   el('storeNumberBtn').addEventListener('click',goToStoreNumber);
+  if(el('censusThreshold')){
+    el('censusThreshold').value=String(Number.isInteger(state.censusThresholdPct)?state.censusThresholdPct:state.censusThresholdPct.toFixed(1));
+    el('censusThreshold').addEventListener('input',e=>{if(String(e.target.value).trim()!=='')setCensusThreshold(e.target.value);});
+    el('censusThreshold').addEventListener('change',e=>setCensusThreshold(e.target.value));
+  }
   el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();goToStoreNumber();}});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
   function circleRadiusLabelText(radiusMeters){
@@ -2072,7 +2265,7 @@
       const ll=e.target.getLatLng();
       circle.setLatLng(ll);
       radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
-      updateCircleRadiusCounter();updateCircleLabel();updateSelection();
+      updateCircleRadiusCounter();updateCircleLabel();updateSelection();scheduleCensusCatchmentRefresh();
     });
     radiusHandle.on('drag',e=>{
       if(!state.circleSelection)return;
@@ -2081,7 +2274,7 @@
       const radius=Math.max(10,map.distance(center,ll));
       circle.setRadius(radius);
       radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
-      updateCircleRadiusCounter();updateCircleLabel();updateSelection();
+      updateCircleRadiusCounter();updateCircleLabel();updateSelection();scheduleCensusCatchmentRefresh();
     });
     state.circleEditHandles=[centerHandle,radiusHandle];
   }
@@ -2105,6 +2298,7 @@
     state.circleSelection={circle,label};
     setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
     updateSelection();
+    activateCensusCatchment('selection circle');
     if(!map.getBounds().contains(circle.getBounds().getNorthEast()) || !map.getBounds().contains(circle.getBounds().getSouthWest())){
       fitMapProgrammatically(circle.getBounds(),{padding:[30,30],maxZoom:map.getZoom()});
     }
@@ -2123,7 +2317,7 @@
     if(state.circleDrawMode){exitCircleDrawMode();return;}
     enterCircleDrawMode();
   });
-  el('clearCircleBtn').addEventListener('click',()=>{clearCircle();updateSelection();});
+  el('clearCircleBtn').addEventListener('click',()=>{clearCircle();state.censusBoundaryKey='';updateSelection();scheduleCensusCatchmentRefresh();});
   map.on('mousedown',e=>{
     if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
     state.circleDrawing={center:e.latlng};
@@ -2195,9 +2389,12 @@
       state.initialNationalView=false;
       state.mapReadyForViewport=true;
     }
+    const meaningfulUserMapMove = !programmatic && (state.userMapInteraction || state.initialNationalView);
     state.userMapInteraction=false;
     updateHeaderGeography();
     updateSelection();
+    if(meaningfulUserMapMove)activateCensusCatchment('map pan/zoom');
+    scheduleCensusCatchmentRefresh();
     if(state.moveTimer)clearTimeout(state.moveTimer);
     state.moveTimer=setTimeout(async()=>{
       state.csdRequestKey=null;
@@ -2205,7 +2402,7 @@
       updateHeaderGeography();
     },150);
   });
-  window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();});
+  window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();scheduleCensusCatchmentRefresh();});
   el('subjectsBtn').addEventListener('click',()=>{renderChecklist('subjectsList',state.subjects,'subject',el('subjectSearch').value);el('subjectsDialog').showModal();});
   el('selectedStoresBtn').addEventListener('click',()=>{renderSelectedStoresConfig(el('selectedStoresSearch').value);el('selectedStoresDialog').showModal();});
   el('selectedStoresSearch').addEventListener('input',e=>renderSelectedStoresConfig(e.target.value));
@@ -2239,6 +2436,7 @@
   if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
+  setCensusDisplayEmpty('Waiting for geographic selection…');
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();

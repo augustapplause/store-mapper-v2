@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.29</title>
+  <title>Store Explorer v1.31</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.28.0" />
+      <link rel="stylesheet" href="styles.css?v=1.30.0" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.29</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.31</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCircleStatus" class="header-circle-status hidden" aria-label="Selection circle active"><span class="header-circle-icon" aria-hidden="true"></span><span id="headerCircleRadius">— km</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -113,13 +113,22 @@
         </div>
 
         <div class="census-box">
-          <div class="box-title">Census catchment</div>
+          <div class="section-title-row census-title-row">
+            <div class="box-title">Census catchment</div>
+            <label class="census-threshold-control" title="A DA is included when the visible map or selection circle overlaps at least this percentage of the DA area.">
+              <input id="censusThreshold" type="number" min="0" max="100" step="1" inputmode="decimal" aria-label="Census DA inclusion threshold" value="50">
+              <span>%</span>
+            </label>
+          </div>
           <div class="census-grid">
             <div><span>Total population</span><strong id="censusPopulation">—</strong></div>
-            <div><span>Seniors 65+</span><strong id="censusSeniors">—</strong></div>
-            <div><span>Geography</span><strong id="censusDaCount">—</strong></div>
+            <div><span>Population 65+</span><strong id="censusSeniors">—</strong></div>
+            <div><span>Population 40+</span><strong id="censusForty">—</strong></div>
+            <div><span>Selected DAs</span><strong id="censusDaCount">—</strong></div>
+            <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
+            <div><span>65+ share</span><strong id="censusSeniorShare">—</strong></div>
           </div>
-          <div id="censusNote" class="small muted">Enter or click a city to load the 2021 Census DA catchment.</div>
+          <div id="censusNote" class="small muted">Census activates after your first geographic action. Then DAs use the visible map until a selection circle is drawn. A qualifying DA contributes its full Census population.</div>
         </div>
 
         <div class="subject-box">
@@ -147,6 +156,11 @@
         <div class="stores-box">
           <div class="section-title-row"><div class="box-title">Selected Stores</div><div class="stores-actions"><button id="selectedStoresBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="selectedStoresCount" class="config-count">2</span></button><button id="exportSelectedBtn" type="button" class="config-button-inline export-button" disabled>Export</button></div></div>
           <div id="selectedStoresList" class="empty-message">Load a workbook to see selected stores.</div>
+        </div>
+
+        <div class="census-da-box">
+          <div class="section-title-row"><div class="box-title">Census DAs</div><div class="small muted census-da-count-label">DA ID sort</div></div>
+          <div id="censusDaList" class="census-da-list"><div class="empty-message">Census DAs will appear here after the catchment is calculated.</div></div>
         </div>
       </section>
     </aside>
@@ -270,7 +284,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=1.28.0"></script>
+  <script src="app.js?v=1.30.0"></script>
 
 
 </body>
