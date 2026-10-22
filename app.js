@@ -1,4 +1,4 @@
-/* Store Explorer - v1.23
+/* Store Explorer - v1.24
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -46,7 +46,7 @@
     daCache: new Map(), currentDaProvince: null, daLayer: null,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
-    circleSelection: null, circleDrawMode: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
+    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -2004,6 +2004,38 @@
   }
 
   // ---------- Selection circle interaction ----------
+  function updateHeaderCircleIndicator(){
+    const wrap=el('headerCircleStatus');
+    const value=el('headerCircleRadius');
+    if(!wrap||!value)return;
+    const circle=state.circleSelection?.circle;
+    if(circle){
+      const km=circle.getRadius()/1000;
+      value.textContent=`${km.toFixed(km<1?2:1)} km`;
+      wrap.classList.remove('hidden');
+    }else{
+      value.textContent='— km';
+      wrap.classList.add('hidden');
+    }
+  }
+
+  function setLeftPanelCollapsed(collapsed){
+    state.leftPanelCollapsed=!!collapsed;
+    document.body.classList.toggle('left-panel-collapsed',state.leftPanelCollapsed);
+    const btn=el('leftPanelToggle');
+    if(btn){
+      btn.setAttribute('aria-expanded',String(!state.leftPanelCollapsed));
+      btn.setAttribute('aria-label',state.leftPanelCollapsed?'Expand controls':'Collapse controls');
+      const icon=btn.querySelector('span');
+      if(icon)icon.textContent=state.leftPanelCollapsed?'›':'‹';
+    }
+    requestAnimationFrame(()=>{
+      map.invalidateSize(false);
+      updateSelection();
+      if(state.openPopupMarker)positionStorePopup(true);
+    });
+  }
+
   function setCircleIndicator(active){
     const dot=el('circleIndicator');
     if(!dot)return;
@@ -2014,6 +2046,7 @@
   function updateCircleRadiusCounter(){
     const km=state.circleSelection?.circle?state.circleSelection.circle.getRadius()/1000:NaN;
     el('circleRadiusCounter').textContent=Number.isFinite(km)?km.toFixed(km<1?2:1):'—';
+    updateHeaderCircleIndicator();
   }
   function removeCircleHandles(){
     state.circleEditHandles.forEach(h=>map.removeLayer(h));
@@ -2184,6 +2217,8 @@
   el('filterPickerSelectAll').addEventListener('click',()=>{const list=el('filterValuePickerList');const checks=[...list.querySelectorAll('.filter-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);el('filterPickerSelectAll').textContent=all?'Select all':'Clear all';});
   el('filterPickerApply').addEventListener('click',e=>{e.preventDefault();applyFilterValuePicker();el('filterValueDialog').close();});
   el('filterPickerCancel').addEventListener('click',e=>{e.preventDefault();state.filterValuePickerIndex=null;el('filterValueDialog').close();});
+
+  el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
 
   if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';

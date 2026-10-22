@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.23</title>
+  <title>Store Explorer v1.24</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css" />
 </head>
@@ -11,8 +11,8 @@
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.23</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
-        <div class="subtitle">Geographic store performance + census context</div>
+        <h1><span>Store Explorer <span class="version-badge">v1.24</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <div class="subtitle">Geographic store performance + census context <span id="headerCircleStatus" class="header-circle-status hidden" aria-label="Selection circle active"><span class="header-circle-icon" aria-hidden="true"></span><span id="headerCircleRadius">— km</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
         <div id="tickerViewport" class="ticker-viewport" tabindex="0" aria-live="polite">
@@ -24,6 +24,7 @@
 </header>
 
   <main class="app-shell">
+    <button id="leftPanelToggle" type="button" class="left-panel-toggle" aria-label="Collapse controls" aria-expanded="true"><span aria-hidden="true">‹</span></button>
     <aside class="left-panel">
       <section class="panel-card">
         <h2>Financial workbook</h2>
