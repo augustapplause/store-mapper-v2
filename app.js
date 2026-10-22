@@ -1,4 +1,4 @@
-/* Store Explorer - v1.25
+/* Store Explorer - v1.26
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
    province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
@@ -2052,8 +2052,37 @@
     state.circleEditHandles.forEach(h=>map.removeLayer(h));
     state.circleEditHandles=[];
   }
+  const CIRCLE_RENDER_POINTS=180;
+  const EARTH_RADIUS_METERS=6371008.8;
+  function destinationPoint(center,meters,bearingDeg){
+    const lat1=center.lat*Math.PI/180;
+    const lon1=center.lng*Math.PI/180;
+    const bearing=bearingDeg*Math.PI/180;
+    const ang=meters/EARTH_RADIUS_METERS;
+    const sinLat1=Math.sin(lat1), cosLat1=Math.cos(lat1);
+    const sinAng=Math.sin(ang), cosAng=Math.cos(ang);
+    const lat2=Math.asin(sinLat1*cosAng + cosLat1*sinAng*Math.cos(bearing));
+    const lon2=lon1 + Math.atan2(
+      Math.sin(bearing)*sinAng*cosLat1,
+      cosAng-sinLat1*Math.sin(lat2)
+    );
+    let lon=lon2*180/Math.PI;
+    lon=((lon+540)%360)-180;
+    return L.latLng(lat2*180/Math.PI,lon);
+  }
   function circleEdgeLatLng(center,meters){
-    return L.latLng(center.lat,center.lng + meters/(111320*Math.cos(center.lat*Math.PI/180)));
+    return destinationPoint(center,meters,90);
+  }
+  function geodesicCircleLatLngs(center,meters){
+    const points=[];
+    for(let i=0;i<CIRCLE_RENDER_POINTS;i++) points.push(destinationPoint(center,meters,(i/CIRCLE_RENDER_POINTS)*360));
+    points.push(points[0]);
+    return points;
+  }
+  function updateCircleVisual(circle){
+    const selection=state.circleSelection;
+    if(!selection?.visual||!circle)return;
+    selection.visual.setLatLngs(geodesicCircleLatLngs(circle.getLatLng(),circle.getRadius()));
   }
   function showCircleHandles(){
     removeCircleHandles();
@@ -2066,6 +2095,7 @@
       if(!state.circleSelection)return;
       const ll=e.target.getLatLng();
       circle.setLatLng(ll);
+      updateCircleVisual(circle);
       radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
       updateCircleRadiusCounter();updateCircleLabel();updateSelection();
     });
@@ -2075,6 +2105,7 @@
       const center=circle.getLatLng();
       const radius=Math.max(10,map.distance(center,ll));
       circle.setRadius(radius);
+      updateCircleVisual(circle);
       radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
       updateCircleRadiusCounter();updateCircleLabel();updateSelection();
     });
@@ -2093,11 +2124,14 @@
   }
   function createOrReplaceCircle(center,radiusMeters){
     clearCircle();
-    const circle=L.circle(center,{pane:'selectionCirclePane',radius:Math.max(10,radiusMeters),color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true});
+    const radius=Math.max(10,radiusMeters);
+    const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false});
     circle.addTo(map);
-    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,circle.getRadius()),circle.getRadius()).addTo(map);
-    circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
-    state.circleSelection={circle,label};
+    const visual=L.polygon(geodesicCircleLatLngs(center,radius),{pane:'selectionCirclePane',color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:true,smoothFactor:0,noClip:false});
+    visual.addTo(map);
+    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
+    visual.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
+    state.circleSelection={circle,visual,label};
     setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
     updateSelection();
     if(!map.getBounds().contains(circle.getBounds().getNorthEast()) || !map.getBounds().contains(circle.getBounds().getSouthWest())){
@@ -2107,6 +2141,7 @@
   function clearCircle(){
     removeCircleHandles();
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.visual)map.removeLayer(state.circleSelection.visual);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
     state.circleSelection=null;
     state.circleDrawing=null;
@@ -2123,17 +2158,21 @@
     if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
     state.circleDrawing={center:e.latlng};
     map.dragging.disable();
-    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:false}).addTo(map);
+    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:0,opacity:0,fillOpacity:0,interactive:false}).addTo(map);
+    const visual=L.polygon(geodesicCircleLatLngs(e.latlng,1),{pane:'selectionCirclePane',color:'#d33e46',weight:3,fillColor:'#d33e46',fillOpacity:.06,interactive:false,smoothFactor:0}).addTo(map);
     const label=makeCircleRadiusLabel(e.latlng,1).addTo(map);
     state.circleDrawing.temp=temp;
+    state.circleDrawing.visual=visual;
     state.circleDrawing.label=label;
     map.getContainer().style.cursor='crosshair';
   });
   map.on('mousemove',e=>{
     if(!state.circleDrawing?.temp)return;
     const r=map.distance(state.circleDrawing.center,e.latlng);
-    state.circleDrawing.temp.setRadius(Math.max(1,r));
-    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,r));
+    const rr=Math.max(1,r);
+    state.circleDrawing.temp.setRadius(rr);
+    state.circleDrawing.visual.setLatLngs(geodesicCircleLatLngs(state.circleDrawing.center,rr));
+    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,rr));
     const node=state.circleDrawing.label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(r);
     el('circleRadiusCounter').textContent=(r/1000).toFixed(r<1000?2:1);
@@ -2143,6 +2182,7 @@
     const draw=state.circleDrawing;
     const r=map.distance(draw.center,e.latlng);
     map.removeLayer(draw.temp);
+    if(draw.visual)map.removeLayer(draw.visual);
     if(draw.label)map.removeLayer(draw.label);
     state.circleDrawing=null;
     map.dragging.enable();
@@ -2168,6 +2208,7 @@
     if(state.circleSelection?.circle && state.circleEditHandles.length){
       const center=state.circleSelection.circle.getLatLng();
       const edge=circleEdgeLatLng(center,state.circleSelection.circle.getRadius());
+      updateCircleVisual(state.circleSelection.circle);
       state.circleEditHandles[0].setLatLng(center);
       state.circleEditHandles[1].setLatLng(edge);
       updateCircleLabel();
