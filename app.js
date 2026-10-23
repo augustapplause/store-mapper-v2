@@ -1,4 +1,4 @@
-/* Store Explorer - v1.51
+/* Store Explorer - v1.52
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -923,11 +923,11 @@
     el('kpiTotalSales').textContent=fmtThousands(totalSales);
     el('kpiTotalEbit').textContent=fmtThousands(totalEbit);
     el('kpiTotalEbitMargin').textContent=Number.isFinite(totalEbit)&&Number.isFinite(totalSales)&&totalSales!==0?`${(totalEbit/totalSales*100).toFixed(1)}%`:'—';
-    if(!e){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiMedianEbit').textContent='—';return;}
-    if(!ebitVals.length){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiMedianEbit').textContent='—';return;}
+    if(!e){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiSalesPerPopulation').textContent='—';return;}
+    if(!ebitVals.length){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiSalesPerPopulation').textContent='—';return;}
     el('kpiSuccess').textContent=fmtPct(ebitVals.filter(v=>v>0).length/ebitVals.length);
     el('kpiAvgEbit').textContent=fmtMoney(avg(ebitVals));
-    el('kpiMedianEbit').textContent=fmtMoney(median(ebitVals));
+    el('kpiSalesPerPopulation').textContent='—';
   }
   function avg(vals){return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;}
   function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
@@ -1664,6 +1664,9 @@
     const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
     el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.total / storeCount)) : '—';
     el('censusHouseholdIncome').textContent = totals.households > 0 ? `$${fmtInt(Math.round(totals.incomeWeighted / totals.households))}` : '—';
+    const salesCol = state.columns.sales;
+    const selectedSales = salesCol ? state.selectedRows.map(r=>toNumber(r[salesCol])).filter(v=>v!==null).reduce((a,b)=>a+b,0) : NaN;
+    el('kpiSalesPerPopulation').textContent = Number.isFinite(selectedSales) && totals.total > 0 ? `$${fmtInt(Math.round(selectedSales / totals.total))}` : '—';
   }
   function resetCensusPopulationSummary() {
     el('censusPopulation').textContent = '—';
@@ -1672,6 +1675,7 @@
     el('censusVisibleMinority').textContent = '—';
     el('censusPopPerStore').textContent = '—';
     el('censusHouseholdIncome').textContent = '—';
+    el('kpiSalesPerPopulation').textContent = '—';
   }
 
   function renderDaSelection(result) {
