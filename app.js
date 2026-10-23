@@ -1,4 +1,4 @@
-/* Store Explorer - v1.38
+/* Store Explorer - v1.39
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -41,7 +41,7 @@
     selectedGroupKey: null,
     selectedStoreRow: null,
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
-    daCache: new Map(), currentDaProvince: null, daLayer: null,
+    daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
     circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
@@ -1603,10 +1603,17 @@
     const total = Number(p.total_population);
     const senior = Number(p.population_65_plus);
     const age40to64 = Number(p.population_40_64);
+    const visibleMinority = Number(p.visible_minority_population);
     const totalPopulation = Number.isFinite(total) ? total : 0;
     const population65Plus = Number.isFinite(senior) ? senior : 0;
     const population40Plus = population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
-    return { totalPopulation, population65Plus, population40Plus };
+    const visibleMinorityPopulation = Number.isFinite(visibleMinority) ? visibleMinority : 0;
+    return { totalPopulation, population65Plus, population40Plus, visibleMinorityPopulation };
+  }
+
+  function censusValueWithShare(value, total) {
+    const pct = total > 0 ? Math.round(value / total * 100) : 0;
+    return `<span class="census-metric-value">${esc(fmtInt(value))}</span><span class="census-share">(${pct}%)</span>`;
   }
 
   function updateCensusPopulationSummary(selected) {
@@ -1615,43 +1622,45 @@
       acc.total += a.totalPopulation;
       acc.senior += a.population65Plus;
       acc.forty += a.population40Plus;
+      acc.visibleMinority += a.visibleMinorityPopulation;
       return acc;
-    }, {total:0, senior:0, forty:0});
+    }, {total:0, senior:0, forty:0, visibleMinority:0});
     el('censusPopulation').textContent = fmtInt(totals.total);
-    el('censusSeniors').textContent = fmtInt(totals.senior);
-    el('censusForty').textContent = fmtInt(totals.forty);
-    el('censusDaCount').textContent = fmtInt(selected.length);
+    el('censusSeniors').innerHTML = censusValueWithShare(totals.senior, totals.total);
+    el('censusForty').innerHTML = censusValueWithShare(totals.forty, totals.total);
+    el('censusVisibleMinority').innerHTML = censusValueWithShare(totals.visibleMinority, totals.total);
     const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
     el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.total / storeCount)) : '—';
-    el('censusSeniorShare').textContent = totals.total > 0 ? `${(totals.senior / totals.total * 100).toFixed(1)}%` : '—';
+    el('censusSeniorShare').textContent = totals.total > 0 ? `${Math.round(totals.senior / totals.total * 100)}%` : '—';
   }
-
   function resetCensusPopulationSummary() {
     el('censusPopulation').textContent = '—';
     el('censusSeniors').textContent = '—';
     el('censusForty').textContent = '—';
-    el('censusDaCount').textContent = '—';
+    el('censusVisibleMinority').textContent = '—';
     el('censusPopPerStore').textContent = '—';
     el('censusSeniorShare').textContent = '—';
   }
 
   function renderDaSelection(result) {
     clearDaOverlay();
+    state.daSelectionResult = result;
     const features = result.selected.map(item => item.feature);
     if (!features.length) {
       setDaTestStatus(`No DAs meet the ${result.threshold}% inclusion threshold. Boundary: ${result.provinces.join(', ') || 'none'}.`);
       resetCensusPopulationSummary();
-      el('censusDaCount').textContent = '0';
       const list = el('censusDaList');
       if (list) list.innerHTML = '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
       return;
     }
     state.currentDaProvince = result.provinces.join(',');
-    state.daLayer = L.geoJSON(turf.featureCollection(features), {
-      pane: 'daSelectionPane',
-      interactive: false,
-      style: daStyle
-    }).addTo(map);
+    if (state.showDaOverlay) {
+      state.daLayer = L.geoJSON(turf.featureCollection(features), {
+        pane: 'daSelectionPane',
+        interactive: false,
+        style: daStyle
+      }).addTo(map);
+    }
     updateCensusPopulationSummary(result.selected);
     setDaTestStatus(`${features.length.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.`);
     const list = el('censusDaList');
@@ -1703,7 +1712,7 @@
     }
     const threshold = Number(el('censusThreshold')?.value ?? 50);
     const requestId = ++state.censusRequestId;
-    el('censusDaCount').textContent = '…';
+    state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
@@ -1714,7 +1723,6 @@
     } catch (err) {
       if (requestId !== state.censusRequestId) return;
       clearDaOverlay();
-      el('censusDaCount').textContent = '—';
       setDaActivationTrace(`failed: ${err.message}`, trigger, boundaryType, provinceLabel);
       setDaTestStatus(`DA selection failed: ${err.message}`);
     }
@@ -2448,6 +2456,16 @@
   el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
   el('censusThreshold').addEventListener('change',()=>refreshDaSelection());
   el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>refreshDaSelection(),250); });
+  el('showSelectedDAs')?.addEventListener('change',(event)=>{
+    state.showDaOverlay = !!event.target.checked;
+    if (state.showDaOverlay && state.daSelectionResult?.selected?.length) {
+      clearDaOverlay();
+      const features = state.daSelectionResult.selected.map(item => item.feature);
+      state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
+    } else {
+      clearDaOverlay();
+    }
+  });
 
   if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';

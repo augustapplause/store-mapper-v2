@@ -632,4 +632,16 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 .census-da-header{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0 5px;font-size:9px;color:var(--muted);font-weight:700;border-bottom:1px solid rgba(71,103,125,.18)}.census-da-header span:not(:first-child){text-align:right}.census-da-row{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0;border-bottom:1px solid rgba(71,103,125,.12);font-variant-numeric:tabular-nums}.census-da-row span:not(:first-child){text-align:right}.census-da-list{max-height:260px;overflow:auto}.census-da-row:last-child{border-bottom:0}
 
-.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-threshold-control input{width:62px!important;box-sizing:border-box}
+.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-threshold-control input{width:41px!important;box-sizing:border-box}
+
+/* v1.39 Census presentation */
+.census-da-toggle{display:flex!important;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px;color:var(--muted)!important;font-size:10px!important;font-weight:700!important;cursor:pointer}
+.census-da-toggle .toggle-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
+.census-da-toggle input{position:absolute;opacity:0;pointer-events:none}
+.census-da-toggle .toggle-slider{width:36px;height:20px;background:#c9d3da;border-radius:999px;display:inline-block;position:relative;transition:background .15s ease}
+.census-da-toggle .toggle-slider::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.18);transition:transform .15s ease}
+.census-da-toggle input:checked + .toggle-slider{background:#47677d}
+.census-da-toggle input:checked + .toggle-slider::after{transform:translateX(16px)}
+.census-da-toggle input:focus-visible + .toggle-slider{outline:2px solid #0b75b8;outline-offset:2px}
+.census-metric-value{font-size:16px}
+.census-share{font-size:11px;color:#c62828;font-weight:800;margin-left:4px;white-space:nowrap}
