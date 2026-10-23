@@ -1,4 +1,4 @@
-/* Store Explorer - v1.40
+/* Store Explorer - v1.42
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -12,12 +12,6 @@
     provinceLayer: 0,
     csdLayer: 9,
     geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
-    daSources: [
-      'data/da/{file}',
-      'https://raw.githubusercontent.com/augustapplause/python-project-v1/v1/{file}',
-      'https://github.com/augustapplause/python-project-v1/releases/download/v1/{file}'
-    ],
-    daReleaseApi: 'https://api.github.com/repos/augustapplause/python-project-v1/releases/tags/v1',
     daFiles: {
       AB:'AB_da_census_13vars_30m.geojson', BC:'BC_da_census_13vars_30m.geojson', MB:'MB_da_census_13vars_30m.geojson',
       NB:'NB_da_census_13vars_30m.geojson', NL:'NL_da_census_13vars_30m.geojson', NS:'NS_da_census_13vars_30m.geojson',
@@ -1517,13 +1511,12 @@
       return [...new Set(found)];
     }
 
-    async function select(boundary, provinceGeo, thresholdPct, provinceHints=[]) {
+    async function select(boundary, provinceGeo, thresholdPct) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
       const spatialProvinces = provincesForBoundary(boundary, provinceGeo);
-      const hintedProvinces = [...new Set((provinceHints || []).filter(code => CONFIG.daFiles[code]))];
-      const provinces = spatialProvinces.length ? spatialProvinces : hintedProvinces;
+      const provinces = spatialProvinces;
       if (!provinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
       const allCandidates = [];
       const selected = [];
@@ -1700,32 +1693,13 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    let provinceHints = [];
-    if (provinceLabel && CONFIG.daFiles[provinceLabel]) provinceHints.push(provinceLabel);
-    if (!state.provinceGeo && !provinceHints.length) {
-      try {
-        const b = turf.bbox(activeDaBoundary());
-        const samplePoints = [
-          [(b[0]+b[2])/2, (b[1]+b[3])/2],
-          [b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]],
-          [(b[0]+b[2])/2, b[1]], [(b[0]+b[2])/2, b[3]], [b[0], (b[1]+b[3])/2], [b[2], (b[1]+b[3])/2]
-        ];
-        for (const [lng, lat] of samplePoints) {
-          const code = await queryProvinceAt(lat, lng);
-          if (code) provinceHints.push(code);
-        }
-        provinceHints = [...new Set(provinceHints)];
-      } catch (err) {
-        setDaActivationTrace(`province lookup failed: ${err.message}`, trigger, boundaryType, provinceLabel);
-      }
-    }
     const threshold = Number(el('censusThreshold')?.value ?? 15);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold, provinceHints);
+      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
