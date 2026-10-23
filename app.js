@@ -2210,6 +2210,8 @@
     el('drawCircleBtn').querySelector('span:last-child').textContent='Draw';
   }
   function createOrReplaceCircle(center,radiusMeters){
+    state.initialNationalView=false;
+    state.mapReadyForViewport=true;
     clearCircle();
     const radius=Math.max(10,radiusMeters);
     const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineCap:'round',lineJoin:'round'}).addTo(map);
@@ -2237,7 +2239,7 @@
     if(state.circleDrawMode){exitCircleDrawMode();return;}
     enterCircleDrawMode();
   });
-  el('clearCircleBtn').addEventListener('click',()=>{clearCircle();updateSelection();refreshDaSelection();});
+  el('clearCircleBtn').addEventListener('click',()=>{state.initialNationalView=false;state.mapReadyForViewport=true;clearCircle();updateSelection();refreshDaSelection();});
   map.on('mousedown',e=>{
     if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
     state.circleDrawing={center:e.latlng};
@@ -2304,6 +2306,7 @@
     }
     const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
     if(programmatic){
+      if(state.userMapInteraction){state.initialNationalView=false;state.mapReadyForViewport=true;}
       state.programmaticMoveDepth=Math.max(0,state.programmaticMoveDepth-1);
     } else {
       state.initialNationalView=false;
@@ -2356,6 +2359,7 @@
   if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
+  if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();
