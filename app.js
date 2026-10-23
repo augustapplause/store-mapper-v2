@@ -1,4 +1,4 @@
-/* Store Explorer - v1.47
+/* Store Explorer - v1.48
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -98,6 +98,18 @@
   function provinceCodeFromFeature(feature) {
     const uid = String(feature?.properties?.PRUID || feature?.properties?.PRUID3 || '');
     return CONFIG.prCodeByUid[uid] || null;
+  }
+
+  function provinceCodeFromCsdFeature(feature) {
+    const p = feature?.properties || {};
+    const abbr = String(p.province || p.Province || '').trim();
+    const map = {
+      'N.L.':'NL','P.E.I.':'PE','N.S.':'NS','N.B.':'NB','Que.':'QC','Ont.':'ON',
+      'Man.':'MB','Sask.':'SK','Alta.':'AB','B.C.':'BC','Y.T.':'YT','N.W.T.':'NT','Nun.':'NU'
+    };
+    if (map[abbr]) return map[abbr];
+    const csduid = String(p.CSDUID || '');
+    return csduid.length >= 2 ? CONFIG.prCodeByUid[csduid.slice(0,2)] || null : null;
   }
 
   function provinceCodeFromText(text) {
@@ -1467,6 +1479,33 @@
     el('filterDialog').close();
   }
 
+  function provincesForBoundaryFromCsd(boundary) {
+    if (!boundary?.geometry || !state.csdLookupGeo?.features?.length || !state.csdLookupIndex?.size) return [];
+    const bb = turf.bbox(boundary);
+    const size = state.csdLookupCellSize;
+    const minLat = Math.floor(bb[1] / size), maxLat = Math.floor(bb[3] / size);
+    const minLng = Math.floor(bb[0] / size), maxLng = Math.floor(bb[2] / size);
+    const candidates = new Set();
+    for (let gy = minLat; gy <= maxLat; gy++) {
+      for (let gx = minLng; gx <= maxLng; gx++) {
+        const bucket = state.csdLookupIndex.get(`${gy}:${gx}`) || [];
+        for (const feature of bucket) candidates.add(feature);
+      }
+    }
+    const found = new Set();
+    for (const feature of candidates) {
+      try {
+        const fbb = feature.__headerBBox || (feature.__headerBBox = turf.bbox(feature));
+        if (fbb[2] < bb[0] || fbb[0] > bb[2] || fbb[3] < bb[1] || fbb[1] > bb[3]) continue;
+        if (turf.booleanIntersects(feature, boundary)) {
+          const code = provinceCodeFromCsdFeature(feature);
+          if (code) found.add(code);
+        }
+      } catch {}
+    }
+    return [...found];
+  }
+
   // ---------- DA spatial selection engine (isolated) ----------
   // This component intentionally knows nothing about stores, KPIs, workbook data,
   // or Census population attributes. Its only job is:
@@ -1526,36 +1565,18 @@
       throw new Error(`Could not load ${provinceCode} DA file ${file}. ${errors.join(' | ')}`);
     }
 
-    function provincesForBoundary(boundary, provinceGeo) {
-      const found = [];
-      for (const feature of provinceGeo?.features || []) {
-        if (!feature?.geometry) continue;
-        try {
-          const bb = featureBBox(feature), cb = turf.bbox(boundary);
-          if (bb[2] < cb[0] || bb[0] > cb[2] || bb[3] < cb[1] || bb[1] > cb[3]) continue;
-          if (turf.booleanIntersects(feature, boundary)) {
-            const code = provinceCodeFromFeature(feature);
-            if (code) found.push(code);
-          }
-        } catch {}
-      }
-      return [...new Set(found)];
-    }
-
-    async function select(boundary, provinceGeo, thresholdPct, provinceHints=[]) {
+    async function select(boundary, provinces, thresholdPct) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
-      const spatialProvinces = provincesForBoundary(boundary, provinceGeo);
-      const hintedProvinces = [...new Set((provinceHints || []).filter(code => CONFIG.daFiles[code]))];
-      const provinces = spatialProvinces.length ? spatialProvinces : hintedProvinces;
-      if (!provinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
+      const resolvedProvinces = [...new Set((provinces || []).filter(code => CONFIG.daFiles[code]))];
+      if (!resolvedProvinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
       let indexedFeatures = 0;
 
-      for (const provinceCode of provinces) {
+      for (const provinceCode of resolvedProvinces) {
         const entry = await loadProvince(provinceCode);
         indexedFeatures += entry.indexedCount;
         const candidates = entry.index.search({minX:boundaryBbox[0], minY:boundaryBbox[1], maxX:boundaryBbox[2], maxY:boundaryBbox[3]});
@@ -1581,7 +1602,7 @@
       return {
         threshold,
         boundary,
-        provinces,
+        provinces: resolvedProvinces,
         indexedFeatures,
         candidateCount: allCandidates.length,
         actualIntersectionCount,
@@ -1716,32 +1737,16 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    let provinceHints = [];
-    if (provinceLabel && CONFIG.daFiles[provinceLabel]) provinceHints.push(provinceLabel);
-    if (!state.provinceGeo && !provinceHints.length) {
-      try {
-        const b = turf.bbox(activeDaBoundary());
-        const samplePoints = [
-          [(b[0]+b[2])/2, (b[1]+b[3])/2],
-          [b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]],
-          [(b[0]+b[2])/2, b[1]], [(b[0]+b[2])/2, b[3]], [b[0], (b[1]+b[3])/2], [b[2], (b[1]+b[3])/2]
-        ];
-        for (const [lng, lat] of samplePoints) {
-          const code = await queryProvinceAt(lat, lng);
-          if (code) provinceHints.push(code);
-        }
-        provinceHints = [...new Set(provinceHints)];
-      } catch (err) {
-        setDaActivationTrace(`province lookup failed: ${err.message}`, trigger, boundaryType, provinceLabel);
-      }
-    }
     const threshold = Number(el('censusThreshold')?.value ?? 50);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold, provinceHints);
+      await loadHeaderCsdLookup();
+      const provinces = provincesForBoundaryFromCsd(boundary);
+      setDaActivationTrace('province detection', trigger, boundaryType, provinces.join(', ') || '—');
+      const result = await DA_ENGINE.select(boundary, provinces, threshold);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
