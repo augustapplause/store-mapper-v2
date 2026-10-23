@@ -630,4 +630,6 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .circle-radius-label{z-index:1700!important;}
 .circle-radius-counter{}
 
-.census-da-row{display:grid;grid-template-columns:1fr 70px;gap:8px;padding:4px 0;border-bottom:1px solid rgba(71,103,125,.12);font-variant-numeric:tabular-nums}.census-da-row span:last-child{text-align:right}.census-da-list{max-height:260px;overflow:auto}.census-da-row:last-child{border-bottom:0}
+.census-da-header{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0 5px;font-size:9px;color:var(--muted);font-weight:700;border-bottom:1px solid rgba(71,103,125,.18)}.census-da-header span:not(:first-child){text-align:right}.census-da-row{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0;border-bottom:1px solid rgba(71,103,125,.12);font-variant-numeric:tabular-nums}.census-da-row span:not(:first-child){text-align:right}.census-da-list{max-height:260px;overflow:auto}.census-da-row:last-child{border-bottom:0}
+
+.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-threshold-control input{width:62px!important;box-sizing:border-box}

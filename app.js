@@ -1,6 +1,6 @@
-/* Store Explorer - v1.37
+/* Store Explorer - v1.38
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   DA selection test is intentionally isolated from store/KPI/Census-attribute logic:
+   DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
 */
 (() => {
@@ -313,7 +313,7 @@
     state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='province selection';
     setDaActivationTrace('activated', state.daActivationTrigger, 'viewport', code);
-    el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';
+    resetCensusPopulationSummary();
     el('censusNote').textContent='Province selected. The visible map will be used for DA selection after the map settles.';
     fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
     updateSelection();
@@ -349,7 +349,7 @@
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
-    el('censusPopulation').textContent='—';el('censusSeniors').textContent='—';el('censusDaCount').textContent='—';el('censusPopPerStore').textContent='—';el('censusSeniorShare').textContent='—';el('censusNote').textContent='DA selection is dormant on the initial Canada view. Make a geographic move to activate it.';setDaActivationTrace('dormant','startup','none','—');
+    resetCensusPopulationSummary();el('censusNote').textContent='DA selection is dormant on the initial Canada view. Make a geographic move to activate it.';setDaActivationTrace('dormant','startup','none','—');
     fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});updateSelection();
   }
 
@@ -1598,14 +1598,52 @@
     box.textContent = `DA engine: ${status} | Trigger: ${trigger} | Boundary: ${boundary} | Province: ${province}`;
   }
 
+  function censusAttributes(feature) {
+    const p = feature?.properties || {};
+    const total = Number(p.total_population);
+    const senior = Number(p.population_65_plus);
+    const age40to64 = Number(p.population_40_64);
+    const totalPopulation = Number.isFinite(total) ? total : 0;
+    const population65Plus = Number.isFinite(senior) ? senior : 0;
+    const population40Plus = population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
+    return { totalPopulation, population65Plus, population40Plus };
+  }
+
+  function updateCensusPopulationSummary(selected) {
+    const totals = selected.reduce((acc, item) => {
+      const a = censusAttributes(item.feature);
+      acc.total += a.totalPopulation;
+      acc.senior += a.population65Plus;
+      acc.forty += a.population40Plus;
+      return acc;
+    }, {total:0, senior:0, forty:0});
+    el('censusPopulation').textContent = fmtInt(totals.total);
+    el('censusSeniors').textContent = fmtInt(totals.senior);
+    el('censusForty').textContent = fmtInt(totals.forty);
+    el('censusDaCount').textContent = fmtInt(selected.length);
+    const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
+    el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.total / storeCount)) : '—';
+    el('censusSeniorShare').textContent = totals.total > 0 ? `${(totals.senior / totals.total * 100).toFixed(1)}%` : '—';
+  }
+
+  function resetCensusPopulationSummary() {
+    el('censusPopulation').textContent = '—';
+    el('censusSeniors').textContent = '—';
+    el('censusForty').textContent = '—';
+    el('censusDaCount').textContent = '—';
+    el('censusPopPerStore').textContent = '—';
+    el('censusSeniorShare').textContent = '—';
+  }
+
   function renderDaSelection(result) {
     clearDaOverlay();
     const features = result.selected.map(item => item.feature);
     if (!features.length) {
       setDaTestStatus(`No DAs meet the ${result.threshold}% inclusion threshold. Boundary: ${result.provinces.join(', ') || 'none'}.`);
-      el('censusPopulation').textContent = fmtInt(result.candidateCount);
-      el('censusSeniors').textContent = fmtInt(result.actualIntersectionCount);
+      resetCensusPopulationSummary();
       el('censusDaCount').textContent = '0';
+      const list = el('censusDaList');
+      if (list) list.innerHTML = '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
       return;
     }
     state.currentDaProvince = result.provinces.join(',');
@@ -1614,13 +1652,14 @@
       interactive: false,
       style: daStyle
     }).addTo(map);
-    el('censusPopulation').textContent = fmtInt(result.candidateCount);
-    el('censusSeniors').textContent = fmtInt(result.actualIntersectionCount);
-    el('censusDaCount').textContent = fmtInt(features.length);
+    updateCensusPopulationSummary(result.selected);
     setDaTestStatus(`${features.length.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.`);
     const list = el('censusDaList');
     if (list) {
-      list.innerHTML = result.selected.map(item => `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`).join('');
+      list.innerHTML = result.selected.map(item => {
+        const a = censusAttributes(item.feature);
+        return `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
+      }).join('');
     }
   }
 
@@ -1631,9 +1670,7 @@
     const provinceLabel = state.selection?.provinceCode || '—';
     if (state.initialNationalView) {
       clearDaOverlay();
-      el('censusDaCount').textContent = '—';
-      el('censusPopulation').textContent = '—';
-      el('censusSeniors').textContent = '—';
+      resetCensusPopulationSummary();
       const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">Make a geographic move to activate DA selection.</div>';
       setDaActivationTrace('dormant', trigger, 'none', '—');
       setDaTestStatus('DA selection is dormant on the initial Canada view. Pan, zoom, search, draw a circle, or go to a store to activate it.');
