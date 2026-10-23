@@ -264,6 +264,20 @@
     }
   }
 
+  async function resolveProvinceFeaturesForBoundary(boundary) {
+    if (!boundary?.geometry) return [];
+    const bb = turf.bbox(boundary);
+    const geom = `${bb[0]},${bb[1]},${bb[2]},${bb[3]}`;
+    const geo = await arcgisGeoJSON(CONFIG.provinceLayer, {
+      geometry: geom,
+      geometryType: 'esriGeometryEnvelope',
+      inSR: '4326',
+      spatialRel: 'esriSpatialRelIntersects',
+      outFields: 'PRUID,PRNAME,PRENAME,PRFNAME,PREABBR,PRFABBR'
+    });
+    return geo?.features || [];
+  }
+
   async function refreshCsdLayer() {
     if (map.getZoom() < CONFIG.csdMinZoom) {
       if (state.csdLayer) { map.removeLayer(state.csdLayer); state.csdLayer=null; }
@@ -1511,11 +1525,11 @@
       return [...new Set(found)];
     }
 
-    async function select(boundary, provinceGeo, thresholdPct) {
+    async function select(boundary, provinceFeatures, thresholdPct) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
-      const spatialProvinces = provincesForBoundary(boundary, provinceGeo);
+      const spatialProvinces = provincesForBoundary(boundary, {features: provinceFeatures || []});
       const provinces = spatialProvinces;
       if (!provinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
       const allCandidates = [];
@@ -1699,7 +1713,8 @@
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold);
+      const provinceFeatures = await resolveProvinceFeaturesForBoundary(boundary);
+      const result = await DA_ENGINE.select(boundary, provinceFeatures, threshold);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
