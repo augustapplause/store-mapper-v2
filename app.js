@@ -1,4 +1,4 @@
-/* Store Explorer - v1.45
+/* Store Explorer - v1.46
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -1448,7 +1448,7 @@
   //   DA GeoJSON -> spatial index -> boundary intersections -> threshold -> DA features.
   const DA_ENGINE = (() => {
     const cache = new Map();
-    const defaultThresholdPct = 15;
+    const defaultThresholdPct = 50;
 
     function getId(feature) {
       const p = feature?.properties || {};
@@ -1517,14 +1517,12 @@
       return [...new Set(found)];
     }
 
-    async function select(boundary, provinceGeo, thresholdPct, provinceHints=[]) {
+    async function select(boundary, provinceGeo, thresholdPct) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
-      const spatialProvinces = provincesForBoundary(boundary, provinceGeo);
-      const hintedProvinces = [...new Set((provinceHints || []).filter(code => CONFIG.daFiles[code]))];
-      const provinces = spatialProvinces.length ? spatialProvinces : hintedProvinces;
-      if (!provinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
+      const provinces = provincesForBoundary(boundary, provinceGeo);
+      if (!provinces.length) throw new Error('Could not determine a Canadian province or territory intersecting the active map boundary.');
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
@@ -1604,15 +1602,15 @@
     const senior = Number(p.population_65_plus);
     const age40to64 = Number(p.population_40_64);
     const visibleMinority = Number(p.visible_minority_population);
-    const households = Number(p.total_households);
     const avgHouseholdIncome = Number(p.average_household_income);
+    const totalHouseholds = Number(p.total_households);
     const totalPopulation = Number.isFinite(total) ? total : 0;
     const population65Plus = Number.isFinite(senior) ? senior : 0;
     const population40Plus = population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
     const visibleMinorityPopulation = Number.isFinite(visibleMinority) ? visibleMinority : 0;
-    const totalHouseholds = Number.isFinite(households) ? households : 0;
     const averageHouseholdIncome = Number.isFinite(avgHouseholdIncome) ? avgHouseholdIncome : 0;
-    return { totalPopulation, population65Plus, population40Plus, visibleMinorityPopulation, totalHouseholds, averageHouseholdIncome };
+    const totalHouseholdCount = Number.isFinite(totalHouseholds) ? totalHouseholds : 0;
+    return { totalPopulation, population65Plus, population40Plus, visibleMinorityPopulation, averageHouseholdIncome, totalHouseholdCount };
   }
 
   function censusValueWithShare(value, total) {
@@ -1627,18 +1625,20 @@
       acc.senior += a.population65Plus;
       acc.forty += a.population40Plus;
       acc.visibleMinority += a.visibleMinorityPopulation;
-      acc.households += a.totalHouseholds;
-      acc.incomeWeighted += a.averageHouseholdIncome * a.totalHouseholds;
+      if (a.averageHouseholdIncome > 0 && a.totalHouseholdCount > 0) {
+        acc.householdIncomeWeighted += a.averageHouseholdIncome * a.totalHouseholdCount;
+        acc.householdIncomeWeight += a.totalHouseholdCount;
+      }
       return acc;
-    }, {total:0, senior:0, forty:0, visibleMinority:0, households:0, incomeWeighted:0});
-    el('censusPopulation').innerHTML = `<span class="census-metric-value">${esc(fmtInt(totals.total))}</span>`;
+    }, {total:0, senior:0, forty:0, visibleMinority:0, householdIncomeWeighted:0, householdIncomeWeight:0});
+    el('censusPopulation').textContent = fmtInt(totals.total);
     el('censusSeniors').innerHTML = censusValueWithShare(totals.senior, totals.total);
     el('censusForty').innerHTML = censusValueWithShare(totals.forty, totals.total);
     el('censusVisibleMinority').innerHTML = censusValueWithShare(totals.visibleMinority, totals.total);
     const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
-    el('censusPopPerStore').innerHTML = `<span class="census-metric-value">${storeCount > 0 ? esc(fmtInt(Math.round(totals.total / storeCount))) : '—'}</span>`;
-    const avgIncome = totals.households > 0 ? totals.incomeWeighted / totals.households : 0;
-    el('censusAvgHouseholdIncome').innerHTML = `<span class="census-metric-value">${avgIncome > 0 ? esc(fmtMoney(avgIncome)) : '—'}</span>`;
+    el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.total / storeCount)) : '—';
+    const avgIncome = totals.householdIncomeWeight > 0 ? totals.householdIncomeWeighted / totals.householdIncomeWeight : null;
+    el('censusAvgHouseholdIncome').textContent = avgIncome != null ? fmtMoney(avgIncome) : '—';
   }
   function resetCensusPopulationSummary() {
     el('censusPopulation').textContent = '—';
@@ -1698,32 +1698,13 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    let provinceHints = [];
-    if (provinceLabel && CONFIG.daFiles[provinceLabel]) provinceHints.push(provinceLabel);
-    if (!state.provinceGeo && !provinceHints.length) {
-      try {
-        const b = turf.bbox(activeDaBoundary());
-        const samplePoints = [
-          [(b[0]+b[2])/2, (b[1]+b[3])/2],
-          [b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]],
-          [(b[0]+b[2])/2, b[1]], [(b[0]+b[2])/2, b[3]], [b[0], (b[1]+b[3])/2], [b[2], (b[1]+b[3])/2]
-        ];
-        for (const [lng, lat] of samplePoints) {
-          const code = await queryProvinceAt(lat, lng);
-          if (code) provinceHints.push(code);
-        }
-        provinceHints = [...new Set(provinceHints)];
-      } catch (err) {
-        setDaActivationTrace(`province lookup failed: ${err.message}`, trigger, boundaryType, provinceLabel);
-      }
-    }
     const threshold = Number(el('censusThreshold')?.value ?? 50);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold, provinceHints);
+      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
