@@ -1,4 +1,4 @@
-/* Store Explorer - v1.52
+/* Store Explorer - v1.53
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -46,7 +46,7 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null,
-    censusRequestId:0, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
   const el = id => document.getElementById(id);
@@ -923,11 +923,16 @@
     el('kpiTotalSales').textContent=fmtThousands(totalSales);
     el('kpiTotalEbit').textContent=fmtThousands(totalEbit);
     el('kpiTotalEbitMargin').textContent=Number.isFinite(totalEbit)&&Number.isFinite(totalSales)&&totalSales!==0?`${(totalEbit/totalSales*100).toFixed(1)}%`:'—';
-    if(!e){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiSalesPerPopulation').textContent='—';return;}
-    if(!ebitVals.length){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';el('kpiSalesPerPopulation').textContent='—';return;}
-    el('kpiSuccess').textContent=fmtPct(ebitVals.filter(v=>v>0).length/ebitVals.length);
-    el('kpiAvgEbit').textContent=fmtMoney(avg(ebitVals));
-    el('kpiSalesPerPopulation').textContent='—';
+    if(!e){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';}
+    else if(!ebitVals.length){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';}
+    else {
+      el('kpiSuccess').textContent=fmtPct(ebitVals.filter(v=>v>0).length/ebitVals.length);
+      el('kpiAvgEbit').textContent=fmtMoney(avg(ebitVals));
+    }
+    const censusTotal = state.censusTotalPopulation;
+    el('kpiSalesPerPopulation').textContent = Number.isFinite(totalSales) && Number.isFinite(censusTotal) && censusTotal > 0
+      ? `$${fmtInt(Math.round(totalSales / censusTotal))}`
+      : '—';
   }
   function avg(vals){return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;}
   function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
@@ -1657,6 +1662,7 @@
       acc.incomeWeighted += a.householdIncome * a.totalHouseholds;
       return acc;
     }, {total:0, senior:0, forty:0, visibleMinority:0, households:0, incomeWeighted:0});
+    state.censusTotalPopulation = Number.isFinite(totals.total) ? totals.total : null;
     el('censusPopulation').textContent = fmtInt(totals.total);
     el('censusSeniors').innerHTML = censusValueWithShare(totals.senior, totals.total);
     el('censusForty').innerHTML = censusValueWithShare(totals.forty, totals.total);
@@ -1664,11 +1670,10 @@
     const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
     el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.total / storeCount)) : '—';
     el('censusHouseholdIncome').textContent = totals.households > 0 ? `$${fmtInt(Math.round(totals.incomeWeighted / totals.households))}` : '—';
-    const salesCol = state.columns.sales;
-    const selectedSales = salesCol ? state.selectedRows.map(r=>toNumber(r[salesCol])).filter(v=>v!==null).reduce((a,b)=>a+b,0) : NaN;
-    el('kpiSalesPerPopulation').textContent = Number.isFinite(selectedSales) && totals.total > 0 ? `$${fmtInt(Math.round(selectedSales / totals.total))}` : '—';
+    updateKpis();
   }
   function resetCensusPopulationSummary() {
+    state.censusTotalPopulation = null;
     el('censusPopulation').textContent = '—';
     el('censusSeniors').textContent = '—';
     el('censusForty').textContent = '—';
