@@ -1,7 +1,7 @@
-/* Store Explorer - v1.33
+/* Store Explorer - v1.34
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   Census catchment logic follows the supplied Streamlit methodology as closely as possible in-browser:
-   province -> provincial DA GeoJSON -> radius buffer -> intersecting DAs -> >=5% overlap or subject DA -> sum population / 65+.
+   DA selection test is intentionally isolated from store/KPI/Census-attribute logic:
+   province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
 */
 (() => {
   'use strict';
