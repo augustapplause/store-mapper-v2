@@ -1,4 +1,4 @@
-/* Store Explorer - v1.42
+/* Store Explorer - v1.44
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -262,20 +262,6 @@
         if (!state.initialNationalView) refreshDaSelection();
       },100);
     }
-  }
-
-  async function resolveProvinceFeaturesForBoundary(boundary) {
-    if (!boundary?.geometry) return [];
-    const bb = turf.bbox(boundary);
-    const geom = `${bb[0]},${bb[1]},${bb[2]},${bb[3]}`;
-    const geo = await arcgisGeoJSON(CONFIG.provinceLayer, {
-      geometry: geom,
-      geometryType: 'esriGeometryEnvelope',
-      inSR: '4326',
-      spatialRel: 'esriSpatialRelIntersects',
-      outFields: 'PRUID,PRNAME,PRENAME,PRFNAME,PREABBR,PRFABBR'
-    });
-    return geo?.features || [];
   }
 
   async function refreshCsdLayer() {
@@ -1713,8 +1699,10 @@
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const provinceFeatures = await resolveProvinceFeaturesForBoundary(boundary);
-      const result = await DA_ENGINE.select(boundary, provinceFeatures, threshold);
+      if (!state.provinceGeo?.features?.length) {
+        throw new Error('Province geography is not loaded.');
+      }
+      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
