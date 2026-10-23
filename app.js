@@ -1,4 +1,4 @@
-/* Store Explorer - v1.36
+/* Store Explorer - v1.37
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA selection test is intentionally isolated from store/KPI/Census-attribute logic:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -102,13 +102,20 @@
 
   function provinceCodeFromText(text) {
     const t = norm(text);
+    if (!t) return null;
     const map = {
-      ab:['alberta','ab'], bc:['british columbia','bc'], mb:['manitoba','mb'], nb:['new brunswick','nb'],
-      nl:['newfoundland','newfoundland and labrador','labrador','nl'], ns:['nova scotia','ns'], nt:['northwest territories','nt'],
-      nu:['nunavut','nu'], on:['ontario','on'], pe:['prince edward island','pei','pe'], qc:['quebec','québec','qc'],
-      sk:['saskatchewan','sk'], yt:['yukon','yt']
+      AB:['alberta','ab'], BC:['british columbia','bc'], MB:['manitoba','mb'], NB:['new brunswick','nb'],
+      NL:['newfoundland and labrador','newfoundland','labrador','nl'], NS:['nova scotia','ns'], NT:['northwest territories','nt'],
+      NU:['nunavut','nu'], ON:['ontario','on'], PE:['prince edward island','pei','pe'], QC:['quebec','qc'],
+      SK:['saskatchewan','sk'], YT:['yukon','yt']
     };
-    for (const [code, vals] of Object.entries(map)) if (vals.some(v => t === v || t.includes(` ${v} `) || t.includes(v))) return code.toUpperCase();
+    const escapeRe = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const entries = Object.entries(map).flatMap(([code, vals]) => vals.map(value => ({code, value})))
+      .sort((a,b) => b.value.length - a.value.length);
+    for (const {code, value} of entries) {
+      const re = new RegExp(`(^|\\s)${escapeRe(value)}($|\\s)`, 'i');
+      if (re.test(t)) return code;
+    }
     return null;
   }
 
@@ -1510,11 +1517,14 @@
       return [...new Set(found)];
     }
 
-    async function select(boundary, provinceGeo, thresholdPct) {
+    async function select(boundary, provinceGeo, thresholdPct, provinceHints=[]) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
-      const provinces = provincesForBoundary(boundary, provinceGeo);
+      const spatialProvinces = provincesForBoundary(boundary, provinceGeo);
+      const hintedProvinces = [...new Set((provinceHints || []).filter(code => CONFIG.daFiles[code]))];
+      const provinces = spatialProvinces.length ? spatialProvinces : hintedProvinces;
+      if (!provinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
@@ -1635,10 +1645,24 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    if (!state.provinceGeo) {
-      setDaActivationTrace('activated - waiting for province geography', trigger, boundaryType, provinceLabel);
-      setDaTestStatus('DA engine activated. Waiting for province boundaries to finish loading…');
-      return;
+    let provinceHints = [];
+    if (provinceLabel && CONFIG.daFiles[provinceLabel]) provinceHints.push(provinceLabel);
+    if (!state.provinceGeo && !provinceHints.length) {
+      try {
+        const b = turf.bbox(activeDaBoundary());
+        const samplePoints = [
+          [(b[0]+b[2])/2, (b[1]+b[3])/2],
+          [b[0], b[1]], [b[0], b[3]], [b[2], b[1]], [b[2], b[3]],
+          [(b[0]+b[2])/2, b[1]], [(b[0]+b[2])/2, b[3]], [b[0], (b[1]+b[3])/2], [b[2], (b[1]+b[3])/2]
+        ];
+        for (const [lng, lat] of samplePoints) {
+          const code = await queryProvinceAt(lat, lng);
+          if (code) provinceHints.push(code);
+        }
+        provinceHints = [...new Set(provinceHints)];
+      } catch (err) {
+        setDaActivationTrace(`province lookup failed: ${err.message}`, trigger, boundaryType, provinceLabel);
+      }
     }
     const threshold = Number(el('censusThreshold')?.value ?? 50);
     const requestId = ++state.censusRequestId;
@@ -1646,7 +1670,7 @@
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold);
+      const result = await DA_ENGINE.select(boundary, state.provinceGeo, threshold, provinceHints);
       if (requestId !== state.censusRequestId) return;
       setDaActivationTrace(`selected ${result.selectedCount}`, trigger, boundaryType, result.provinces.join(', ') || provinceLabel);
       renderDaSelection(result);
