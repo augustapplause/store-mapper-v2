@@ -33,7 +33,7 @@ input[type=text],input[type=search],input[type=number]{width:100%;border:1px sol
 .map-panel{position:relative;min-width:0}.map-panel #map{height:100%;width:100%;background:#dce6ec}.map-loading{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:900;background:#ffffffee;border:1px solid var(--line);padding:9px 14px;border-radius:20px;font-size:12px;box-shadow:0 2px 8px #0002}.hidden{display:none!important}.map-hint{position:absolute;left:12px;bottom:12px;z-index:700;background:#ffffffea;border:1px solid var(--line);padding:7px 10px;border-radius:8px;font-size:11px;color:var(--muted);max-width:330px}
 .results-card{margin:0;min-height:100%}
 .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.kpi{border:1px solid var(--line);border-radius:9px;padding:10px;background:#fafcfd}.kpi span{font-size:13px;color:#7a3db8;display:block}.kpi strong{font-size:20.16px;color:#7a3db8;display:block;margin-top:2px}
-.census-box,.subject-box,.group-box{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}.box-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:var(--navy);margin-bottom:8px}.census-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.census-grid div{background:#f7fafc;border-radius:8px;padding:8px}.census-grid span{font-size:9px;color:var(--muted);display:block}.census-grid strong{font-size:16px}.small{font-size:10px;margin-top:6px}.empty-message{font-size:11px;color:var(--muted);padding:8px 0}
+.census-box,.subject-box,.group-box{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}.box-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:var(--navy);margin-bottom:8px}.small{font-size:10px;margin-top:6px}.empty-message{font-size:11px;color:var(--muted);padding:8px 0}
 .subject-table,.group-table{width:100%;border-collapse:collapse;font-size:11px}.subject-table td,.group-table td,.group-table th{padding:6px 5px;border-bottom:1px solid #edf1f4;vertical-align:top}.subject-table td:last-child{text-align:right;font-weight:800}.group-table th{position:sticky;top:0;background:white;text-align:right;color:var(--muted);font-size:9px}.group-table th:first-child{text-align:left}.group-table td:not(:first-child){text-align:right}.group-wrap{max-height:270px;overflow:auto;border:1px solid var(--line);border-radius:8px}
 .config-dialog{width:min(590px,92vw);max-height:calc(100vh - 20px);border:1px solid var(--line);border-radius:13px;padding:0;box-shadow:0 20px 60px #0005}.config-dialog::backdrop{background:#09233a99}.config-dialog form{display:flex;flex-direction:column;max-height:calc(100vh - 20px);min-height:0;overflow:hidden}.dialog-header{padding:16px 17px 9px;display:flex;justify-content:space-between;gap:15px;flex:0 0 auto}.dialog-header h2{margin:0;font-size:19px}.dialog-header p{margin:4px 0 0;font-size:11px;color:var(--muted)}.icon-btn{background:transparent!important;color:var(--muted)!important;font-size:24px;padding:0 6px}.dialog-tools{display:flex;gap:7px;padding:0 17px 10px}.checkbox-list{padding:4px 17px 14px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.check-row{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:8px 2px;border-bottom:1px solid #edf1f4;font-size:12px}.check-row small{color:var(--muted)}.dialog-footer{padding:11px 17px;display:flex;justify-content:flex-end;gap:8px}
 .store-popup h3{font-size:14px;margin:0;color:var(--navy)}.store-popup-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-right:2px}.store-popup-map-link{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-right:20px;text-decoration:none;font-size:14px;font-weight:800;color:var(--navy);border:1px solid var(--line);border-radius:4px;background:#fff}.store-popup-map-link:hover{background:#f1f6fa;text-decoration:none}.store-popup-map-link:focus{outline:2px solid #7a3db8;outline-offset:1px}.store-popup table{width:100%;border-collapse:collapse;font-size:11px}.store-popup td{padding:3px 0;border-bottom:1px solid #eee}.store-popup td:last-child{text-align:right;font-weight:700;padding-left:8px}.popup-ebit-pos{color:var(--green)}.popup-ebit-neg{color:var(--red)}
@@ -52,7 +52,7 @@ input[type=text],input[type=search],input[type=number]{width:100%;border:1px sol
 .filter-dialog-actions .secondary{min-height:46px}
 
 @media (max-width:1100px){.app-shell{grid-template-columns:200px 1fr}.right-panel{position:absolute;right:0;top:68px;height:calc(100vh - 68px);width:330px;z-index:800;box-shadow:-4px 0 16px #0002}.map-panel{margin-right:330px}}
-@media (max-width:760px){.topbar{height:auto;min-height:68px;align-items:flex-start;padding:12px}.topbar h1{gap:12px;flex-wrap:wrap}.header-geography{font-size:18px}.app-shell{height:auto;display:block}.left-panel,.right-panel{position:static;width:auto;height:auto;border:0}.map-panel{height:62vh;margin:0}.right-panel{box-shadow:none}.census-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.topbar{height:auto;min-height:68px;align-items:flex-start;padding:12px}.topbar h1{gap:12px;flex-wrap:wrap}.header-geography{font-size:18px}.app-shell{height:auto;display:block}.left-panel,.right-panel{position:static;width:auto;height:auto;border:0}.map-panel{height:62vh;margin:0}.right-panel{box-shadow:none}}
 .version-badge{display:inline-block;font-size:.45em;vertical-align:middle;line-height:1;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:.25em .5em;margin-left:.25em;font-weight:700;letter-spacing:.02em}
 
 .subject-list-head{display:grid;grid-template-columns:1fr 88px 70px;padding:7px 17px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
@@ -130,7 +130,6 @@ input[type=number],
 select,
 .file-button,
 .kpi,
-.census-grid div,
 .config-button,
 .config-button-inline,
 .config-count,
@@ -632,10 +631,13 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 .census-da-header{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0 5px;font-size:9px;color:var(--muted);font-weight:700;border-bottom:1px solid rgba(71,103,125,.18)}.census-da-header span:not(:first-child){text-align:right}.census-da-row{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0;border-bottom:1px solid rgba(71,103,125,.12);font-variant-numeric:tabular-nums}.census-da-row span:not(:first-child){text-align:right}.census-da-list{max-height:260px;overflow:auto}.census-da-row:last-child{border-bottom:0}
 
-.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-threshold-control input{width:41px!important;box-sizing:border-box}
-
-/* v1.39 Census presentation */
-.census-da-toggle{display:flex!important;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px;color:var(--muted)!important;font-size:10px!important;font-weight:700!important;cursor:pointer}
+/* v1.49 Census Catchment - authoritative layout */
+.census-box{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+.census-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.census-title-row .box-title{margin:0;font-size:12px;font-weight:700;color:#111;line-height:1.2}
+.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex:0 0 auto}
+.census-threshold-control input{width:58px!important;min-width:58px;box-sizing:border-box;text-align:center}
+.census-da-toggle{display:flex!important;align-items:center;justify-content:flex-start;gap:8px;margin:8px 0 10px;color:#111!important;font-size:12px!important;font-weight:700!important;cursor:pointer}
 .census-da-toggle .toggle-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
 .census-da-toggle input{position:absolute;opacity:0;pointer-events:none}
 .census-da-toggle .toggle-slider{width:36px;height:20px;background:#c9d3da;border-radius:999px;display:inline-block;position:relative;transition:background .15s ease}
@@ -643,11 +645,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-da-toggle input:checked + .toggle-slider{background:#47677d}
 .census-da-toggle input:checked + .toggle-slider::after{transform:translateX(16px)}
 .census-da-toggle input:focus-visible + .toggle-slider{outline:2px solid #0b75b8;outline-offset:2px}
-.census-metric-value{font-size:16px}
-.census-share{font-size:11px;color:#c62828;font-weight:800;margin-left:4px;white-space:nowrap}
-
-
-/* v1.47 province geography diagnostic */
-.province-geo-diagnostic{margin-top:8px;padding:7px 0;border-top:1px solid rgba(71,103,125,.14);font-size:9px;line-height:1.45;color:var(--muted);white-space:normal}
-.province-geo-diagnostic strong{font-weight:700;color:var(--navy)}
-.province-geo-source{word-break:break-all}
+.census-grid{display:grid;grid-template-columns:1fr 1fr;column-gap:26px;row-gap:14px;margin-top:2px}
+.census-grid>div{min-width:0;background:transparent;border:0;border-radius:0;padding:0}
+.census-grid span{display:block;font-size:12px;line-height:1.15;color:#111;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.census-grid strong{display:flex;align-items:baseline;white-space:nowrap;line-height:1.15;color:#111;font-size:16px;font-weight:600;min-height:18px}
+.census-metric-value{font-size:16px;font-weight:600;color:#111;white-space:nowrap}
+.census-share{font-size:12px;color:#c62828;font-weight:600;margin-left:5px;white-space:nowrap}
