@@ -1448,7 +1448,7 @@
   //   DA GeoJSON -> spatial index -> boundary intersections -> threshold -> DA features.
   const DA_ENGINE = (() => {
     const cache = new Map();
-    const defaultThresholdPct = 50;
+    const defaultThresholdPct = 15;
 
     function getId(feature) {
       const p = feature?.properties || {};
@@ -1719,7 +1719,7 @@
         setDaActivationTrace(`province lookup failed: ${err.message}`, trigger, boundaryType, provinceLabel);
       }
     }
-    const threshold = Number(el('censusThreshold')?.value ?? 50);
+    const threshold = Number(el('censusThreshold')?.value ?? 15);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using the spatial index (${boundaryType})…`);
