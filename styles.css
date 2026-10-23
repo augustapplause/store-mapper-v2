@@ -634,25 +634,20 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 .census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-threshold-control input{width:41px!important;box-sizing:border-box}
 
-
-/* v1.46 Census catchment presentation */
-.census-title-row{align-items:center}
-.census-title-row .box-title{font-weight:700!important}
-.census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
-.census-threshold-control input{width:58px!important;height:40px!important;box-sizing:border-box;text-align:center}
-.census-da-toggle{display:flex!important;align-items:center;justify-content:flex-start!important;gap:7px!important;margin:8px 0 10px;color:#111!important;font-size:12px!important;font-weight:700!important;cursor:pointer}
-.census-da-toggle .toggle-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto;margin-left:0}
+/* v1.39 Census presentation */
+.census-da-toggle{display:flex!important;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px;color:var(--muted)!important;font-size:10px!important;font-weight:700!important;cursor:pointer}
+.census-da-toggle .toggle-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
 .census-da-toggle input{position:absolute;opacity:0;pointer-events:none}
 .census-da-toggle .toggle-slider{width:36px;height:20px;background:#c9d3da;border-radius:999px;display:inline-block;position:relative;transition:background .15s ease}
 .census-da-toggle .toggle-slider::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,.18);transition:transform .15s ease}
 .census-da-toggle input:checked + .toggle-slider{background:#47677d}
 .census-da-toggle input:checked + .toggle-slider::after{transform:translateX(16px)}
 .census-da-toggle input:focus-visible + .toggle-slider{outline:2px solid #0b75b8;outline-offset:2px}
-.census-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,auto);gap:10px 24px;background:transparent!important}
-.census-grid div{background:transparent!important;border:0!important;border-radius:0!important;padding:4px 0!important;min-width:0;min-height:0;overflow:visible!important}
-.census-grid div>span{display:block;font-size:12px!important;line-height:1.15!important;color:#111!important;font-weight:400!important;white-space:nowrap;overflow:visible;text-overflow:clip;margin-bottom:3px}
-.census-grid div>strong{display:flex!important;align-items:baseline;min-width:0;white-space:nowrap;overflow:visible;font-size:16px!important;line-height:1.05!important;font-weight:600!important;color:#111!important}
-.census-grid .census-metric-value{font-size:16px!important;line-height:1.05!important;font-weight:600!important;color:#111!important;white-space:nowrap}
-.census-grid .census-share{font-size:12px!important;line-height:1!important;font-weight:600!important;color:#c62828!important;white-space:nowrap;margin-left:4px}
-.census-note{margin-top:6px}
-@media (max-width:760px){.census-grid{gap:8px 14px}.census-grid div>strong,.census-grid .census-metric-value{font-size:16px!important}.census-grid .census-share{font-size:12px!important}}
+.census-metric-value{font-size:16px}
+.census-share{font-size:11px;color:#c62828;font-weight:800;margin-left:4px;white-space:nowrap}
+
+
+/* v1.47 province geography diagnostic */
+.province-geo-diagnostic{margin-top:8px;padding:7px 0;border-top:1px solid rgba(71,103,125,.14);font-size:9px;line-height:1.45;color:var(--muted);white-space:normal}
+.province-geo-diagnostic strong{font-weight:700;color:var(--navy)}
+.province-geo-source{word-break:break-all}
