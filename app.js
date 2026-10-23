@@ -1,4 +1,4 @@
-/* Store Explorer - v1.50
+/* Store Explorer - v1.51
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -12,12 +12,7 @@
     provinceLayer: 0,
     csdLayer: 9,
     geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
-    daSources: [
-      'data/da/{file}',
-      'https://raw.githubusercontent.com/augustapplause/python-project-v1/v1/{file}',
-      'https://github.com/augustapplause/python-project-v1/releases/download/v1/{file}'
-    ],
-    daReleaseApi: 'https://api.github.com/repos/augustapplause/python-project-v1/releases/tags/v1',
+    daReleaseBase: 'https://github.com/augustapplause/store-mapper-v2/releases/download/DA-data-v1',
     daFiles: {
       AB:'AB_da_census_13vars_30m.geojson', BC:'BC_da_census_13vars_30m.geojson', MB:'MB_da_census_13vars_30m.geojson',
       NB:'NB_da_census_13vars_30m.geojson', NL:'NL_da_census_13vars_30m.geojson', NS:'NS_da_census_13vars_30m.geojson',
@@ -1540,9 +1535,8 @@
       if (!file) throw new Error(`No DA file configured for ${provinceCode}.`);
       const errors = [];
       const sources = [
-        `./${encodeURIComponent(file)}`,
-        `https://raw.githubusercontent.com/augustapplause/store-mapper-v2/main/${encodeURIComponent(file)}`,
-        `https://raw.githubusercontent.com/augustapplause/store-mapper-v2/master/${encodeURIComponent(file)}`
+        `${CONFIG.daReleaseBase}/${encodeURIComponent(file)}`,
+        `./${encodeURIComponent(file)}`
       ];
       for (const url of sources) {
         try {
