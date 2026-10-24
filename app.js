@@ -1,4 +1,4 @@
-/* Store Explorer - v1.57
+/* Store Explorer - v1.58
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -476,7 +476,7 @@
   function addressFlagIcon(){
     return L.icon({
       iconUrl:NAV_FLAG_ASSET,
-      iconSize:[18,18],
+      iconSize:[30,30],
       iconAnchor:[9,17],
       className:'navigation-result-flag'
     });
