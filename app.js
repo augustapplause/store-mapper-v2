@@ -1,4 +1,4 @@
-/* Store Explorer - v1.58
+/* Store Explorer - v1.59
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -476,8 +476,8 @@
   function addressFlagIcon(){
     return L.icon({
       iconUrl:NAV_FLAG_ASSET,
-      iconSize:[30,30],
-      iconAnchor:[9,17],
+      iconSize:[34,34],
+      iconAnchor:[10,20],
       className:'navigation-result-flag'
     });
   }
@@ -2413,8 +2413,7 @@
   // ---------- UI wiring ----------
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
   el('clearFileBtn').addEventListener('click',clearFinancial);
-  el('storeNumberBtn').addEventListener('click',goToStoreNumber);
-  el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();goToStoreNumber();}});
+  el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
   function circleRadiusLabelText(radiusMeters){
     const km=radiusMeters/1000;
