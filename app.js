@@ -1,4 +1,4 @@
-/* Store Explorer - v1.53
+/* Store Explorer - v1.56
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -363,7 +363,7 @@
       const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
       map.once('moveend',()=>{if(token===state.searchToken){updateSelection();showNavigationResult(lat,lng,'address');}});
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      setTimeout(()=>{if(token===state.searchToken){updateSelection();scheduleDaRefresh(0,'address search');if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');}},250);
+      setTimeout(()=>{if(token===state.searchToken){updateSelection();scheduleDaRefresh(0,'address search');if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');}},900);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
@@ -439,33 +439,207 @@
 
   // ---------- Navigation result markers / one-shot animations ----------
   const NAV_MARKER_COLORS = ['#d34c4c','#4169e1','#7a3db8','#1f2933'];
+
   function clearNavigationResult(){
-    if(state.navigationResultLayer)state.navigationResultLayer.clearLayers();
-    if(state.navigationResultStoreMarker){state.navigationResultStoreMarker.__navigationResultColor=null;state.navigationResultStoreMarker.__visualKey='';state.navigationResultStoreMarker=null;refreshMarkerStyles();}
-    if(state.navigationResultAnimation){try{state.navigationResultAnimation.cancel?.();}catch(_){}try{state.navigationResultAnimation.remove?.();}catch(_){}state.navigationResultAnimation=null;}
-    state.navigationResultLatLng=null;state.navigationResultKind=null;
+    if(state.navigationResultLayer) state.navigationResultLayer.clearLayers();
+    if(state.navigationResultStoreMarker){
+      state.navigationResultStoreMarker.__navigationResultColor=null;
+      state.navigationResultStoreMarker.__visualKey='';
+      state.navigationResultStoreMarker=null;
+      refreshMarkerStyles();
+    }
+    if(state.navigationResultAnimation){
+      try{ state.navigationResultAnimation.cancel?.(); }catch(_){}
+      try{ state.navigationResultAnimation.remove?.(); }catch(_){}
+      state.navigationResultAnimation=null;
+    }
+    state.navigationResultLatLng=null;
+    state.navigationResultKind=null;
   }
-  function colorRgb(hex){const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);return m?[parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)]:[0,0,0];}
-  function colorDistance(a,b){const x=colorRgb(a),y=colorRgb(b);return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);}
+
+  function colorRgb(hex){
+    const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);
+    return m?[parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)]:[0,0,0];
+  }
+  function colorDistance(a,b){
+    const x=colorRgb(a),y=colorRgb(b);
+    return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);
+  }
   function contrastingNavigationColor(){
-    const visible=[...new Set(state.markers.filter(m=>m.__filterPass!==false && (m.getOpacity?.()??1)>0).map(m=>String(m.__navigationResultColor||state.markerColor).toLowerCase()))];
-    const choices=NAV_MARKER_COLORS.filter(c=>c.toLowerCase()!==String(state.markerColor).toLowerCase());
-    if(!visible.length)return choices.sort((a,b)=>colorDistance(b,state.markerColor)-colorDistance(a,state.markerColor))[0]||NAV_MARKER_COLORS[1];
-    return choices.map(c=>({c,score:visible.reduce((n,v)=>n+colorDistance(c,v),0)})).sort((a,b)=>b.score-a.score)[0]?.c||NAV_MARKER_COLORS[1];
+    const visible=[...new Set(state.markers
+      .filter(m=>m.__filterPass!==false && (m.getOpacity?.()??1)>0)
+      .map(m=>String(m.__navigationResultColor||state.markerColor).toLowerCase()))];
+    if(!visible.length){
+      return NAV_MARKER_COLORS
+        .slice()
+        .sort((a,b)=>colorDistance(b,state.markerColor)-colorDistance(a,state.markerColor))[0] || '#4169e1';
+    }
+    return NAV_MARKER_COLORS
+      .map(c=>({c,score:visible.reduce((n,v)=>n+colorDistance(c,v),0)}))
+      .sort((a,b)=>b.score-a.score)[0]?.c || '#4169e1';
   }
-  function addressFlagIcon(){return L.divIcon({className:'navigation-result-icon',html:'<span class="nav-flag" aria-hidden="true"><span class="nav-flag-pole"></span><span class="nav-flag-cloth"></span></span>',iconSize:[20,24],iconAnchor:[4,23]});}
-  function setNavigationStoreColor(marker,color){if(!marker)return;marker.__navigationResultColor=color;marker.__visualKey='';state.navigationResultStoreMarker=marker;refreshMarkerStyles();}
-  function navigationResultMarker(latlng,kind,marker=null){clearNavigationResult();state.navigationResultLatLng=L.latLng(latlng);state.navigationResultKind=kind;if(kind==='address'){L.marker(state.navigationResultLatLng,{icon:addressFlagIcon(),interactive:false,zIndexOffset:1900}).addTo(state.navigationResultLayer);}else if(marker){setNavigationStoreColor(marker,contrastingNavigationColor());}return marker;}
-  function drawBird(ctx,t,x,y){const flap=Math.sin(t*18)*0.2;ctx.save();ctx.translate(x,y);ctx.fillStyle='#8fd3ff';ctx.strokeStyle='#4f9dcc';ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(0,0,15,8,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.save();ctx.translate(-5,-3);ctx.rotate(-0.55-flap);ctx.beginPath();ctx.ellipse(0,0,12,4,0,0,Math.PI*2);ctx.fill();ctx.restore();ctx.save();ctx.translate(-5,3);ctx.rotate(0.55+flap);ctx.beginPath();ctx.ellipse(0,0,12,4,0,0,Math.PI*2);ctx.fill();ctx.restore();ctx.fillStyle='#73a9c4';ctx.beginPath();ctx.moveTo(14,-2);ctx.lineTo(23,1);ctx.lineTo(14,4);ctx.closePath();ctx.fill();ctx.fillStyle='#17324a';ctx.beginPath();ctx.arc(7,-3,1.6,0,Math.PI*2);ctx.fill();ctx.restore();}
-  function drawPlane(ctx,t,x,y){ctx.save();ctx.translate(x,y);ctx.fillStyle='#eef3f7';ctx.strokeStyle='#5f7280';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(-24,2);ctx.lineTo(19,0);ctx.quadraticCurveTo(24,1,19,4);ctx.lineTo(-8,5);ctx.lineTo(-17,13);ctx.lineTo(-23,13);ctx.lineTo(-14,4);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle='#b8c7d2';ctx.beginPath();ctx.moveTo(-2,1);ctx.lineTo(7,-12);ctx.lineTo(11,-12);ctx.lineTo(7,1);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
-  function drawBomb(ctx,x,y){ctx.save();ctx.translate(x,y);ctx.fillStyle='#303841';ctx.strokeStyle='#16232d';ctx.lineWidth=1.2;ctx.beginPath();ctx.ellipse(0,0,6,10,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.strokeStyle='#d5dde3';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-2,-9);ctx.lineTo(-5,-14);ctx.stroke();ctx.restore();}
-  function drawSoccer(ctx,t,x,y){ctx.save();ctx.translate(x,y);ctx.rotate(t*10);ctx.fillStyle='#fff';ctx.strokeStyle='#1f2933';ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(0,0,14,0,Math.PI*2);ctx.fill();ctx.stroke();const r=5.2,a=-Math.PI/2,p=[];for(let i=0;i<5;i++)p.push([Math.cos(a+i*2*Math.PI/5)*r,Math.sin(a+i*2*Math.PI/5)*r]);ctx.fillStyle='#1f2933';ctx.beginPath();ctx.moveTo(p[0][0],p[0][1]);for(let i=1;i<5;i++)ctx.lineTo(p[i][0],p[i][1]);ctx.closePath();ctx.fill();ctx.strokeStyle='#384754';ctx.lineWidth=1;for(const q of p){ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(q[0]*2.1,q[1]*2.1);ctx.stroke();}ctx.beginPath();ctx.arc(0,0,9.5,0,Math.PI*2);ctx.stroke();ctx.restore();}
-  function drawLanding(ctx,t,x,y){const p=Math.min(1,t/0.3),e=1-Math.pow(1-p,3);ctx.save();ctx.globalAlpha=Math.max(0,1-p);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,8+22*e,0,Math.PI*2);ctx.stroke();ctx.strokeStyle='#2a8fcb';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,4+10*e,0,Math.PI*2);ctx.stroke();ctx.restore();}
+
+  function addressFlagIcon(){
+    return L.divIcon({
+      className:'navigation-result-icon',
+      html:'<div class="nav-flag" aria-label="Address search result"><span class="nav-flag-cloth"></span><span class="nav-flag-pole"></span><span class="nav-flag-base"></span></div>',
+      iconSize:[28,34],
+      iconAnchor:[8,33]
+    });
+  }
+
+  function setNavigationStoreColor(marker,color){
+    if(!marker)return null;
+    marker.__navigationResultColor=color;
+    marker.__visualKey='';
+    state.navigationResultStoreMarker=marker;
+    refreshMarkerStyles();
+    return marker;
+  }
+
+  function findCurrentMarkerForRow(row){
+    return state.markers.find(m=>m.__row===row) || null;
+  }
+
+  function navigationResultMarker(latlng,kind,row=null){
+    clearNavigationResult();
+    state.navigationResultLatLng=L.latLng(latlng);
+    state.navigationResultKind=kind;
+    if(kind==='address'){
+      L.marker(state.navigationResultLatLng,{
+        icon:addressFlagIcon(),
+        interactive:false,
+        zIndexOffset:5000,
+        pane:'markerPane'
+      }).addTo(state.navigationResultLayer);
+      return null;
+    }
+    const marker=findCurrentMarkerForRow(row);
+    if(marker){
+      setNavigationStoreColor(marker,contrastingNavigationColor());
+    }
+    return marker;
+  }
+
+  function drawSoccerBall(ctx,t,x,y,scale=1){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(t*5.8);
+    const r=20*scale;
+    ctx.lineJoin='round';
+    ctx.lineCap='round';
+    ctx.fillStyle='#ffffff';
+    ctx.strokeStyle='#101820';
+    ctx.lineWidth=2.2*scale;
+    ctx.beginPath();
+    ctx.arc(0,0,r,0,Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Central black pentagon + five surrounding seams for a recognizable ball.
+    const cr=7.2*scale;
+    const pts=[];
+    for(let i=0;i<5;i++){
+      const a=-Math.PI/2+i*(Math.PI*2/5);
+      pts.push([Math.cos(a)*cr,Math.sin(a)*cr]);
+    }
+    ctx.fillStyle='#111820';
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<5;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle='#222d36';
+    ctx.lineWidth=1.7*scale;
+    for(const [px,py] of pts){
+      const len=Math.hypot(px,py);
+      const ux=px/len,uy=py/len;
+      ctx.beginPath();
+      ctx.moveTo(px,py);
+      ctx.lineTo(ux*r*0.84,uy*r*0.84);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function runNavigationResultAnimation(latlng){
-    if(!latlng)return;const old=state.navigationResultAnimation;if(old){try{old.cancel?.();old.remove?.();}catch(_){} }
-    const canvas=document.createElement('canvas');canvas.className='nav-result-animation-canvas';canvas.setAttribute('aria-hidden','true');const container=map.getContainer();container.appendChild(canvas);const ctx=canvas.getContext('2d');const dpr=Math.max(1,window.devicePixelRatio||1);let rect=container.getBoundingClientRect();function size(){rect=container.getBoundingClientRect();canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));canvas.style.width=`${rect.width}px`;canvas.style.height=`${rect.height}px`;}size();const type=['bird','plane','soccer'][Math.floor(Math.random()*3)];const right=type==='soccer'&&Math.random()<0.5;const start=performance.now(),duration=type==='plane'?2400:type==='bird'?2200:1600;const ctl={id:0,cancel:()=>cancelAnimationFrame(ctl.id),remove:()=>{if(canvas.parentNode)canvas.parentNode.removeChild(canvas);}};state.navigationResultAnimation=ctl;function frame(now){size();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);const target=map.latLngToContainerPoint(latlng);const t=Math.min(1,(now-start)/duration);if(type==='bird'){const u=Math.min(1,t/.82),x0=-60,y0=70,c1=rect.width*.2;x=(1-u)**2*x0+2*(1-u)*u*c1+u*u*(target.x-12);y=(1-u)**2*y0+2*(1-u)*u*(rect.height*.12)+u*u*(target.y-28);if(u>.55){x+=Math.sin(u*20)*13;y+=Math.cos(u*19)*8;}drawBird(ctx,now/1000,x,y);}else if(type==='plane'){const u=Math.min(1,t/.6);const x=-90+(target.x-90+90)*u,y=65+(target.y-120-65)*u;drawPlane(ctx,now/1000,x,y);if(t>.38){const q=Math.min(1,(t-.38)/.43),bx=x+4,by=y+20;const ex=target.x,ey=target.y;drawBomb(ctx,bx+(ex-bx)*q,by+(ey-by)*q+38*q*q);} }else{const sx=right?rect.width+55:-55,sy=target.y-80,u=Math.min(1,t/.72),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;let x=sx+(target.x-sx)*e,y=sy+(target.y-6-sy)*e;if(t>.72){const q=(t-.72)/.28;y=target.y-6-Math.sin(q*Math.PI)*18*(1-q);}drawSoccer(ctx,now/1000,x,y);}if(t>.86)drawLanding(ctx,(t-.86)/.14,target.x,target.y);if(t<1){ctl.id=requestAnimationFrame(frame);}else{ctl.remove();if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;}}ctl.id=requestAnimationFrame(frame);
+    if(!latlng)return;
+    if(state.navigationResultAnimation){
+      try{state.navigationResultAnimation.cancel?.();}catch(_){}
+      try{state.navigationResultAnimation.remove?.();}catch(_){}
+    }
+    const canvas=document.createElement('canvas');
+    canvas.className='nav-result-animation-canvas';
+    canvas.setAttribute('aria-hidden','true');
+    const container=map.getContainer();
+    container.appendChild(canvas);
+    const ctx=canvas.getContext('2d');
+    const dpr=Math.max(1,window.devicePixelRatio||1);
+    let rect=container.getBoundingClientRect();
+    const ctl={id:0,cancel:()=>cancelAnimationFrame(ctl.id),remove:()=>{if(canvas.parentNode)canvas.parentNode.removeChild(canvas);}};
+    state.navigationResultAnimation=ctl;
+
+    function size(){
+      rect=container.getBoundingClientRect();
+      canvas.width=Math.max(1,Math.round(rect.width*dpr));
+      canvas.height=Math.max(1,Math.round(rect.height*dpr));
+      canvas.style.width=`${rect.width}px`;
+      canvas.style.height=`${rect.height}px`;
+    }
+    size();
+
+    const fromRight=Math.random()<0.5;
+    const start=performance.now();
+    const duration=1900;
+
+    function frame(now){
+      size();
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,rect.width,rect.height);
+      const target=map.latLngToContainerPoint(latlng);
+      const t=Math.min(1,(now-start)/duration);
+
+      // Side-to-target flight with a slight arc, then a short bounce/settle.
+      const sx=fromRight?rect.width+70:-70;
+      const sy=Math.max(55,target.y-125);
+      const ex=target.x, ey=target.y-2;
+      const u=Math.min(1,t/0.78);
+      const e=1-Math.pow(1-u,3);
+      const arc=Math.sin(u*Math.PI)*85;
+      const x=sx+(ex-sx)*e;
+      const y=sy+(ey-sy)*e-arc;
+      const scale=1+0.16*Math.sin(Math.min(1,Math.max(0,(t-0.82)/0.18))*Math.PI);
+      drawSoccerBall(ctx,now/1000,x,y,scale);
+
+      if(t>0.78){
+        const q=Math.min(1,(t-0.78)/0.22);
+        const land=Math.sin(q*Math.PI);
+        ctx.save();
+        ctx.globalAlpha=(1-q)*0.78;
+        ctx.strokeStyle='#1f2933';
+        ctx.lineWidth=2.5;
+        ctx.beginPath();
+        ctx.ellipse(target.x,target.y+8,20+18*land,5+3*land,0,0,Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if(t<1){
+        ctl.id=requestAnimationFrame(frame);
+      }else{
+        ctl.remove();
+        if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;
+      }
+    }
+    ctl.id=requestAnimationFrame(frame);
   }
-  function showNavigationResult(lat,lng,kind,marker=null){const ll=L.latLng(lat,lng);navigationResultMarker(ll,kind,marker);requestAnimationFrame(()=>runNavigationResultAnimation(ll));}
+
+  function showNavigationResult(lat,lng,kind,row=null){
+    const ll=L.latLng(lat,lng);
+    navigationResultMarker(ll,kind,row);
+    requestAnimationFrame(()=>runNavigationResultAnimation(ll));
+  }
 
   // ---------- Store markers ----------
   // Every store is a separate marker.  Overlapping markers are only spread apart
@@ -1827,9 +2001,8 @@
     const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
     fitMapProgrammatically(targetBounds,{padding:[25,25]});
     el('storeJumpStatus').textContent=`Showing store ${query}.`;
-    const resultMarker=state.markers.find(m=>m.__row===target)||null;
-    map.once('moveend',()=>showNavigationResult(lat,lng,'store',resultMarker));
-    setTimeout(()=>{if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'store',resultMarker);},350);
+    map.once('moveend',()=>showNavigationResult(lat,lng,'store',target));
+    setTimeout(()=>{if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'store',target);},900);
     updateSelection();
   }
 
