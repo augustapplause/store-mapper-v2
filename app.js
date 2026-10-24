@@ -1,4 +1,4 @@
-/* Store Explorer - v1.54
+/* Store Explorer - v1.53
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -38,8 +38,8 @@
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
-    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null,
+    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreMarker:null,
+    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -439,87 +439,33 @@
 
   // ---------- Navigation result markers / one-shot animations ----------
   const NAV_MARKER_COLORS = ['#d34c4c','#4169e1','#7a3db8','#1f2933'];
-
   function clearNavigationResult(){
     if(state.navigationResultLayer)state.navigationResultLayer.clearLayers();
-    state.navigationResultLatLng=null;
-    state.navigationResultKind=null;
-    if(state.navigationResultAnimation){
-      try{state.navigationResultAnimation.remove();}catch(_){ }
-      state.navigationResultAnimation=null;
-    }
+    if(state.navigationResultStoreMarker){state.navigationResultStoreMarker.__navigationResultColor=null;state.navigationResultStoreMarker.__visualKey='';state.navigationResultStoreMarker=null;refreshMarkerStyles();}
+    if(state.navigationResultAnimation){try{state.navigationResultAnimation.cancel?.();}catch(_){}try{state.navigationResultAnimation.remove?.();}catch(_){}state.navigationResultAnimation=null;}
+    state.navigationResultLatLng=null;state.navigationResultKind=null;
   }
-
-  function colorRgb(hex){
-    const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);
-    if(!m)return [0,0,0];
-    return [parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)];
-  }
-  function colorDistance(a,b){
-    const x=colorRgb(a),y=colorRgb(b);
-    return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);
-  }
+  function colorRgb(hex){const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);return m?[parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)]:[0,0,0];}
+  function colorDistance(a,b){const x=colorRgb(a),y=colorRgb(b);return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);}
   function contrastingNavigationColor(){
-    const base=String(state.markerColor||NAV_MARKER_COLORS[0]).toLowerCase();
-    return NAV_MARKER_COLORS.filter(c=>c.toLowerCase()!==base).sort((a,b)=>colorDistance(b,base)-colorDistance(a,base))[0]||NAV_MARKER_COLORS[1];
+    const visible=[...new Set(state.markers.filter(m=>m.__filterPass!==false && (m.getOpacity?.()??1)>0).map(m=>String(m.__navigationResultColor||state.markerColor).toLowerCase()))];
+    const choices=NAV_MARKER_COLORS.filter(c=>c.toLowerCase()!==String(state.markerColor).toLowerCase());
+    if(!visible.length)return choices.sort((a,b)=>colorDistance(b,state.markerColor)-colorDistance(a,state.markerColor))[0]||NAV_MARKER_COLORS[1];
+    return choices.map(c=>({c,score:visible.reduce((n,v)=>n+colorDistance(c,v),0)})).sort((a,b)=>b.score-a.score)[0]?.c||NAV_MARKER_COLORS[1];
   }
-  function addressFlagIcon(){
-    return L.divIcon({className:'navigation-result-icon',html:'<span class="nav-flag" aria-hidden="true"><span class="nav-flag-pole"></span><span class="nav-flag-cloth"></span></span>',iconSize:[20,24],iconAnchor:[4,23]});
-  }
-  function storeResultIcon(color){
-    return L.divIcon({className:'navigation-result-icon',html:`<span class="nav-store-marker" style="--nav-store-color:${esc(color)}" aria-hidden="true"></span>`,iconSize:[18,18],iconAnchor:[9,9]});
-  }
-  function navigationResultMarker(latlng,kind){
-    clearNavigationResult();
-    state.navigationResultLatLng=L.latLng(latlng);
-    state.navigationResultKind=kind;
-    const marker=kind==='address'
-      ? L.marker(state.navigationResultLatLng,{icon:addressFlagIcon(),interactive:false,zIndexOffset:1900})
-      : L.marker(state.navigationResultLatLng,{icon:storeResultIcon(contrastingNavigationColor()),interactive:false,zIndexOffset:1900});
-    marker.addTo(state.navigationResultLayer);
-    const node=marker.getElement();
-    if(node)node.style.pointerEvents='none';
-    return marker;
-  }
-
+  function addressFlagIcon(){return L.divIcon({className:'navigation-result-icon',html:'<span class="nav-flag" aria-hidden="true"><span class="nav-flag-pole"></span><span class="nav-flag-cloth"></span></span>',iconSize:[20,24],iconAnchor:[4,23]});}
+  function setNavigationStoreColor(marker,color){if(!marker)return;marker.__navigationResultColor=color;marker.__visualKey='';state.navigationResultStoreMarker=marker;refreshMarkerStyles();}
+  function navigationResultMarker(latlng,kind,marker=null){clearNavigationResult();state.navigationResultLatLng=L.latLng(latlng);state.navigationResultKind=kind;if(kind==='address'){L.marker(state.navigationResultLatLng,{icon:addressFlagIcon(),interactive:false,zIndexOffset:1900}).addTo(state.navigationResultLayer);}else if(marker){setNavigationStoreColor(marker,contrastingNavigationColor());}return marker;}
+  function drawBird(ctx,t,x,y){const flap=Math.sin(t*18)*0.2;ctx.save();ctx.translate(x,y);ctx.fillStyle='#8fd3ff';ctx.strokeStyle='#4f9dcc';ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(0,0,15,8,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.save();ctx.translate(-5,-3);ctx.rotate(-0.55-flap);ctx.beginPath();ctx.ellipse(0,0,12,4,0,0,Math.PI*2);ctx.fill();ctx.restore();ctx.save();ctx.translate(-5,3);ctx.rotate(0.55+flap);ctx.beginPath();ctx.ellipse(0,0,12,4,0,0,Math.PI*2);ctx.fill();ctx.restore();ctx.fillStyle='#73a9c4';ctx.beginPath();ctx.moveTo(14,-2);ctx.lineTo(23,1);ctx.lineTo(14,4);ctx.closePath();ctx.fill();ctx.fillStyle='#17324a';ctx.beginPath();ctx.arc(7,-3,1.6,0,Math.PI*2);ctx.fill();ctx.restore();}
+  function drawPlane(ctx,t,x,y){ctx.save();ctx.translate(x,y);ctx.fillStyle='#eef3f7';ctx.strokeStyle='#5f7280';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(-24,2);ctx.lineTo(19,0);ctx.quadraticCurveTo(24,1,19,4);ctx.lineTo(-8,5);ctx.lineTo(-17,13);ctx.lineTo(-23,13);ctx.lineTo(-14,4);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle='#b8c7d2';ctx.beginPath();ctx.moveTo(-2,1);ctx.lineTo(7,-12);ctx.lineTo(11,-12);ctx.lineTo(7,1);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
+  function drawBomb(ctx,x,y){ctx.save();ctx.translate(x,y);ctx.fillStyle='#303841';ctx.strokeStyle='#16232d';ctx.lineWidth=1.2;ctx.beginPath();ctx.ellipse(0,0,6,10,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.strokeStyle='#d5dde3';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-2,-9);ctx.lineTo(-5,-14);ctx.stroke();ctx.restore();}
+  function drawSoccer(ctx,t,x,y){ctx.save();ctx.translate(x,y);ctx.rotate(t*10);ctx.fillStyle='#fff';ctx.strokeStyle='#1f2933';ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(0,0,14,0,Math.PI*2);ctx.fill();ctx.stroke();const r=5.2,a=-Math.PI/2,p=[];for(let i=0;i<5;i++)p.push([Math.cos(a+i*2*Math.PI/5)*r,Math.sin(a+i*2*Math.PI/5)*r]);ctx.fillStyle='#1f2933';ctx.beginPath();ctx.moveTo(p[0][0],p[0][1]);for(let i=1;i<5;i++)ctx.lineTo(p[i][0],p[i][1]);ctx.closePath();ctx.fill();ctx.strokeStyle='#384754';ctx.lineWidth=1;for(const q of p){ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(q[0]*2.1,q[1]*2.1);ctx.stroke();}ctx.beginPath();ctx.arc(0,0,9.5,0,Math.PI*2);ctx.stroke();ctx.restore();}
+  function drawLanding(ctx,t,x,y){const p=Math.min(1,t/0.3),e=1-Math.pow(1-p,3);ctx.save();ctx.globalAlpha=Math.max(0,1-p);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,8+22*e,0,Math.PI*2);ctx.stroke();ctx.strokeStyle='#2a8fcb';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,4+10*e,0,Math.PI*2);ctx.stroke();ctx.restore();}
   function runNavigationResultAnimation(latlng){
-    if(!latlng)return;
-    if(state.navigationResultAnimation){try{state.navigationResultAnimation.remove();}catch(_){ }}
-    const container=map.getContainer();
-    const target=map.latLngToContainerPoint(latlng);
-    const layer=document.createElement('div');
-    layer.className='nav-result-animation-layer';
-    layer.setAttribute('aria-hidden','true');
-    layer.innerHTML='<div class="nav-animation-piece"></div>';
-    container.appendChild(layer);
-    const piece=layer.firstElementChild;
-    const types=['bird','plane','soccer'];
-    const type=types[Math.floor(Math.random()*types.length)];
-    piece.className=`nav-animation-piece nav-animation-${type}`;
-    piece.style.setProperty('--nav-target-x',`${Math.round(target.x)}px`);
-    piece.style.setProperty('--nav-target-y',`${Math.round(target.y)}px`);
-    if(type==='bird') piece.innerHTML='<span class="nav-bird-body"></span><span class="nav-bird-wing nav-bird-wing-left"></span><span class="nav-bird-wing nav-bird-wing-right"></span><span class="nav-bird-beak"></span>';
-    if(type==='plane'){
-      piece.innerHTML='<span class="nav-plane-body"></span>';
-      const bomb=document.createElement('span');
-      bomb.className='nav-plane-bomb';
-      bomb.setAttribute('aria-hidden','true');
-      bomb.style.setProperty('--nav-target-x',`${Math.round(target.x)}px`);
-      bomb.style.setProperty('--nav-target-y',`${Math.round(target.y)}px`);
-      layer.appendChild(bomb);
-    }
-    if(type==='soccer' && Math.random()<0.5) piece.classList.add('from-right');
-    state.navigationResultAnimation=layer;
-    piece.addEventListener('animationend',()=>{
-      if(layer.parentNode)layer.parentNode.removeChild(layer);
-      if(state.navigationResultAnimation===layer)state.navigationResultAnimation=null;
-    },{once:true});
+    if(!latlng)return;const old=state.navigationResultAnimation;if(old){try{old.cancel?.();old.remove?.();}catch(_){} }
+    const canvas=document.createElement('canvas');canvas.className='nav-result-animation-canvas';canvas.setAttribute('aria-hidden','true');const container=map.getContainer();container.appendChild(canvas);const ctx=canvas.getContext('2d');const dpr=Math.max(1,window.devicePixelRatio||1);let rect=container.getBoundingClientRect();function size(){rect=container.getBoundingClientRect();canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));canvas.style.width=`${rect.width}px`;canvas.style.height=`${rect.height}px`;}size();const type=['bird','plane','soccer'][Math.floor(Math.random()*3)];const right=type==='soccer'&&Math.random()<0.5;const start=performance.now(),duration=type==='plane'?2400:type==='bird'?2200:1600;const ctl={id:0,cancel:()=>cancelAnimationFrame(ctl.id),remove:()=>{if(canvas.parentNode)canvas.parentNode.removeChild(canvas);}};state.navigationResultAnimation=ctl;function frame(now){size();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);const target=map.latLngToContainerPoint(latlng);const t=Math.min(1,(now-start)/duration);if(type==='bird'){const u=Math.min(1,t/.82),x0=-60,y0=70,c1=rect.width*.2;x=(1-u)**2*x0+2*(1-u)*u*c1+u*u*(target.x-12);y=(1-u)**2*y0+2*(1-u)*u*(rect.height*.12)+u*u*(target.y-28);if(u>.55){x+=Math.sin(u*20)*13;y+=Math.cos(u*19)*8;}drawBird(ctx,now/1000,x,y);}else if(type==='plane'){const u=Math.min(1,t/.6);const x=-90+(target.x-90+90)*u,y=65+(target.y-120-65)*u;drawPlane(ctx,now/1000,x,y);if(t>.38){const q=Math.min(1,(t-.38)/.43),bx=x+4,by=y+20;const ex=target.x,ey=target.y;drawBomb(ctx,bx+(ex-bx)*q,by+(ey-by)*q+38*q*q);} }else{const sx=right?rect.width+55:-55,sy=target.y-80,u=Math.min(1,t/.72),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;let x=sx+(target.x-sx)*e,y=sy+(target.y-6-sy)*e;if(t>.72){const q=(t-.72)/.28;y=target.y-6-Math.sin(q*Math.PI)*18*(1-q);}drawSoccer(ctx,now/1000,x,y);}if(t>.86)drawLanding(ctx,(t-.86)/.14,target.x,target.y);if(t<1){ctl.id=requestAnimationFrame(frame);}else{ctl.remove();if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;}}ctl.id=requestAnimationFrame(frame);
   }
-  function showNavigationResult(lat,lng,kind){
-    const ll=L.latLng(lat,lng);
-    navigationResultMarker(ll,kind);
-    requestAnimationFrame(()=>runNavigationResultAnimation(ll));
-  }
+  function showNavigationResult(lat,lng,kind,marker=null){const ll=L.latLng(lat,lng);navigationResultMarker(ll,kind,marker);requestAnimationFrame(()=>runNavigationResultAnimation(ll));}
 
   // ---------- Store markers ----------
   // Every store is a separate marker.  Overlapping markers are only spread apart
@@ -548,7 +494,7 @@
       state.markerCluster.addLayer(marker);
     }
   }
-  function storeIcon(row,inSelection,animateVisible=false){
+  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null){
     const focusActive = (state.selectedGroupKey!==null && rowMatchesSelectedGroup(row)) || (state.distributionBinKey!==null && rowMatchesSelectedDistribution(row,1)) || (state.distributionBinKey2!==null && rowMatchesSelectedDistribution(row,2)) || state.selectedStoreRow===row;
     const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
     const animating = animateVisible && markerRowAnimationPasses(row);
@@ -561,8 +507,9 @@
     const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${fadeKey}" aria-hidden="true">${fadeContent}</span>` : '';
     const staticActive = animating && state.markerAnimation.type==='static';
     const staticObject = staticActive ? `<span class="marker-static-object" aria-hidden="true"><svg class="marker-static-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="15" r="7" fill="#fff" stroke="#c90000" stroke-width="2"/><circle cx="11" cy="15" r="4.3" fill="#c90000" stroke="#fff" stroke-width="1.5"/><circle cx="11" cy="15" r="2" fill="#c90000"/><path d="M24 4 L12.2 15.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/><path d="M24 4 L20.2 4.7 L21.2 8.2 Z" fill="#111"/></svg></span>` : '';
-    const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}`;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${state.markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
+    const navActive=!!overrideColor; const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const markerColor=overrideColor||state.markerColor;
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
@@ -930,8 +877,8 @@
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
-      const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}`;
-      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible));}
+      const navColor=m.__navigationResultColor||null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navColor||''}`;
+      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor));}
     });
   }
 
@@ -1878,10 +1825,11 @@
     state.initialNationalView=false; state.mapReadyForViewport=true; state.daActivationTrigger='store jump';
     const dLat=km/110.5, dLon=km/(111*Math.cos(lat*Math.PI/180));
     const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
-    map.once('moveend',()=>{ if(state.navigationResultLatLng===null) showNavigationResult(lat,lng,'store'); });
     fitMapProgrammatically(targetBounds,{padding:[25,25]});
     el('storeJumpStatus').textContent=`Showing store ${query}.`;
-    setTimeout(()=>{ if(!state.navigationResultLatLng) showNavigationResult(lat,lng,'store'); },300);
+    const resultMarker=state.markers.find(m=>m.__row===target)||null;
+    map.once('moveend',()=>showNavigationResult(lat,lng,'store',resultMarker));
+    setTimeout(()=>{if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'store',resultMarker);},350);
     updateSelection();
   }
 
