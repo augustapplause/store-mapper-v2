@@ -1,4 +1,4 @@
-/* Store Explorer - v1.56
+/* Store Explorer - v1.57
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -38,7 +38,7 @@
     provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreMarker:null,
+    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
@@ -437,24 +437,23 @@
   function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
-  // ---------- Navigation result markers / one-shot animations ----------
+  // ---------- Navigation result markers / one-shot basketball animation ----------
   const NAV_MARKER_COLORS = ['#d34c4c','#4169e1','#7a3db8','#1f2933'];
+  const NAV_BASKETBALL_ASSET = './search-result-basketball.png';
+  const NAV_FLAG_ASSET = './search-result-flag.png';
 
   function clearNavigationResult(){
     if(state.navigationResultLayer) state.navigationResultLayer.clearLayers();
-    if(state.navigationResultStoreMarker){
-      state.navigationResultStoreMarker.__navigationResultColor=null;
-      state.navigationResultStoreMarker.__visualKey='';
-      state.navigationResultStoreMarker=null;
-      refreshMarkerStyles();
-    }
     if(state.navigationResultAnimation){
-      try{ state.navigationResultAnimation.cancel?.(); }catch(_){}
-      try{ state.navigationResultAnimation.remove?.(); }catch(_){}
+      try{ state.navigationResultAnimation.cancel?.(); }catch(_){ }
+      try{ state.navigationResultAnimation.remove?.(); }catch(_){ }
       state.navigationResultAnimation=null;
     }
+    state.navigationResultStoreRow=null;
+    state.navigationResultStoreColor=null;
     state.navigationResultLatLng=null;
     state.navigationResultKind=null;
+    refreshMarkerStyles();
   }
 
   function colorRgb(hex){
@@ -468,33 +467,19 @@
   function contrastingNavigationColor(){
     const visible=[...new Set(state.markers
       .filter(m=>m.__filterPass!==false && (m.getOpacity?.()??1)>0)
-      .map(m=>String(m.__navigationResultColor||state.markerColor).toLowerCase()))];
-    if(!visible.length){
-      return NAV_MARKER_COLORS
-        .slice()
-        .sort((a,b)=>colorDistance(b,state.markerColor)-colorDistance(a,state.markerColor))[0] || '#4169e1';
-    }
+      .map(m=>String(m.__row===state.navigationResultStoreRow ? (m.__navigationResultColor||state.markerColor) : state.markerColor).toLowerCase()))];
     return NAV_MARKER_COLORS
       .map(c=>({c,score:visible.reduce((n,v)=>n+colorDistance(c,v),0)}))
       .sort((a,b)=>b.score-a.score)[0]?.c || '#4169e1';
   }
 
   function addressFlagIcon(){
-    return L.divIcon({
-      className:'navigation-result-icon',
-      html:'<div class="nav-flag" aria-label="Address search result"><span class="nav-flag-cloth"></span><span class="nav-flag-pole"></span><span class="nav-flag-base"></span></div>',
-      iconSize:[28,34],
-      iconAnchor:[8,33]
+    return L.icon({
+      iconUrl:NAV_FLAG_ASSET,
+      iconSize:[18,18],
+      iconAnchor:[9,17],
+      className:'navigation-result-flag'
     });
-  }
-
-  function setNavigationStoreColor(marker,color){
-    if(!marker)return null;
-    marker.__navigationResultColor=color;
-    marker.__visualKey='';
-    state.navigationResultStoreMarker=marker;
-    refreshMarkerStyles();
-    return marker;
   }
 
   function findCurrentMarkerForRow(row){
@@ -516,58 +501,31 @@
     }
     const marker=findCurrentMarkerForRow(row);
     if(marker){
-      setNavigationStoreColor(marker,contrastingNavigationColor());
+      state.navigationResultStoreRow=row;
+      state.navigationResultStoreColor=contrastingNavigationColor();
+      refreshMarkerStyles();
+      return marker;
     }
-    return marker;
+    return null;
   }
 
-  function drawSoccerBall(ctx,t,x,y,scale=1){
+  function drawBasketball(ctx,img,x,y,size,rotation=0){
+    const r=size/2;
     ctx.save();
     ctx.translate(x,y);
-    ctx.rotate(t*5.8);
-    const r=20*scale;
-    ctx.lineJoin='round';
-    ctx.lineCap='round';
-    ctx.fillStyle='#ffffff';
-    ctx.strokeStyle='#101820';
-    ctx.lineWidth=2.2*scale;
+    ctx.rotate(rotation);
     ctx.beginPath();
     ctx.arc(0,0,r,0,Math.PI*2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Central black pentagon + five surrounding seams for a recognizable ball.
-    const cr=7.2*scale;
-    const pts=[];
-    for(let i=0;i<5;i++){
-      const a=-Math.PI/2+i*(Math.PI*2/5);
-      pts.push([Math.cos(a)*cr,Math.sin(a)*cr]);
-    }
-    ctx.fillStyle='#111820';
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0],pts[0][1]);
-    for(let i=1;i<5;i++)ctx.lineTo(pts[i][0],pts[i][1]);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle='#222d36';
-    ctx.lineWidth=1.7*scale;
-    for(const [px,py] of pts){
-      const len=Math.hypot(px,py);
-      const ux=px/len,uy=py/len;
-      ctx.beginPath();
-      ctx.moveTo(px,py);
-      ctx.lineTo(ux*r*0.84,uy*r*0.84);
-      ctx.stroke();
-    }
+    ctx.clip();
+    ctx.drawImage(img,-r,-r,size,size);
     ctx.restore();
   }
 
   function runNavigationResultAnimation(latlng){
     if(!latlng)return;
     if(state.navigationResultAnimation){
-      try{state.navigationResultAnimation.cancel?.();}catch(_){}
-      try{state.navigationResultAnimation.remove?.();}catch(_){}
+      try{state.navigationResultAnimation.cancel?.();}catch(_){ }
+      try{state.navigationResultAnimation.remove?.();}catch(_){ }
     }
     const canvas=document.createElement('canvas');
     canvas.className='nav-result-animation-canvas';
@@ -589,50 +547,61 @@
     }
     size();
 
+    const img=new Image();
+    img.onload=()=>start();
+    img.onerror=()=>start(true);
+    img.src=NAV_BASKETBALL_ASSET;
+
     const fromRight=Math.random()<0.5;
-    const start=performance.now();
-    const duration=1900;
+    const startTimeRef={value:0};
+    const duration=1800;
 
-    function frame(now){
-      size();
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-      ctx.clearRect(0,0,rect.width,rect.height);
-      const target=map.latLngToContainerPoint(latlng);
-      const t=Math.min(1,(now-start)/duration);
-
-      // Side-to-target flight with a slight arc, then a short bounce/settle.
-      const sx=fromRight?rect.width+70:-70;
-      const sy=Math.max(55,target.y-125);
-      const ex=target.x, ey=target.y-2;
-      const u=Math.min(1,t/0.78);
-      const e=1-Math.pow(1-u,3);
-      const arc=Math.sin(u*Math.PI)*85;
-      const x=sx+(ex-sx)*e;
-      const y=sy+(ey-sy)*e-arc;
-      const scale=1+0.16*Math.sin(Math.min(1,Math.max(0,(t-0.82)/0.18))*Math.PI);
-      drawSoccerBall(ctx,now/1000,x,y,scale);
-
-      if(t>0.78){
-        const q=Math.min(1,(t-0.78)/0.22);
-        const land=Math.sin(q*Math.PI);
-        ctx.save();
-        ctx.globalAlpha=(1-q)*0.78;
-        ctx.strokeStyle='#1f2933';
-        ctx.lineWidth=2.5;
-        ctx.beginPath();
-        ctx.ellipse(target.x,target.y+8,20+18*land,5+3*land,0,0,Math.PI*2);
-        ctx.stroke();
-        ctx.restore();
+    function start(assetMissing=false){
+      startTimeRef.value=performance.now();
+      function frame(now){
+        size();
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        ctx.clearRect(0,0,rect.width,rect.height);
+        const target=map.latLngToContainerPoint(latlng);
+        const t=Math.min(1,(now-startTimeRef.value)/duration);
+        const sx=fromRight?rect.width+70:-70;
+        const sy=Math.max(45,target.y-115);
+        const u=Math.min(1,t/0.78);
+        const e=1-Math.pow(1-u,3);
+        const arc=Math.sin(u*Math.PI)*90;
+        const x=sx+(target.x-sx)*e;
+        const y=sy+(target.y-sy)*e-arc;
+        const landQ=t<0.78?0:Math.min(1,(t-0.78)/0.22);
+        const landScale=landQ?0.92+0.08*Math.cos(landQ*Math.PI):1;
+        const sizePx=38*landScale;
+        const rot=now/180;
+        if(!assetMissing) drawBasketball(ctx,img,x,y,sizePx,rot);
+        else {
+          ctx.save();
+          ctx.translate(x,y);ctx.rotate(rot);
+          ctx.fillStyle='#e67817';ctx.beginPath();ctx.arc(0,0,sizePx/2,0,Math.PI*2);ctx.fill();
+          ctx.strokeStyle='#111';ctx.lineWidth=2;ctx.stroke();
+          ctx.restore();
+        }
+        if(t>=0.78){
+          const q=Math.min(1,(t-0.78)/0.22);
+          ctx.save();
+          ctx.globalAlpha=(1-q)*0.65;
+          ctx.strokeStyle='#111820';ctx.lineWidth=2;
+          ctx.beginPath();
+          ctx.ellipse(target.x,target.y+10,18+14*q,4+2*q,0,0,Math.PI*2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if(t<1){
+          ctl.id=requestAnimationFrame(frame);
+        }else{
+          ctl.remove();
+          if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;
+        }
       }
-
-      if(t<1){
-        ctl.id=requestAnimationFrame(frame);
-      }else{
-        ctl.remove();
-        if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;
-      }
+      ctl.id=requestAnimationFrame(frame);
     }
-    ctl.id=requestAnimationFrame(frame);
   }
 
   function showNavigationResult(lat,lng,kind,row=null){
@@ -661,12 +630,14 @@
       marker.__row=row;
       marker.__trueLatLng=L.latLng(lat,lng);
       marker.__visualKey='';
+      marker.__navigationResultColor=null;
       marker.__filterPass=true;
       marker.__selected=false;
       marker.on('click',e=>{ if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent); handleMarkerClick(marker); });
       state.markers.push(marker);
       state.markerCluster.addLayer(marker);
     }
+    refreshMarkerStyles();
   }
   function storeIcon(row,inSelection,animateVisible=false,overrideColor=null){
     const focusActive = (state.selectedGroupKey!==null && rowMatchesSelectedGroup(row)) || (state.distributionBinKey!==null && rowMatchesSelectedDistribution(row,1)) || (state.distributionBinKey2!==null && rowMatchesSelectedDistribution(row,2)) || state.selectedStoreRow===row;
@@ -1051,7 +1022,7 @@
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
-      const navColor=m.__navigationResultColor||null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navColor||''}`;
+      const navColor=(state.navigationResultKind==='store' && m.__row===state.navigationResultStoreRow) ? state.navigationResultStoreColor : null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navColor||''}`;
       if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor));}
     });
   }
