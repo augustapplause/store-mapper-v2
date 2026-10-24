@@ -1,4 +1,4 @@
-/* Store Explorer - v1.60
+/* Store Explorer - v1.61
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -1944,6 +1944,16 @@
     }
   }
 
+  function commitStoreNumberChange(){
+    const input=el('storeNumberInput');
+    if(!input)return;
+    const value=String(input.value??'').trim();
+    const last=String(input.dataset.lastCommittedValue??'').trim();
+    if(value===last)return;
+    input.dataset.lastCommittedValue=value;
+    goToStoreNumber();
+  }
+
   function goToStoreNumber(){
     const query=String(el('storeNumberInput').value??'').trim();
     if(!query){el('storeJumpStatus').textContent='Enter a Store Profile Number.';return;}
@@ -2413,8 +2423,9 @@
   // ---------- UI wiring ----------
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
   el('clearFileBtn').addEventListener('click',clearFinancial);
-  el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
-  el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();goToStoreNumber();}});
+  el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();el('storeNumberInput')?.blur();});
+  el('storeNumberInput').addEventListener('change',()=>commitStoreNumberChange());
+  el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();e.currentTarget.blur();}});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
   function circleRadiusLabelText(radiusMeters){
     const km=radiusMeters/1000;
