@@ -1,4 +1,4 @@
-/* Store Explorer - v1.53
+/* Store Explorer - v1.54
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -39,7 +39,7 @@
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(),
-    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
+    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -67,6 +67,7 @@
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
   state.markerCluster = L.layerGroup().addTo(map);
+  state.navigationResultLayer = L.layerGroup().addTo(map);
   map.on('move zoom resize',requestStorePopupLayout);
   map.on('click',e=>{ if(e?.originalEvent?.target===map.getContainer() && state.openPopupMarker) closeStorePopup(); });
 
@@ -352,23 +353,23 @@
       const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');
       const lat=c.location.y,lng=c.location.x;
       const provinceCode=provinceCodeFromAddress(query,c)||await queryProvinceAt(lat,lng);
-      clearCircle();clearDaOverlay();state.censusRequestId++;
+      clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
       state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='address search';
       
-      const km=10;
+      const km=2.5;
       const dLat=km/110.5,dLon=km/(111*Math.cos(lat*Math.PI/180));
       const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
-      map.once('moveend',()=>{if(token===state.searchToken)updateSelection();});
+      map.once('moveend',()=>{if(token===state.searchToken){updateSelection();showNavigationResult(lat,lng,'address');}});
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      setTimeout(()=>{if(token===state.searchToken){updateSelection();scheduleDaRefresh(0,'address search');}},250);
+      setTimeout(()=>{if(token===state.searchToken){updateSelection();scheduleDaRefresh(0,'address search');if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');}},250);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
 
   function resetCanada(){
-    clearCircle();clearDaOverlay();state.censusRequestId++;
+    clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
@@ -433,8 +434,92 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
+
+  // ---------- Navigation result markers / one-shot animations ----------
+  const NAV_MARKER_COLORS = ['#d34c4c','#4169e1','#7a3db8','#1f2933'];
+
+  function clearNavigationResult(){
+    if(state.navigationResultLayer)state.navigationResultLayer.clearLayers();
+    state.navigationResultLatLng=null;
+    state.navigationResultKind=null;
+    if(state.navigationResultAnimation){
+      try{state.navigationResultAnimation.remove();}catch(_){ }
+      state.navigationResultAnimation=null;
+    }
+  }
+
+  function colorRgb(hex){
+    const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);
+    if(!m)return [0,0,0];
+    return [parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)];
+  }
+  function colorDistance(a,b){
+    const x=colorRgb(a),y=colorRgb(b);
+    return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);
+  }
+  function contrastingNavigationColor(){
+    const base=String(state.markerColor||NAV_MARKER_COLORS[0]).toLowerCase();
+    return NAV_MARKER_COLORS.filter(c=>c.toLowerCase()!==base).sort((a,b)=>colorDistance(b,base)-colorDistance(a,base))[0]||NAV_MARKER_COLORS[1];
+  }
+  function addressFlagIcon(){
+    return L.divIcon({className:'navigation-result-icon',html:'<span class="nav-flag" aria-hidden="true"><span class="nav-flag-pole"></span><span class="nav-flag-cloth"></span></span>',iconSize:[20,24],iconAnchor:[4,23]});
+  }
+  function storeResultIcon(color){
+    return L.divIcon({className:'navigation-result-icon',html:`<span class="nav-store-marker" style="--nav-store-color:${esc(color)}" aria-hidden="true"></span>`,iconSize:[18,18],iconAnchor:[9,9]});
+  }
+  function navigationResultMarker(latlng,kind){
+    clearNavigationResult();
+    state.navigationResultLatLng=L.latLng(latlng);
+    state.navigationResultKind=kind;
+    const marker=kind==='address'
+      ? L.marker(state.navigationResultLatLng,{icon:addressFlagIcon(),interactive:false,zIndexOffset:1900})
+      : L.marker(state.navigationResultLatLng,{icon:storeResultIcon(contrastingNavigationColor()),interactive:false,zIndexOffset:1900});
+    marker.addTo(state.navigationResultLayer);
+    const node=marker.getElement();
+    if(node)node.style.pointerEvents='none';
+    return marker;
+  }
+
+  function runNavigationResultAnimation(latlng){
+    if(!latlng)return;
+    if(state.navigationResultAnimation){try{state.navigationResultAnimation.remove();}catch(_){ }}
+    const container=map.getContainer();
+    const target=map.latLngToContainerPoint(latlng);
+    const layer=document.createElement('div');
+    layer.className='nav-result-animation-layer';
+    layer.setAttribute('aria-hidden','true');
+    layer.innerHTML='<div class="nav-animation-piece"></div>';
+    container.appendChild(layer);
+    const piece=layer.firstElementChild;
+    const types=['bird','plane','soccer'];
+    const type=types[Math.floor(Math.random()*types.length)];
+    piece.className=`nav-animation-piece nav-animation-${type}`;
+    piece.style.setProperty('--nav-target-x',`${Math.round(target.x)}px`);
+    piece.style.setProperty('--nav-target-y',`${Math.round(target.y)}px`);
+    if(type==='bird') piece.innerHTML='<span class="nav-bird-body"></span><span class="nav-bird-wing nav-bird-wing-left"></span><span class="nav-bird-wing nav-bird-wing-right"></span><span class="nav-bird-beak"></span>';
+    if(type==='plane'){
+      piece.innerHTML='<span class="nav-plane-body"></span>';
+      const bomb=document.createElement('span');
+      bomb.className='nav-plane-bomb';
+      bomb.setAttribute('aria-hidden','true');
+      bomb.style.setProperty('--nav-target-x',`${Math.round(target.x)}px`);
+      bomb.style.setProperty('--nav-target-y',`${Math.round(target.y)}px`);
+      layer.appendChild(bomb);
+    }
+    if(type==='soccer' && Math.random()<0.5) piece.classList.add('from-right');
+    state.navigationResultAnimation=layer;
+    piece.addEventListener('animationend',()=>{
+      if(layer.parentNode)layer.parentNode.removeChild(layer);
+      if(state.navigationResultAnimation===layer)state.navigationResultAnimation=null;
+    },{once:true});
+  }
+  function showNavigationResult(lat,lng,kind){
+    const ll=L.latLng(lat,lng);
+    navigationResultMarker(ll,kind);
+    requestAnimationFrame(()=>runNavigationResultAnimation(ll));
+  }
 
   // ---------- Store markers ----------
   // Every store is a separate marker.  Overlapping markers are only spread apart
@@ -1786,15 +1871,17 @@
     const storeCity=state.columns.city?String(target[state.columns.city]??'').trim():'';
     const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
     // Header resolves from the current map position via the local CSD lookup.
-    const km=10;
-    clearCircle(); clearDaOverlay(); state.censusRequestId++;
+    const km=2.5;
+    clearCircle(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
     state.storeJumpTarget=target;
     state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
     state.initialNationalView=false; state.mapReadyForViewport=true; state.daActivationTrigger='store jump';
     const dLat=km/110.5, dLon=km/(111*Math.cos(lat*Math.PI/180));
     const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
+    map.once('moveend',()=>{ if(state.navigationResultLatLng===null) showNavigationResult(lat,lng,'store'); });
     fitMapProgrammatically(targetBounds,{padding:[25,25]});
     el('storeJumpStatus').textContent=`Showing store ${query}.`;
+    setTimeout(()=>{ if(!state.navigationResultLatLng) showNavigationResult(lat,lng,'store'); },300);
     updateSelection();
   }
 
