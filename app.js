@@ -1,4 +1,4 @@
-/* Store Explorer - v1.63
+/* Store Explorer - v1.64
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2077,9 +2077,9 @@
   const TICKER_OLD_STORAGE_KEYS=['cse_ticker_config_v074_exact','cse_ticker_config_v075_exact','cse_ticker_config_v075_exact'];
   const TICKER_DEFAULT_SPEED=70;
   const TICKER_DEFAULTS=[
-    {titleMode:'column',title:'',formula:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
-    {titleMode:'column',title:'',formula:'',aggregation:'average',numberFormat:'auto',decimalPlaces:0},
-    {titleMode:'manual',title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
+    {title:'',formula:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
+    {title:'',formula:'',aggregation:'average',numberFormat:'auto',decimalPlaces:0},
+    {title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
   ];
   function loadTickerConfig(){
     try{
@@ -2098,21 +2098,29 @@
     if(format==='percentage')return 1;
     return 0;
   }
+  function firstTickerOperand(formula){
+    const tokens=tokenizeTicker(String(formula??'').trim())||[];
+    const operand=tokens.find(t=>t.type==='operand'&&String(t.value||'').trim());
+    return operand?String(operand.value).trim():'';
+  }
   function normalizeTickerMetric(m){
     const aggregation=['sum','average','median'].includes(m?.aggregation)?m.aggregation:'sum';
     const numberFormat=['auto','number','currency','percentage'].includes(m?.numberFormat)?m.numberFormat:'auto';
     const rawDecimals=Number(m?.decimalPlaces);
     const decimalPlaces=Number.isInteger(rawDecimals)&&rawDecimals>=0&&rawDecimals<=4?rawDecimals:defaultTickerDecimals(numberFormat);
-    return {titleMode:m?.titleMode==='manual'?'manual':'column',title:String(m?.title??''),formula:m?.formula===null?'':String(m?.formula??''),aggregation,numberFormat,decimalPlaces};
+    const formula=m?.formula===null?'':String(m?.formula??'');
+    const suppliedTitle=String(m?.title??'');
+    const title=suppliedTitle||firstTickerOperand(formula);
+    return {title,formula,aggregation,numberFormat,decimalPlaces};
   }
   function tickerColumns(){return state.headers.filter(h=>state.types[h]==='numeric');}
   function tickerDefaultMetrics(){
     const sales=state.columns.sales||'';
     const ebit=state.columns.ebit||'';
     return [
-      {titleMode:'column',title:'',formula:sales,aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
-      {titleMode:'column',title:'',formula:ebit,aggregation:'average',numberFormat:'auto',decimalPlaces:0},
-      {titleMode:'manual',title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
+      {title:firstTickerOperand(sales),formula:sales,aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
+      {title:firstTickerOperand(ebit),formula:ebit,aggregation:'average',numberFormat:'auto',decimalPlaces:0},
+      {title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
     ];
   }
   function tickerDefaultFormula(){return tickerColumns()[0]||'';}
@@ -2240,10 +2248,9 @@
     return new Intl.NumberFormat('en-CA',{maximumFractionDigits:decimals,minimumFractionDigits:decimals}).format(value);
   }
   function tickerMetricTitle(m){
-    if(m.titleMode==='manual'&&m.title.trim())return m.title.trim();
-    const tokens=tokenizeTicker(m.formula||'')||[];
-    const first=tokens.find(t=>t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
-    return first?.value||'Metric';
+    const title=String(m?.title??'').trim();
+    if(title)return title;
+    return firstTickerOperand(m?.formula)||'Metric';
   }
   function tickerItems(){return (state.tickerMetrics||[]).filter(m=>m.formula);}
   function buildTickerTrack(){
@@ -2292,25 +2299,22 @@
     wrap.replaceChildren();
     if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first. The ticker uses workbook columns as operands.</div>';return;}
     state.tickerConfigDraft.forEach((m,idx)=>{
+      const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
+      if(!m.title&&derivedTitle)m.title=derivedTitle;
       const row=document.createElement('div');row.className='ticker-config-row';row.draggable=true;row.dataset.index=idx;
-      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><span class="ticker-drag-handle" title="Drag to reorder" aria-hidden="true">↕</span><button type="button" class="icon-btn ticker-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
-        <div class="ticker-row-grid"><label>Title mode<select class="ticker-title-mode" data-index="${idx}"><option value="column" ${m.titleMode!=='manual'?'selected':''}>Use operand column title</option><option value="manual" ${m.titleMode==='manual'?'selected':''}>Enter custom title</option></select></label><label>Title<input class="ticker-title-input" data-index="${idx}" value="${esc(m.title)}" placeholder="Optional custom title"></label></div>
-        <label>Formula<input class="ticker-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a numeric column or combine columns with + - × / ( )"></label>
-        <div class="ticker-operand-help"><span>Numeric columns:</span><select class="ticker-operand-select" data-index="${idx}"><option value="">Insert column…</option>${cols.filter(h=>state.types[h]==='numeric').map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select><span>Use +, -, ×, / and parentheses.</span></div>
-        <div class="ticker-row-grid ticker-aggregation-row"><label>Aggregation<select class="ticker-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label><label>Number format<select class="ticker-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="ticker-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label></div>`;
+      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="ticker-title-input" data-index="${idx}" value="${esc(m.title)}" placeholder="Ticker title"></label><span class="ticker-drag-handle" title="Drag to reorder" aria-hidden="true">↕</span><button type="button" class="icon-btn ticker-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
+        <div class="ticker-settings-row"><label>Choose column<select class="ticker-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.filter(h=>state.types[h]==='numeric').map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="ticker-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a numeric column or combine columns with + - × / ( )" autocomplete="off"></label><label>Number format<select class="ticker-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="ticker-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="ticker-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
       wrap.appendChild(row);
     });
     const speedInput=el('tickerSpeed');const speedValue=el('tickerSpeedValue');if(speedInput){speedInput.value=String(state.tickerConfigDraftSpeed);if(speedValue)speedValue.textContent=String(state.tickerConfigDraftSpeed);}
-    wrap.querySelectorAll('.ticker-title-mode').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].titleMode=e.target.value;}));
     wrap.querySelectorAll('.ticker-title-input').forEach(s=>s.addEventListener('input',e=>{state.tickerConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.ticker-formula-input').forEach(s=>s.addEventListener('input',e=>{state.tickerConfigDraft[+e.target.dataset.index].formula=e.target.value;}));
+    wrap.querySelectorAll('.ticker-formula-input').forEach(s=>s.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}}));
     wrap.querySelectorAll('.ticker-aggregation-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
-    wrap.querySelectorAll('.ticker-number-format-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);}));
+    wrap.querySelectorAll('.ticker-number-format-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderTickerConfig();}));
     wrap.querySelectorAll('.ticker-decimal-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
-    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;if(e.target.value){const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${e.target.value}`:e.target.value;state.tickerConfigDraft[i].formula=input.value;}e.target.value='';}));
+    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}}e.target.value='';}));
     wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault();e.stopPropagation();
       const i=Number(b.dataset.index);
       if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;
       state.tickerConfigDraft.splice(i,1);
@@ -2412,7 +2416,7 @@
       tickerToggle();
     });
     el('tickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openTickerConfig();});
-    el('tickerAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.tickerConfigDraft.push({titleMode:'column',title:'',formula:tickerDefaultFormula(),aggregation:'sum',numberFormat:'auto',decimalPlaces:0});renderTickerConfig();});
+    el('tickerAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.tickerConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'sum',numberFormat:'auto',decimalPlaces:0});renderTickerConfig();});
     el('tickerSpeed').addEventListener('input',e=>{state.tickerConfigDraftSpeed=Number(e.target.value)||TICKER_DEFAULT_SPEED;el('tickerSpeedValue').textContent=`${state.tickerConfigDraftSpeed}`;});
     el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
