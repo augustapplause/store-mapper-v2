@@ -1,4 +1,4 @@
-/* Store Explorer - v1.80
+/* Store Explorer - v1.81
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -39,7 +39,7 @@
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
-    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null,
+    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -363,7 +363,7 @@
       const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
       map.once('moveend',()=>{if(token===state.searchToken){updateSelection();showNavigationResult(lat,lng,'address');}});
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      setTimeout(()=>{if(token===state.searchToken){updateSelection();scheduleDaRefresh(0,'address search');if(!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');}},900);
+      setTimeout(()=>{if(token===state.searchToken&&!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');},900);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
@@ -619,11 +619,20 @@
     state.markerCluster.clearLayers();
     state.markers=[];
     if(!state.rows.length||!state.columns.lat||!state.columns.lon)return;
+    let dist1=null,dist2=null;
+    if(state.distributionBinKey!==null && state.distributionSubject){
+      const bins=buildDistributionBins(1);
+      dist1=bins.find(x=>x.key===state.distributionBinKey)||null;
+    }
+    if(state.distributionBinKey2!==null && state.distributionSubject2){
+      const bins=buildDistributionBins(2);
+      dist2=bins.find(x=>x.key===state.distributionBinKey2)||null;
+    }
     for(const row of state.rows){
       if(!hasCoords(row))continue;
       if(!rowPassesFilters(row))continue;
       const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
-      const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false)});
+      const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false,null,dist1,dist2)});
       // Store info is rendered by the custom Store Explorer popup overlay.
       const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
       if(profile) marker.bindTooltip(profile,{direction:'top',sticky:true,opacity:.95,offset:[0,-8]});
@@ -639,8 +648,8 @@
     }
     refreshMarkerStyles();
   }
-  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null){
-    const focusActive = (state.selectedGroupKey!==null && rowMatchesSelectedGroup(row)) || (state.distributionBinKey!==null && rowMatchesSelectedDistribution(row,1)) || (state.distributionBinKey2!==null && rowMatchesSelectedDistribution(row,2)) || state.selectedStoreRow===row;
+  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null){
+    const focusActive = markerFocusActive(row,dist1,dist2);
     const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
     const animating = animateVisible && markerRowAnimationPasses(row);
     const anim=animating ? ` marker-animation marker-animation-${state.markerAnimation.type}` : '';
@@ -1243,16 +1252,15 @@
     return `${a.formula} ${a.operator} ${a.value||'Value'}`;
   }
   function markerAnimationPassCount(){return state.rows.reduce((n,row)=>n+(markerRowAnimationPasses(row)?1:0),0);}
-  function refreshMarkerStyles(){
+  function refreshMarkerStyles(dist1=null,dist2=null){
     if(!state.markers.length)return;
     const selectedSet=new Set(state.selectedRows);
     const bounds=map.getBounds();
-    let dist1=null,dist2=null;
-    if(state.distributionBinKey!==null && state.distributionSubject){
+    if(dist1===null && state.distributionBinKey!==null && state.distributionSubject){
       const bins=buildDistributionBins();
       dist1=bins.find(x=>x.key===state.distributionBinKey)||null;
     }
-    if(state.distributionBinKey2!==null && state.distributionSubject2){
+    if(dist2===null && state.distributionBinKey2!==null && state.distributionSubject2){
       const bins2=buildDistributionBins(2);
       dist2=bins2.find(x=>x.key===state.distributionBinKey2)||null;
     }
@@ -1319,16 +1327,32 @@
     });
   }
   function getFilteredRows(){return state.rows.filter(filterRowPasses);}
-  function updateSelection(){
+  function updateSelectionState(){
     state.selectedRows=getSelectedRows();
     if(state.selectedStoreRow!==null && !state.selectedRows.includes(state.selectedStoreRow)) state.selectedStoreRow=null;
-    // Header lookup is independent of visible CSD layer.
     const filtered=getFilteredRows();
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
     el('geoStatus').textContent=state.rows.length?(state.circleSelection && state.circleSelection.circle && state.circleSelection.circle.getBounds().intersects(map.getBounds()) ? `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current selection circle and viewport${filterNote}.` : `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current map view${filterNote}.`):'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
-    updateKpis();updateSubjects();updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();renderTicker();
+  }
+  function getRefreshDistributionBins(){
+    let bins1=null,bins2=null,dist1=null,dist2=null;
+    if(state.distributionSubject){bins1=buildDistributionBins(1);if(state.distributionBinKey!==null)dist1=bins1.find(x=>x.key===state.distributionBinKey)||null;}
+    if(state.distributionSubject2){bins2=buildDistributionBins(2);if(state.distributionBinKey2!==null)dist2=bins2.find(x=>x.key===state.distributionBinKey2)||null;}
+    return {bins1,bins2,dist1,dist2};
+  }
+  function updateSelectionPanels(){
+    const {bins1,bins2,dist1,dist2}=getRefreshDistributionBins();
+    updateKpis();updateSubjects();updateGroups();updateDistribution(bins1,bins2);updateSelectedStoresList();refreshMarkerStyles(dist1,dist2);renderTicker();
+  }
+  function updateSelection(){
+    updateSelectionState();
+    updateSelectionPanels();
+  }
+  function scheduleSelectionUpdate(){
+    if(state.selectionUpdateFrame!==null)return;
+    state.selectionUpdateFrame=requestAnimationFrame(()=>{state.selectionUpdateFrame=null;updateSelection();});
   }
   function fmtThousands(v){return Number.isFinite(v)?Math.round(v/1000).toLocaleString('en-CA'):'—';}
   function updateKpis(){
@@ -1513,12 +1537,12 @@
     }
     return String(row[h]??'')===String(b.value??'');
   }
-  function updateDistributionSlot(slot,boxId){
+  function updateDistributionSlot(slot,boxId,binsOverride=null){
     const box=el(boxId);if(!box)return;
     const h=getDistributionSubject(slot);
     if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Distribution.</div>';return;}
     if(!h){box.innerHTML='';return;}
-    const bins=buildDistributionBins(slot);if(!bins.length){box.innerHTML='<div class="empty-message">No values in the current map view.</div>';return;}
+    const bins=binsOverride||buildDistributionBins(slot);if(!bins.length){box.innerHTML='<div class="empty-message">No values in the current map view.</div>';return;}
     const currentKey=getDistributionBinKey(slot);
     if(currentKey!==null&&!bins.some(b=>b.key===currentKey))setDistributionBinKey(slot,null);
     const activeKey=getDistributionBinKey(slot), maxCount=Math.max(...bins.map(b=>b.count),1);
@@ -1528,7 +1552,10 @@
     html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
     box.querySelectorAll('.distribution-bar').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.binKey;setDistributionBinKey(slot,getDistributionBinKey(slot)===key?null:key);if(getDistributionBinKey(slot)!==null){state.selectedGroupKey=null;state.selectedStoreRow=null;if(slot===1)state.distributionBinKey2=null;else state.distributionBinKey=null;}updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}));
   }
-  function updateDistribution(){updateDistributionSlot(1,'distributionSummary');updateDistributionSlot(2,'distributionSummary2');}
+  function updateDistribution(bins1=null,bins2=null){
+    updateDistributionSlot(1,'distributionSummary',bins1);
+    updateDistributionSlot(2,'distributionSummary2',bins2);
+  }
 
   function shortHeader(h){return h.length>18?h.slice(0,17)+'…':h;}
   function formatValue(header,v){if(v===null||v===undefined||v===''||Number.isNaN(v))return '—';const n=toNumber(v),hn=norm(header);if(n!==null){if(hn.includes('sales')||hn.includes('wage')||hn.includes('expense')||hn.includes('margin $')||hn.includes('profit')||hn.includes('ebit')||hn.includes('income')||hn.includes('cogs')||hn.includes('sga'))return fmtMoney(n);if(hn.includes('sq ft')||hn.includes('area'))return `${fmtInt(n)} sq.ft.`;if(hn.includes('pct')||hn.includes('percent')||hn.endsWith('%'))return `${n.toFixed(1)}%`;return fmtNum(n);}return String(v);}
@@ -2549,8 +2576,8 @@
     }
     return tickerFormulaValid(text)?'':'Invalid formula';
   }
-  function updateFormulaValidation(input,warning){
-    const issue=formulaIssue(input.value);
+  function updateFormulaValidation(input,warning,validator=formulaIssue){
+    const issue=validator(input.value);
     input.classList.toggle('formula-invalid',!!issue);
     input.setAttribute('aria-invalid',issue?'true':'false');
     if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
@@ -2604,7 +2631,7 @@
     wrap.querySelectorAll('.ticker-aggregation-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
     wrap.querySelectorAll('.ticker-number-format-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderTickerConfig();}));
     wrap.querySelectorAll('.ticker-decimal-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
-    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));}e.target.value='';}));
+    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'),popupFormulaIssue);}e.target.value='';}));
     wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(b.dataset.index);if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;state.tickerConfigDraft.splice(i,1);renderTickerConfig();}));
     attachMetricDragHandlers(wrap,state.tickerConfigDraft,renderTickerConfig);
   }
@@ -2780,15 +2807,15 @@
       const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();
       input.value=current?`${current}${chosen}`:chosen;f.formula=input.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
       if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}
-      updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));
+      updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'),popupFormulaIssue);
     }));
     wrap.querySelectorAll('.popup-formula-input').forEach(input=>{
       const warning=input.parentElement.querySelector('.formula-warning');
-      updateFormulaValidation(input,warning);
+      updateFormulaValidation(input,warning,popupFormulaIssue);
       input.addEventListener('input',e=>{
         const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
         if(!f.title.trim()){const derived=firstTickerOperand(f.formula)||popupDirectColumn(f);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}
-        updateFormulaValidation(e.target,warning);
+        updateFormulaValidation(e.target,warning,popupFormulaIssue);
       });
     });
     wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
@@ -2911,7 +2938,7 @@
       const ll=e.target.getLatLng();
       circle.setLatLng(ll);
       radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
-      updateCircleRadiusCounter();updateCircleLabel();updateSelection();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(120,'circle moved');
+      updateCircleRadiusCounter();updateCircleLabel();scheduleSelectionUpdate();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(120,'circle moved');
     });
     radiusHandle.on('drag',e=>{
       if(!state.circleSelection)return;
@@ -2920,7 +2947,7 @@
       const radius=Math.max(10,map.distance(center,ll));
       circle.setRadius(radius);
       radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
-      updateCircleRadiusCounter();updateCircleLabel();updateSelection();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(120,'circle moved');
+      updateCircleRadiusCounter();updateCircleLabel();scheduleSelectionUpdate();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(120,'circle moved');
     });
     state.circleEditHandles=[centerHandle,radiusHandle];
   }
@@ -2955,6 +2982,8 @@
   }
   function clearCircle(){
     removeCircleHandles();state.markerClickSuppressed=false;
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    state.censusRequestId++;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
     state.circleSelection=null;
