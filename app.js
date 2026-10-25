@@ -1,4 +1,4 @@
-/* Store Explorer - v1.78
+/* Store Explorer - v1.79
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -734,6 +734,7 @@
     const fallback=popupHeaderDefaultConfig();
     const validColumn=v=>state.headers.includes(String(v||''))?String(v):'';
     const validSize=v=>{const n=Number(v);return [10,11,12,13,14,15,16,18,20].includes(n)?n:null;};
+    const validWeight=v=>{const n=Number(v);return [400,600].includes(n)?n:null;};
     return {
       titleA: validColumn(h?.titleA) || fallback.titleA,
       titleB: validColumn(h?.titleB) || fallback.titleB,
@@ -741,9 +742,9 @@
       titleASize: validSize(h?.titleASize) || POPUP_HEADER_DEFAULT_SIZES.titleA,
       titleBSize: validSize(h?.titleBSize) || POPUP_HEADER_DEFAULT_SIZES.titleB,
       subtitleSize: validSize(h?.subtitleSize) || POPUP_HEADER_DEFAULT_SIZES.subtitle,
-      titleAWeight: validWeight(h?.titleAWeight),
-      titleBWeight: validWeight(h?.titleBWeight),
-      subtitleWeight: validWeight(h?.subtitleWeight)
+      titleAWeight: validWeight(h?.titleAWeight) || fallback.titleAWeight,
+      titleBWeight: validWeight(h?.titleBWeight) || fallback.titleBWeight,
+      subtitleWeight: validWeight(h?.subtitleWeight) || fallback.subtitleWeight
     };
   }
   function loadPopupHeaderConfig(){
