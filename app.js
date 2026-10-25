@@ -1,4 +1,4 @@
-/* Store Explorer - v1.72
+/* Store Explorer - v1.73
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2367,6 +2367,35 @@
     if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
     return !issue;
   }
+  function metricConfigHeaderHTML({kind, idx, title, extraControls=''}){
+    const titleClass = kind==='popup' ? 'popup-title-input' : (kind==='subject' ? 'subject-title-input' : 'ticker-title-input');
+    const titlePlaceholder = kind==='popup' ? 'Popup title' : (kind==='subject' ? 'Subject title' : 'Ticker title');
+    const dragClass='ticker-drag-handle';
+    const removeClass=kind==='popup'?'popup-remove':(kind==='subject'?'subject-remove':'ticker-remove');
+    return `<div class="metric-row-head ${kind}-row-head"><strong>${kind==='popup'?'Field':'Metric'} ${idx+1}</strong><label class="metric-title-field"><span>Title</span><input class="${titleClass}" data-index="${idx}" value="${esc(title||'')}" placeholder="${titlePlaceholder}"></label>${extraControls}<span class="${dragClass}" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ${removeClass}" data-index="${idx}" aria-label="Remove ${kind==='popup'?'field':'metric'}">×</button></div>`;
+  }
+  function metricConfigSettingsHTML({kind, idx, headers, formula, numberFormat, decimalPlaces, aggregation, directSelected=''}){
+    const prefix = kind==='popup'?'popup':(kind==='subject'?'subject':'ticker');
+    const formulaClass = `${prefix}-formula-input`;
+    const columnClass = kind==='popup'?'popup-column-select':`${prefix}-operand-select`;
+    const numberClass = `${prefix}-number-format-select`;
+    const decimalClass = `${prefix}-decimal-select`;
+    const aggregationClass = `${prefix}-aggregation-select`;
+    const isPopup=kind==='popup';
+    const aggregationMarkup = isPopup ? '' : `<label>Aggregation<select class="${aggregationClass}" data-index="${idx}"><option value="sum" ${aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${aggregation==='average'?'selected':''}>Average</option><option value="median" ${aggregation==='median'?'selected':''}>Median</option></select></label>`;
+    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
+  }
+  function attachMetricDragHandlers(wrap,stateArray,rerender){
+    let dragFrom=-1;
+    wrap.querySelectorAll('.metric-config-row').forEach(row=>{
+      const handle=row.querySelector('.ticker-drag-handle');
+      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
+      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
+      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
+      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(!Number.isInteger(from)||!Number.isInteger(to)||from===to||from<0||to<0||from>=stateArray.length||to>=stateArray.length)return;const [moved]=stateArray.splice(from,1);stateArray.splice(to,0,moved);rerender();});
+    });
+  }
   function renderTickerConfig(){
     const wrap=el('tickerMetricList');if(!wrap)return;const cols=state.headers.length?state.headers:[];
     wrap.replaceChildren();
@@ -2375,8 +2404,7 @@
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
       const row=document.createElement('div');row.className='metric-config-row ticker-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=`<div class="metric-row-head ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="ticker-title-input" data-index="${idx}" value="${esc(m.title)}" placeholder="Ticker title"></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ticker-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
-        <div class="metric-settings-row ticker-settings-row"><label>Choose column<select class="ticker-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="ticker-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="ticker-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="ticker-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="ticker-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
+      row.innerHTML=metricConfigHeaderHTML({kind:'ticker',idx,title:m.title})+metricConfigSettingsHTML({kind:'ticker',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
       wrap.appendChild(row);
     });
     const speedInput=el('tickerSpeed');const speedValue=el('tickerSpeedValue');if(speedInput){speedInput.value=String(state.tickerConfigDraftSpeed);if(speedValue)speedValue.textContent=String(state.tickerConfigDraftSpeed);}
@@ -2387,15 +2415,7 @@
     wrap.querySelectorAll('.ticker-decimal-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));}e.target.value='';}));
     wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(b.dataset.index);if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;state.tickerConfigDraft.splice(i,1);renderTickerConfig();}));
-    let dragFrom=-1;
-    wrap.querySelectorAll('.ticker-config-row').forEach(row=>{
-      const handle=row.querySelector('.ticker-drag-handle');
-      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
-      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
-      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
-      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
-      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(!Number.isInteger(from)||!Number.isInteger(to)||from===to||from<0||to<0||from>=state.tickerConfigDraft.length||to>=state.tickerConfigDraft.length)return;const [moved]=state.tickerConfigDraft.splice(from,1);state.tickerConfigDraft.splice(to,0,moved);renderTickerConfig();});
-    });
+    attachMetricDragHandlers(wrap,state.tickerConfigDraft,renderTickerConfig);
   }
   function validateTickerDraft(){
     if(!state.headers.length)return 'Load a financial workbook before saving the ticker.';
@@ -2502,9 +2522,8 @@
     (state.subjectConfigDraft||[]).forEach((m,idx)=>{
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
-      const row=document.createElement('div');row.className='metric-config-row ticker-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=`<div class="metric-row-head ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="subject-title-input" data-index="${idx}" value="${esc(tickerMetricTitle(m))}" placeholder="Subject title"></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn subject-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
-        <div class="metric-settings-row ticker-settings-row"><label>Choose column<select class="subject-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="subject-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="subject-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="subject-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="subject-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
+      const row=document.createElement('div');row.className='metric-config-row subject-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=metricConfigHeaderHTML({kind:'subject',idx,title:tickerMetricTitle(m)})+metricConfigSettingsHTML({kind:'subject',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.subject-title-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].title=e.target.value;}));
@@ -2514,15 +2533,7 @@
     wrap.querySelectorAll('.subject-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.subject-aggregation-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
     wrap.querySelectorAll('.subject-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.subjectConfigDraft.length){state.subjectConfigDraft.splice(i,1);renderSubjectConfig();}}));
-    let dragFrom=-1;
-    wrap.querySelectorAll('.ticker-config-row').forEach(row=>{
-      const handle=row.querySelector('.ticker-drag-handle');
-      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
-      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
-      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
-      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
-      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(from===to||from<0||to<0||from>=state.subjectConfigDraft.length||to>=state.subjectConfigDraft.length)return;const [moved]=state.subjectConfigDraft.splice(from,1);state.subjectConfigDraft.splice(to,0,moved);renderSubjectConfig();});
-    });
+    attachMetricDragHandlers(wrap,state.subjectConfigDraft,renderSubjectConfig);
   }
   function validateSubjectDraft(){
     if(!state.headers.length)return 'Load a financial workbook before saving Subjects.';
@@ -2564,9 +2575,8 @@
     if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
     (state.popupConfigDraft||[]).forEach((raw,idx)=>{
       const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
-      const row=document.createElement('div');row.className='metric-config-row ticker-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=`<div class="metric-row-head ticker-row-head popup-row-head"><strong>Field ${idx+1}</strong><label class="ticker-title-field popup-title-field">Title<input class="popup-title-input" data-index="${idx}" value="${esc(field.title)}" placeholder="Popup title"></label><select class="popup-placeholder-select" data-index="${idx}" aria-label="Popup placeholder one"><option value="">Placeholder</option></select><select class="popup-placeholder-select" data-index="${idx}" aria-label="Popup placeholder two"><option value="">Placeholder</option></select><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn popup-remove" data-index="${idx}" aria-label="Remove field">×</button></div>
-        <div class="metric-settings-row ticker-settings-row popup-settings-row"><label class="popup-column-label">Choose column<select class="popup-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${popupDirectColumn(field)===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field popup-formula-field">Formula<input class="popup-formula-input" data-index="${idx}" value="${esc(field.formula)}" placeholder="Formula for numeric calculation" autocomplete="off"><span class="formula-warning" hidden></span></label><label class="popup-number-label">Number format<select class="popup-number-format-select" data-index="${idx}"><option value="auto" ${field.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${field.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${field.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${field.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label class="popup-decimal-label">Decimals<select class="popup-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${field.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label></div>`;
+      const row=document.createElement('div');row.className='metric-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=metricConfigHeaderHTML({kind:'popup',idx,title:field.title,extraControls:'<select class="popup-placeholder-select" data-index="'+idx+'" aria-label="Popup placeholder one"><option value="">Placeholder</option></select><select class="popup-placeholder-select" data-index="'+idx+'" aria-label="Popup placeholder two"><option value="">Placeholder</option></select>'})+metricConfigSettingsHTML({kind:'popup',idx,headers:cols,formula:field.formula,numberFormat:field.numberFormat,decimalPlaces:field.decimalPlaces,directSelected:popupDirectColumn(field)});
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
@@ -2590,7 +2600,7 @@
     wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
     wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
-    let dragFrom=-1;wrap.querySelectorAll('.ticker-config-row').forEach(row=>{const handle=row.querySelector('.ticker-drag-handle');handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(from===to||from<0||to<0||from>=state.popupConfigDraft.length||to>=state.popupConfigDraft.length)return;const [moved]=state.popupConfigDraft.splice(from,1);state.popupConfigDraft.splice(to,0,moved);renderPopupConfig();});});
+    attachMetricDragHandlers(wrap,state.popupConfigDraft,renderPopupConfig);
   }
   function validatePopupDraft(){
     if(!state.headers.length)return 'Load a financial workbook before saving the popup.';
