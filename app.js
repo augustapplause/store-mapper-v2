@@ -1,4 +1,4 @@
-/* Store Explorer - v1.76
+/* Store Explorer - v1.78
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -26,7 +26,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
@@ -429,12 +429,12 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.popupRenderToken++;state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -720,13 +720,14 @@
   }
 
   const POPUP_HEADER_STORAGE_KEY='cse_popup_header_config_v176';
+  const POPUP_HEADER_WEIGHT_OPTIONS=[600,400];
   const POPUP_HEADER_DEFAULT_SIZES={titleA:14,titleB:14,subtitle:11};
   function popupHeaderDefaultConfig(){
     return {
       titleA: state.columns.location || state.headers.find(h=>norm(h)==='location') || '',
       titleB: state.columns.storeId || state.headers.find(h=>['store profile number','store number','store no','store id'].includes(norm(h))) || '',
       subtitle: '__CITY_PROVINCE__',
-      titleASize:14, titleBSize:14, subtitleSize:11
+      titleASize:14, titleBSize:14, subtitleSize:11, titleAWeight:600, titleBWeight:600, subtitleWeight:600
     };
   }
   function normalizePopupHeader(h){
@@ -739,7 +740,10 @@
       subtitle: (h?.subtitle==='__CITY_PROVINCE__' || validColumn(h?.subtitle)) ? String(h.subtitle) : fallback.subtitle,
       titleASize: validSize(h?.titleASize) || POPUP_HEADER_DEFAULT_SIZES.titleA,
       titleBSize: validSize(h?.titleBSize) || POPUP_HEADER_DEFAULT_SIZES.titleB,
-      subtitleSize: validSize(h?.subtitleSize) || POPUP_HEADER_DEFAULT_SIZES.subtitle
+      subtitleSize: validSize(h?.subtitleSize) || POPUP_HEADER_DEFAULT_SIZES.subtitle,
+      titleAWeight: validWeight(h?.titleAWeight),
+      titleBWeight: validWeight(h?.titleBWeight),
+      subtitleWeight: validWeight(h?.subtitleWeight)
     };
   }
   function loadPopupHeaderConfig(){
@@ -758,20 +762,26 @@
   function popupHeaderSizeOptions(selected){
     return [10,11,12,13,14,15,16,18,20].map(n=>`<option value="${n}" ${Number(selected)===n?'selected':''}>${n} px</option>`).join('');
   }
+  function popupHeaderWeightOptions(selected){
+    return POPUP_HEADER_WEIGHT_OPTIONS.map(n=>`<option value="${n}" ${Number(selected)===n?'selected':''}>${n===600?'Bold':'Not bold'}</option>`).join('');
+  }
   function renderPopupHeaderConfig(){
     const header=state.popupHeaderDraft=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader||popupHeaderDefaultConfig());
-    const a=el('popupHeaderTitleA'),b=el('popupHeaderTitleB'),sub=el('popupHeaderSubtitle'),as=el('popupHeaderTitleASize'),bs=el('popupHeaderTitleBSize'),ss=el('popupHeaderSubtitleSize');
-    if(!a||!b||!sub||!as||!bs||!ss)return;
+    const a=el('popupHeaderTitleA'),b=el('popupHeaderTitleB'),sub=el('popupHeaderSubtitle'),as=el('popupHeaderTitleASize'),bs=el('popupHeaderTitleBSize'),ss=el('popupHeaderSubtitleSize'),aw=el('popupHeaderTitleAWeight'),bw=el('popupHeaderTitleBWeight'),sw=el('popupHeaderSubtitleWeight');
+    if(!a||!b||!sub||!as||!bs||!ss||!aw||!bw||!sw)return;
     const opts=popupHeaderOptions();
     a.innerHTML=opts;b.innerHTML=opts;sub.innerHTML=opts;
     a.value=header.titleA;b.value=header.titleB;sub.value=header.subtitle;
     as.innerHTML=popupHeaderSizeOptions(header.titleASize);bs.innerHTML=popupHeaderSizeOptions(header.titleBSize);ss.innerHTML=popupHeaderSizeOptions(header.subtitleSize);
     as.value=String(header.titleASize);bs.value=String(header.titleBSize);ss.value=String(header.subtitleSize);
+    aw.innerHTML=popupHeaderWeightOptions(header.titleAWeight);bw.innerHTML=popupHeaderWeightOptions(header.titleBWeight);sw.innerHTML=popupHeaderWeightOptions(header.subtitleWeight);
+    aw.value=String(header.titleAWeight);bw.value=String(header.titleBWeight);sw.value=String(header.subtitleWeight);
   }
   function bindPopupHeaderConfig(){
     const bind=(id,key,coerce=false)=>{const node=el(id);if(!node)return;node.onchange=e=>{if(!state.popupHeaderDraft)state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);state.popupHeaderDraft[key]=coerce?Number(e.target.value):e.target.value;};};
     bind('popupHeaderTitleA','titleA');bind('popupHeaderTitleB','titleB');bind('popupHeaderSubtitle','subtitle');
     bind('popupHeaderTitleASize','titleASize',true);bind('popupHeaderTitleBSize','titleBSize',true);bind('popupHeaderSubtitleSize','subtitleSize',true);
+    bind('popupHeaderTitleAWeight','titleAWeight',true);bind('popupHeaderTitleBWeight','titleBWeight',true);bind('popupHeaderSubtitleWeight','subtitleWeight',true);
   }
   function popupHeaderValue(row,key){
     const h=state.popupHeader||popupHeaderDefaultConfig();
@@ -779,6 +789,103 @@
       const city=String(row[state.columns.city]??'').trim();const prov=String(row[state.columns.province]??'').trim();return [city,prov].filter(Boolean).join(', ');
     }
     const col=h[key];return col?String(row[col]??'').trim():'';
+  }
+
+  const POPUP_VIRTUAL_FIELDS = {
+    'Population 1 km': {radiusKm:1,metric:'population'},
+    'Population 2 km': {radiusKm:2,metric:'population'},
+    'Population 65+ 1 km': {radiusKm:1,metric:'population65Plus'},
+    'Population 65+ 2 km': {radiusKm:2,metric:'population65Plus'}
+  };
+  function popupVirtualNames(){return Object.keys(POPUP_VIRTUAL_FIELDS);}
+  function isPopupVirtualOperand(name){return Object.prototype.hasOwnProperty.call(POPUP_VIRTUAL_FIELDS,String(name||''));}
+  function exactPopupOperandAt(expr,index){
+    const text=String(expr??'');
+    const rest=text.slice(index);
+    const candidates=[...state.headers,...popupVirtualNames()].filter(Boolean).sort((a,b)=>b.length-a.length);
+    let best=null;
+    for(const h of candidates){
+      if(!rest.startsWith(h))continue;
+      const before=index>0?text[index-1]:'';
+      const after=index+h.length<text.length?text[index+h.length]:'';
+      const beforeOk=!before||/[\s()+\-*/×÷]/.test(before);
+      const afterOk=!after||/[\s()+\-*/×÷]/.test(after);
+      if(beforeOk&&afterOk){best=h;break;}
+    }
+    return best;
+  }
+  function tokenizePopup(expr){
+    const tokens=[];let i=0;
+    while(i<String(expr??'').length){
+      while(i<expr.length&&/\s/.test(expr[i]))i++;
+      if(i>=expr.length)break;
+      const ch=expr[i];
+      if(/[()+*/×÷]/.test(ch)){tokens.push({type:'op',value:ch==='×'?'*':ch==='÷'?'/':ch});i++;continue;}
+      if(ch==='-'){tokens.push({type:'op',value:'-'});i++;continue;}
+      const operand=exactPopupOperandAt(expr,i);
+      if(operand){tokens.push({type:'operand',value:operand});i+=operand.length;continue;}
+      const num=expr.slice(i).match(/^(?:\d+(?:\.\d+)?|\.\d+)/);
+      if(num){tokens.push({type:'operand',value:num[0]});i+=num[0].length;continue;}
+      return null;
+    }
+    return tokens;
+  }
+  function popupFormulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    if(state.headers.includes(text)||isPopupVirtualOperand(text))return '';
+    const tokens=tokenizePopup(text);
+    if(!tokens||!tokens.length)return 'Invalid formula';
+    const operands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const textOnly=operands.filter(t=>state.types[t.value]!=='numeric'&&!isPopupVirtualOperand(t.value));
+    if(textOnly.length){
+      return operands.length===1&&state.headers.includes(textOnly[0].value)
+        ? 'Invalid formula'
+        : 'Invalid formula: non-numeric columns cannot be combined with numeric fields.';
+    }
+    let depth=0,expectOperand=true,seen=false;
+    for(const t of tokens){
+      if(t.type==='operand'){if(!expectOperand)return 'Invalid formula';expectOperand=false;seen=true;continue;}
+      if(t.value==='('){if(!expectOperand)return 'Invalid formula';depth++;continue;}
+      if(t.value===')'){if(expectOperand||depth===0)return 'Invalid formula';depth--;expectOperand=false;continue;}
+      if(expectOperand&&t.value!=='-')return 'Invalid formula';
+      expectOperand=true;
+    }
+    return seen&&depth===0&&!expectOperand?'':'Invalid formula';
+  }
+  function popupVirtualOptions(selected){
+    return popupVirtualNames().map(name=>`<option value="${esc(name)}" ${selected===name?'selected':''}>${esc(name)}</option>`).join('');
+  }
+
+  async function calculatePopupCensusForStore(row){
+    const required=new Set();
+    for(const field of popupItems()){
+      const tokens=tokenizePopup(field.formula)||[];
+      for(const t of tokens){
+        if(t.type==='operand'&&isPopupVirtualOperand(t.value))required.add(t.value);
+      }
+    }
+    if(!required.size)return {};
+    const threshold=Number(el('censusThreshold')?.value??15);
+    const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+    if(lat===null||lng===null)return {};
+    const storeId=state.columns.storeId?String(row[state.columns.storeId]??''):'';
+    const cacheBase=`${storeId}|${lat.toFixed(6)}|${lng.toFixed(6)}|${threshold}`;
+    const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
+    const out={};
+    await loadHeaderCsdLookup();
+    for(const radiusKm of neededRadii){
+      const cacheKey=`${cacheBase}|${radiusKm}`;
+      if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
+      const provinces=provincesForBoundaryFromCsd(boundary);
+      const result=await DA_ENGINE.select(boundary,provinces,threshold);
+      const totals=result.selected.reduce((acc,item)=>{const a=censusAttributes(item.feature);acc.population+=a.totalPopulation;acc.population65Plus+=a.population65Plus;return acc;},{population:0,population65Plus:0});
+      const radiusValues={[`Population ${radiusKm} km`]:totals.population,[`Population 65+ ${radiusKm} km`]:totals.population65Plus};
+      state.popupCensusCache.set(cacheKey,radiusValues);
+      Object.assign(out,radiusValues);
+    }
+    return out;
   }
 
   function normalizePopupField(f){
@@ -789,19 +896,13 @@
     let column=state.headers.includes(String(f?.column??''))?String(f.column):'';
     if(!formula&&column) formula=column;
     if(formula&&state.headers.includes(formula)) column=formula;
-    const type=state.headers.includes(formula)?'column':'formula';
-    const title=String(f?.title??'').trim() || (type==='column'?formula:firstTickerOperand(formula));
+    const type=state.headers.includes(formula)?'column':(isPopupVirtualOperand(formula)?'virtual':'formula');
+    const title=String(f?.title??'').trim() || (type!=='formula'?formula:firstTickerOperand(formula));
     return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces};
   }
   function popupDirectColumn(field){
     const formula=String(field?.formula??'').trim();
     return state.headers.includes(formula)?formula:'';
-  }
-  function popupFormulaIssue(formula){
-    const text=String(formula??'').trim();
-    if(!text)return 'Invalid formula';
-    if(state.headers.includes(text)) return '';
-    return formulaIssue(text);
   }
   function popupDefaultFieldsFromSubjects(){
     const totalSales=state.headers.includes('Total Sales')?'Total Sales':(state.headers.find(h=>norm(h)==='total sales')||'');
@@ -821,33 +922,53 @@
     try{localStorage.setItem(POPUP_STORAGE_KEY,JSON.stringify(state.popupConfig));}catch(_){}
   }
   function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);}
-  function popupFieldValue(field,row){
+  function evaluatePopupFormula(formula,row,censusValues){
+    const tokens=tokenizePopup(formula);if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      if(operandValues.has(t.value))continue;
+      if(isPopupVirtualOperand(t.value)){operandValues.set(t.value,Number(censusValues?.[t.value]));continue;}
+      operandValues.set(t.value,toNumber(row[t.value]));
+    }
+    return evaluateTickerExpressionWithTokens(tokens,operandValues);
+  }
+  function evaluateTickerExpressionWithTokens(tokens,operandValues){
+    const values=[],ops=[];
+    const prec=o=>(o==='+'||o==='-')?1:2;
+    const apply=()=>{const op=ops.pop(),b=values.pop(),a=values.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){values.push(NaN);return;}if(op==='+')values.push(a+b);else if(op==='-')values.push(a-b);else if(op==='*')values.push(a*b);else if(op==='/')values.push(b===0?NaN:a/b);};
+    try{for(const t of tokens){if(t.type==='operand'){if(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))values.push(Number(t.value));else values.push(operandValues.has(t.value)?operandValues.get(t.value):NaN);continue;}if(t.value==='-'&&(values.length===0||ops.at(-1)==='('||['+','-','*','/'].includes(ops.at(-1)))){values.push(0);ops.push('-');continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)!=='(')return NaN;ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length){if(ops.at(-1)==='(')return NaN;apply();}return values.length===1?values[0]:NaN;}catch(_){return NaN;}
+  }
+  function popupFieldValue(field,row,censusValues){
     const direct=popupDirectColumn(field);
     if(direct){
       const raw=row[direct];
       const n=toNumber(raw);
       return n===null?String(raw??''):formatTickerValue(n,field.numberFormat,direct,field.decimalPlaces);
     }
-    const value=evaluateTickerFormula(field.formula,[row],'average');
+    const value=isPopupVirtualOperand(field.formula)?Number(censusValues?.[field.formula]):evaluatePopupFormula(field.formula,row,censusValues);
     return formatTickerValue(value,field.numberFormat,field.formula,field.decimalPlaces);
   }
-  function popupCardContent(row){
+  async function popupCardContent(row,censusValues={}){
     const c=state.columns;
     const popupFields=popupItems();
+    const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    const values=needsCensus&&!Object.keys(censusValues).length?await calculatePopupCensusForStore(row):censusValues;
     const header=normalizePopupHeader(state.popupHeader||popupHeaderDefaultConfig());
     const titleA=popupHeaderValue(row,'titleA') || 'Location';
     const titleB=popupHeaderValue(row,'titleB') || '—';
     const subtitle=popupHeaderValue(row,'subtitle');
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
-    for(const field of popupFields){
-      html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row))}</td></tr>`;
-    }
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
+    for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
     return `<div class="store-popup">${html}</table></div>`;
   }
 
+  function hasPopupVirtualFields(){return popupItems().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));}
+
   function closeStorePopup(){
+    state.popupRenderToken++;
     if(!storePopupLayer)return;
     if(storePopupFrame)cancelAnimationFrame(storePopupFrame);
     storePopupFrame=null;
@@ -975,15 +1096,21 @@
     }
   }
 
-  function openStorePopup(marker){
+  async function openStorePopup(marker){
     ensureStorePopupOverlay();
     if(state.openPopupMarker===marker && storePopupLayer.classList.contains('open')){ closeStorePopup(); return; }
+    const token=++state.popupRenderToken;
     state.openPopupMarker=marker;
-    storePopupCard.innerHTML=popupCardContent(marker.__row);
-    const closeBtn=storePopupCard.querySelector('.store-popup-close');
-    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
+    const needsCensus=hasPopupVirtualFields();
+    storePopupCard.innerHTML=needsCensus?'<div class="store-popup-loading">Calculating…</div>':'<div class="store-popup-loading">Loading…</div>';
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
+    requestStorePopupLayout();
+    const censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
+    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+    storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
+    const closeBtn=storePopupCard.querySelector('.store-popup-close');
+    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
     requestStorePopupLayout();
   }
 
@@ -992,8 +1119,8 @@
     if(state.openPopupMarker===marker) requestStorePopupLayout();
   }
 
-  function storePopup(row){
-    return `<div class="store-popup">${popupCardContent(row)}</div>`;
+  async function storePopup(row){
+    return `<div class="store-popup">${await popupCardContent(row)}</div>`;
   }
 
   function handleMarkerClick(marker){
@@ -2444,7 +2571,9 @@
     const aggregationClass = `${prefix}-aggregation-select`;
     const isPopup=kind==='popup';
     const aggregationMarkup = isPopup ? '' : `<label>Aggregation<select class="${aggregationClass}" data-index="${idx}"><option value="sum" ${aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${aggregation==='average'?'selected':''}>Average</option><option value="median" ${aggregation==='median'?'selected':''}>Median</option></select></label>`;
-    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
+    const popupVirtualMarkup = isPopup ? `<optgroup label="Census virtual fields">${popupVirtualNames().map(name=>`<option value="${esc(name)}" ${directSelected===name?'selected':''}>${esc(name)}</option>`).join('')}</optgroup>` : '';
+    const headerMarkup=headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('');
+    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${isPopup?`<optgroup label="Workbook columns">${headerMarkup}</optgroup>${popupVirtualMarkup}`:headerMarkup}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
   }
   function attachMetricDragHandlers(wrap,stateArray,rerender){
     let dragFrom=-1;
@@ -2648,7 +2777,7 @@
     wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{
       const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;
       const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();
-      input.value=current?`${current}${chosen}`:chosen;f.formula=input.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';
+      input.value=current?`${current}${chosen}`:chosen;f.formula=input.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
       if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}
       updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));
     }));
@@ -2656,7 +2785,7 @@
       const warning=input.parentElement.querySelector('.formula-warning');
       updateFormulaValidation(input,warning);
       input.addEventListener('input',e=>{
-        const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';
+        const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
         if(!f.title.trim()){const derived=firstTickerOperand(f.formula)||popupDirectColumn(f);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}
         updateFormulaValidation(e.target,warning);
       });
@@ -2672,20 +2801,20 @@
     for(const [i,raw] of state.popupConfigDraft.entries()){
       const f=normalizePopupField(raw);
       if(!f.formula)return `Field ${i+1}: choose a column or enter a formula.`;
-      if(exactHeaders.has(f.formula))continue;
+      if(exactHeaders.has(f.formula)||isPopupVirtualOperand(f.formula))continue;
       const issue=popupFormulaIssue(f.formula);if(issue)return `Field ${i+1}: ${issue}.`;
-      for(const t of tokenizeTicker(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
+      for(const t of tokenizePopup(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value)&&!isPopupVirtualOperand(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
     }
     return '';
   }
-  function applyPopupConfig(){
+  async function applyPopupConfig(){
     const error=validatePopupDraft();if(error){alert(error);return;}
     state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
     state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);
     savePopupConfig();
     savePopupHeaderConfig();
     refreshConfigUI();
-    if(state.openPopupMarker){storePopupCard.innerHTML=popupCardContent(state.openPopupMarker.__row);const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}
+    if(state.openPopupMarker){const marker=state.openPopupMarker;storePopupCard.innerHTML=await popupCardContent(marker.__row);if(state.openPopupMarker===marker){const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}}
     el('popupDialog').close();
   }
   function resetPopupDefaults(){state.popupConfigDraft=popupDefaultFieldsFromSubjects();renderPopupConfig();}
