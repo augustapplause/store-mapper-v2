@@ -1,4 +1,4 @@
-/* Store Explorer - v1.73
+/* Store Explorer - v1.74
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -778,7 +778,7 @@
     const prov=String(row[c.province]??'').trim();
     const cityProv=[city,prov].filter(Boolean).join(', ');
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
-    const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">↗</a>`:'';
+    const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3>${esc(locationTitle)}</h3><span class="store-popup-store-id">${esc(storeProfile)}</span></div>${cityProv?`<div class="store-popup-subtitle">${esc(cityProv)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
     for(const field of popupFields){
       html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row))}</td></tr>`;
