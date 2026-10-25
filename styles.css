@@ -660,6 +660,16 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-marker.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}
 
 
+
+/* v1.76: configurable Popup header. Typography is scoped to the popup header only. */
+.popup-header-config{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fafcfd;margin:10px 0 12px;}
+.popup-header-config-title{font-size:12px;font-weight:800;color:var(--text);margin-bottom:8px;}
+.popup-header-config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+.popup-header-config-grid>label{display:grid;grid-template-rows:auto 36px;gap:4px;font-size:11px;line-height:1.1;font-weight:800;color:var(--muted);min-width:0;margin:0;}
+.popup-header-config-controls{display:grid;grid-template-columns:minmax(0,1fr) 86px;gap:7px;min-width:0;}
+.popup-header-config-controls select{width:100%;height:36px;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:8px 9px;background:#fff;color:var(--text);font-size:13px;font-family:inherit;font-weight:500;min-width:0;}
+@media (max-width:760px){.popup-header-config-grid{grid-template-columns:1fr;}}
+
 /* v1.74: unified metric-configuration layout for Ticker, Subject, and Popup builders. */
 .metric-config-row{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcfd;cursor:default;}
 .metric-row-head{display:grid;grid-template-columns:auto minmax(220px,1fr) auto auto auto auto;align-items:center;gap:10px;margin-bottom:9px;min-height:38px;}

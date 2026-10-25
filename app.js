@@ -1,4 +1,4 @@
-/* Store Explorer - v1.75
+/* Store Explorer - v1.76
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -26,7 +26,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [],
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
@@ -429,12 +429,12 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupConfig=[];state.popupConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -719,6 +719,68 @@
     container.appendChild(storePopupLayer);
   }
 
+  const POPUP_HEADER_STORAGE_KEY='cse_popup_header_config_v176';
+  const POPUP_HEADER_DEFAULT_SIZES={titleA:14,titleB:14,subtitle:11};
+  function popupHeaderDefaultConfig(){
+    return {
+      titleA: state.columns.location || state.headers.find(h=>norm(h)==='location') || '',
+      titleB: state.columns.storeId || state.headers.find(h=>['store profile number','store number','store no','store id'].includes(norm(h))) || '',
+      subtitle: '__CITY_PROVINCE__',
+      titleASize:14, titleBSize:14, subtitleSize:11
+    };
+  }
+  function normalizePopupHeader(h){
+    const fallback=popupHeaderDefaultConfig();
+    const validColumn=v=>state.headers.includes(String(v||''))?String(v):'';
+    const validSize=v=>{const n=Number(v);return [10,11,12,13,14,15,16,18,20].includes(n)?n:null;};
+    return {
+      titleA: validColumn(h?.titleA) || fallback.titleA,
+      titleB: validColumn(h?.titleB) || fallback.titleB,
+      subtitle: (h?.subtitle==='__CITY_PROVINCE__' || validColumn(h?.subtitle)) ? String(h.subtitle) : fallback.subtitle,
+      titleASize: validSize(h?.titleASize) || POPUP_HEADER_DEFAULT_SIZES.titleA,
+      titleBSize: validSize(h?.titleBSize) || POPUP_HEADER_DEFAULT_SIZES.titleB,
+      subtitleSize: validSize(h?.subtitleSize) || POPUP_HEADER_DEFAULT_SIZES.subtitle
+    };
+  }
+  function loadPopupHeaderConfig(){
+    const fallback=popupHeaderDefaultConfig();
+    try{
+      const raw=localStorage.getItem(POPUP_HEADER_STORAGE_KEY);
+      if(!raw){state.popupHeader=fallback;return;}
+      state.popupHeader=normalizePopupHeader(JSON.parse(raw));
+    }catch(_){state.popupHeader=fallback;}
+  }
+  function savePopupHeaderConfig(){try{localStorage.setItem(POPUP_HEADER_STORAGE_KEY,JSON.stringify(state.popupHeader));}catch(_){}}
+  function popupHeaderOptions(){
+    const cols=state.headers.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');
+    return `${cols}<option value="__CITY_PROVINCE__">City, Province</option>`;
+  }
+  function popupHeaderSizeOptions(selected){
+    return [10,11,12,13,14,15,16,18,20].map(n=>`<option value="${n}" ${Number(selected)===n?'selected':''}>${n} px</option>`).join('');
+  }
+  function renderPopupHeaderConfig(){
+    const header=state.popupHeaderDraft=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader||popupHeaderDefaultConfig());
+    const a=el('popupHeaderTitleA'),b=el('popupHeaderTitleB'),sub=el('popupHeaderSubtitle'),as=el('popupHeaderTitleASize'),bs=el('popupHeaderTitleBSize'),ss=el('popupHeaderSubtitleSize');
+    if(!a||!b||!sub||!as||!bs||!ss)return;
+    const opts=popupHeaderOptions();
+    a.innerHTML=opts;b.innerHTML=opts;sub.innerHTML=opts;
+    a.value=header.titleA;b.value=header.titleB;sub.value=header.subtitle;
+    as.innerHTML=popupHeaderSizeOptions(header.titleASize);bs.innerHTML=popupHeaderSizeOptions(header.titleBSize);ss.innerHTML=popupHeaderSizeOptions(header.subtitleSize);
+    as.value=String(header.titleASize);bs.value=String(header.titleBSize);ss.value=String(header.subtitleSize);
+  }
+  function bindPopupHeaderConfig(){
+    const bind=(id,key,coerce=false)=>{const node=el(id);if(!node)return;node.onchange=e=>{if(!state.popupHeaderDraft)state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);state.popupHeaderDraft[key]=coerce?Number(e.target.value):e.target.value;};};
+    bind('popupHeaderTitleA','titleA');bind('popupHeaderTitleB','titleB');bind('popupHeaderSubtitle','subtitle');
+    bind('popupHeaderTitleASize','titleASize',true);bind('popupHeaderTitleBSize','titleBSize',true);bind('popupHeaderSubtitleSize','subtitleSize',true);
+  }
+  function popupHeaderValue(row,key){
+    const h=state.popupHeader||popupHeaderDefaultConfig();
+    if(key==='subtitle' && h.subtitle==='__CITY_PROVINCE__'){
+      const city=String(row[state.columns.city]??'').trim();const prov=String(row[state.columns.province]??'').trim();return [city,prov].filter(Boolean).join(', ');
+    }
+    const col=h[key];return col?String(row[col]??'').trim():'';
+  }
+
   function normalizePopupField(f){
     const numberFormat=['auto','number','currency','percentage'].includes(f?.numberFormat)?f.numberFormat:'auto';
     const rawDecimals=Number(f?.decimalPlaces);
@@ -772,14 +834,13 @@
   function popupCardContent(row){
     const c=state.columns;
     const popupFields=popupItems();
-    const locationTitle=c.location?String(row[c.location]??'').trim():'Location';
-    const storeProfile=c.storeId?String(row[c.storeId]??'').trim():'—';
-    const city=String(row[c.city]??'').trim();
-    const prov=String(row[c.province]??'').trim();
-    const cityProv=[city,prov].filter(Boolean).join(', ');
+    const header=normalizePopupHeader(state.popupHeader||popupHeaderDefaultConfig());
+    const titleA=popupHeaderValue(row,'titleA') || 'Location';
+    const titleB=popupHeaderValue(row,'titleB') || '—';
+    const subtitle=popupHeaderValue(row,'subtitle');
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3>${esc(locationTitle)}</h3><span class="store-popup-store-id">${esc(storeProfile)}</span></div>${cityProv?`<div class="store-popup-subtitle">${esc(cityProv)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
     for(const field of popupFields){
       html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row))}</td></tr>`;
     }
@@ -2564,7 +2625,10 @@
   // ---------- Popup configuration ----------
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
+    if(!state.popupHeader)loadPopupHeaderConfig();
+    state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
     if(!Array.isArray(state.popupConfig)||!state.popupConfig.length) loadPopupConfig(); state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    renderPopupHeaderConfig();bindPopupHeaderConfig();
     renderPopupConfig();
     el('popupDialog').showModal();
   }
@@ -2617,7 +2681,9 @@
   function applyPopupConfig(){
     const error=validatePopupDraft();if(error){alert(error);return;}
     state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
+    state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);
     savePopupConfig();
+    savePopupHeaderConfig();
     refreshConfigUI();
     if(state.openPopupMarker){storePopupCard.innerHTML=popupCardContent(state.openPopupMarker.__row);const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}
     el('popupDialog').close();
