@@ -362,20 +362,6 @@ button,
 .ticker-config-main{flex:1;min-height:0;overflow:auto;padding:14px 17px;}
 .ticker-config-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;}
 .ticker-metric-list{display:flex;flex-direction:column;gap:10px;}
-.ticker-config-row{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcfd;}
-.ticker-row-head{display:grid;grid-template-columns:auto minmax(240px,1fr) auto auto;align-items:center;gap:10px;margin-bottom:9px;}
-.ticker-title-field{display:grid!important;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0;}
-.ticker-title-field input{min-width:0;}
-.ticker-settings-row{display:grid;grid-template-columns:1fr 2.2fr max-content max-content max-content;gap:9px;align-items:end;}
-.ticker-settings-row label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:800;color:var(--muted);min-width:0;}
-.ticker-config-row input,.ticker-config-row select{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:8px;background:#fff;color:var(--text);font-size:11px;font-family:inherit;font-weight:500;}
-.ticker-settings-row select{width:max-content;min-width:84px;}
-.ticker-settings-row .ticker-operand-select{width:100%;min-width:0;}
-.ticker-settings-row .ticker-formula-field input{width:100%;}
-.ticker-settings-row .ticker-number-format-select{min-width:108px;}
-.ticker-settings-row .ticker-decimal-select{min-width:58px;}
-.ticker-settings-row .ticker-aggregation-select{min-width:86px;}
-.ticker-remove{font-size:20px;padding:0 4px!important;}
 @media (max-width:1100px){.header-main{gap:12px}.header-copy h1{gap:16px}.ticker-wrap{left:52%;right:12px}.ticker-metric{width:175px;min-width:175px;}.ticker-value{font-size:18px;}}
 @media (max-width:760px){.topbar{height:auto;min-height:68px;padding:12px}.header-main{display:block;height:auto}.header-copy{min-width:0}.header-copy h1{gap:12px;flex-wrap:wrap}.header-geography{font-size:18px}.ticker-wrap{position:static;width:100%;height:56px;min-width:0;margin-top:4px}.ticker-viewport,.ticker-track{height:56px}.ticker-metric{width:160px;min-width:160px;height:56px}.ticker-value{font-size:18px}.ticker-settings-row{grid-template-columns:1fr}.ticker-title-field{grid-template-columns:auto 1fr}.ticker-config-btn{padding:8px 9px}}
 
@@ -404,11 +390,6 @@ button,
 .left-panel .filter-action-button{min-height:48px;}
 .left-panel .legend-card{padding:12px;}
 .left-panel .legend-card .marker-color-row{flex-wrap:wrap;}
-.ticker-config-row{cursor:grab;}
-.ticker-config-row.dragging{opacity:.55;}
-.ticker-config-row.drag-over{outline:2px dashed var(--blue);outline-offset:2px;}
-.ticker-drag-handle{margin-left:auto;margin-right:6px;color:var(--muted);font-size:16px;cursor:grab;user-select:none;}
-
 
 /* v0.79: editable filter-line builder */
 .filter-dialog{width:min(1180px,96vw);max-height:calc(100vh - 16px);}
@@ -679,11 +660,35 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-marker.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}
 
 
-/* v1.65: Subjects share the compact metric-builder styling used by Tickers. */
-.subject-config-dialog .ticker-config-row{background:#fafcfd;}
-.subject-config-dialog .ticker-settings-row .subject-operand-select{width:100%;min-width:0;}
-.subject-config-dialog .ticker-settings-row .subject-formula-input{width:100%;}
-
+/* v1.72: shared metric-configuration layout for Ticker, Subject, and Popup builders. */
+.metric-config-row{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fafcfd;}
+.metric-row-head{display:grid;grid-template-columns:auto minmax(240px,1fr) auto auto;align-items:center;gap:10px;margin-bottom:9px;}
+.metric-title-field{display:grid!important;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0;}
+.metric-title-field input{min-width:0;}
+.metric-settings-row{display:grid;gap:9px;align-items:end;}
+.metric-settings-row label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:800;color:var(--muted);min-width:0;}
+.metric-settings-row input,.metric-settings-row select{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:8px;background:#fff;color:var(--text);font-size:11px;font-family:inherit;font-weight:500;}
+.metric-settings-row select{min-width:0;}
+.metric-settings-row .ticker-operand-select,.metric-settings-row .subject-operand-select,.metric-settings-row .popup-column-select{width:100%;min-width:0;}
+.metric-settings-row .ticker-formula-field input,.metric-settings-row .subject-formula-input,.metric-settings-row .popup-formula-input{width:100%;}
+.ticker-config-row .metric-settings-row{grid-template-columns:minmax(180px,220px) minmax(320px,1fr) 108px 58px 86px;}
+.ticker-config-row .metric-settings-row .ticker-number-format-select,.ticker-config-row .metric-settings-row .popup-number-format-select{width:108px;min-width:108px;}
+.ticker-config-row .metric-settings-row .ticker-decimal-select,.ticker-config-row .metric-settings-row .popup-decimal-select{width:58px;min-width:58px;}
+.ticker-config-row .metric-settings-row .ticker-aggregation-select{width:86px;min-width:86px;}
+.subject-config-dialog .metric-settings-row .subject-operand-select{width:100%;}
+.popup-config-dialog .metric-settings-row{grid-template-columns:minmax(180px,220px) minmax(320px,1fr) 108px 58px;}
+.popup-config-dialog .popup-placeholder-select{width:118px;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:8px;background:#fff;color:var(--muted);font-size:11px;font-family:inherit;font-weight:500;}
+.popup-config-dialog .popup-title-field input{max-width:220px;}
+.popup-config-dialog .popup-row-head{grid-template-columns:auto minmax(170px,1fr) 118px 118px auto auto;}
+.popup-config-dialog .popup-remove{margin-left:0;}
+.popup-config-dialog .popup-config-row{cursor:default!important;}
+.metric-config-row{cursor:default;}
+.metric-config-row.dragging{opacity:.55;}
+.metric-config-row.drag-over{outline:2px dashed var(--blue);outline-offset:2px;}
+.ticker-drag-handle{margin-left:auto;margin-right:6px;color:var(--muted);font-size:16px;cursor:grab;user-select:none;-webkit-user-select:none;}
+.ticker-drag-handle:active{cursor:grabbing;}
+@media (max-width:1100px){.ticker-config-row .metric-settings-row{grid-template-columns:minmax(160px,190px) minmax(260px,1fr) 108px 58px 86px;}.popup-config-dialog .metric-settings-row{grid-template-columns:minmax(160px,190px) minmax(260px,1fr) 108px 58px;}.popup-config-dialog .popup-row-head{grid-template-columns:auto minmax(150px,1fr) 105px 105px auto auto;}.popup-config-dialog .popup-placeholder-select{width:105px;}}
+@media (max-width:760px){.ticker-config-row .metric-settings-row,.popup-config-dialog .metric-settings-row{grid-template-columns:1fr;}.metric-row-head{grid-template-columns:auto minmax(0,1fr) auto auto;}.popup-config-dialog .popup-row-head{grid-template-columns:auto 1fr auto auto auto auto;}.popup-config-dialog .popup-title-field{grid-column:1 / span 2;}.popup-config-dialog .popup-placeholder-select,.popup-config-dialog .popup-number-format-select,.popup-config-dialog .popup-decimal-select{width:100%;min-width:0;}.ticker-config-row .metric-settings-row select,.popup-config-dialog .metric-settings-row select{width:100%;min-width:0;}}
 
 /* v1.68: formula editing and validation */
 .ticker-formula-field{position:relative;}
@@ -703,18 +708,3 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-config-box .config-button-inline{font-size:13px;padding:7px 10px}
 .popup-config-dialog{width:min(860px,96vw)}
 
-/* v1.70 Popup configuration - compact two-line layout */
-.popup-config-row{cursor:default!important;}
-.popup-row-head{grid-template-columns:auto minmax(170px,1fr) 118px 118px auto auto;align-items:center;gap:8px;margin-bottom:8px;}
-.popup-title-field{grid-template-columns:auto minmax(0,1fr)!important;gap:6px!important;}
-.popup-title-field input{max-width:220px;}
-.popup-placeholder-select{width:118px!important;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:8px;background:#fff;color:var(--muted);font-size:11px;font-family:inherit;font-weight:500;}
-.popup-settings-row{grid-template-columns:220px minmax(0,1fr) max-content max-content!important;gap:9px;align-items:end;}
-.popup-settings-row .popup-column-select{width:220px!important;min-width:0!important;}
-.popup-settings-row .popup-formula-field input{width:100%!important;}
-.popup-number-format-select{min-width:108px!important;width:108px!important;}
-.popup-decimal-select{min-width:58px!important;width:58px!important;}
-.popup-config-row .ticker-drag-handle{cursor:grab;}
-.popup-config-row .popup-remove{margin-left:0;}
-@media (max-width:900px){.popup-row-head{grid-template-columns:auto minmax(150px,1fr) 105px 105px auto auto;}.popup-placeholder-select{width:105px!important;}.popup-settings-row{grid-template-columns:180px minmax(0,1fr) max-content max-content!important;}.popup-settings-row .popup-column-select{width:180px!important;}}
-@media (max-width:760px){.popup-row-head{grid-template-columns:auto 1fr auto auto auto auto;}.popup-title-field{grid-column:1 / span 2;}.popup-settings-row{grid-template-columns:1fr!important;}.popup-settings-row .popup-column-select,.popup-number-format-select,.popup-decimal-select{width:100%!important;}.popup-placeholder-select{width:100%!important;}}
