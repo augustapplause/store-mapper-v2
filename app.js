@@ -1,4 +1,4 @@
-/* Store Explorer - v1.67
+/* Store Explorer - v1.69
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -26,7 +26,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [],
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [],
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
@@ -429,12 +429,12 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);
+    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);state.popupConfig=popupDefaultFieldsFromSubjects();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupConfig=[];state.popupConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -719,9 +719,32 @@
     container.appendChild(storePopupLayer);
   }
 
+  function normalizePopupField(f){
+    const type=f?.type==='formula'?'formula':'column';
+    const numberFormat=['auto','number','currency','percentage'].includes(f?.numberFormat)?f.numberFormat:'auto';
+    const rawDecimals=Number(f?.decimalPlaces);
+    const decimalPlaces=Number.isInteger(rawDecimals)&&rawDecimals>=0&&rawDecimals<=4?rawDecimals:defaultTickerDecimals(numberFormat);
+    const column=state.headers.includes(String(f?.column??''))?String(f.column):'';
+    const formula=f?.formula===null?'':String(f?.formula??'');
+    const title=String(f?.title??'').trim() || (type==='column'?column:firstTickerOperand(formula));
+    return {type,column,formula,title,numberFormat,decimalPlaces};
+  }
+  function popupDefaultFieldsFromSubjects(){
+    return subjectItems().map(m=>({type:'formula',column:'',formula:m.formula,title:tickerMetricTitle(m),numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces}));
+  }
+  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.type==='column'?f.column:f.formula);}
+  function popupFieldValue(field,row){
+    if(field.type==='column'){
+      const raw=row[field.column];
+      const n=toNumber(raw);
+      return n===null?String(raw??''):formatTickerValue(n,field.numberFormat,field.column,field.decimalPlaces);
+    }
+    const value=evaluateTickerFormula(field.formula,[row],'average');
+    return formatTickerValue(value,field.numberFormat,field.formula,field.decimalPlaces);
+  }
   function popupCardContent(row){
     const c=state.columns;
-    const subjectMetrics=subjectItems();
+    const popupFields=popupItems();
     const locationTitle=c.location?String(row[c.location]??'').trim():'Location';
     const storeProfile=c.storeId?String(row[c.storeId]??'').trim():'—';
     const city=String(row[c.city]??'').trim();
@@ -730,9 +753,8 @@
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">↗</a>`:'';
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3>${esc(locationTitle)}</h3><span class="store-popup-store-id">${esc(storeProfile)}</span></div>${cityProv?`<div class="store-popup-subtitle">${esc(cityProv)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
-    for(const m of subjectMetrics){
-      const value=evaluateTickerFormula(m.formula,[row],m.aggregation||'average');
-      html+=`<tr><td>${esc(tickerMetricTitle(m))}</td><td>${esc(formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces))}</td></tr>`;
+    for(const field of popupFields){
+      html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row))}</td></tr>`;
     }
     return `<div class="store-popup">${html}</table></div>`;
   }
@@ -1296,7 +1318,10 @@
   function formatValue(header,v){if(v===null||v===undefined||v===''||Number.isNaN(v))return '—';const n=toNumber(v),hn=norm(header);if(n!==null){if(hn.includes('sales')||hn.includes('wage')||hn.includes('expense')||hn.includes('margin $')||hn.includes('profit')||hn.includes('ebit')||hn.includes('income')||hn.includes('cogs')||hn.includes('sga'))return fmtMoney(n);if(hn.includes('sq ft')||hn.includes('area'))return `${fmtInt(n)} sq.ft.`;if(hn.includes('pct')||hn.includes('percent')||hn.endsWith('%'))return `${n.toFixed(1)}%`;return fmtNum(n);}return String(v);}
   function refreshConfigUI(){
     if(!Array.isArray(state.subjectConfigDraft)) state.subjectConfigDraft=(state.subjects||[]).map(normalizeSubjectMetric);
+    if(!Array.isArray(state.popupConfigDraft)) state.popupConfigDraft=(state.popupConfig||[]).map(normalizePopupField);
     el('subjectCount').textContent=state.subjects.length;
+    el('popupCount').textContent=(state.popupConfig||[]).length;
+    el('popupConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
     el('distributionCount').textContent=state.distributionSubject?1:0;
     el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=2+state.selectedStoreColumns.length;
@@ -2292,6 +2317,27 @@
     renderTickerConfig();
     el('tickerDialog').showModal();
   }
+  function formulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    const tokens=tokenizeTicker(text);
+    if(!tokens)return 'Invalid formula';
+    const workbookOperands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const nonNumeric=workbookOperands.filter(t=>state.types[t.value]!=='numeric');
+    if(nonNumeric.length){
+      return nonNumeric.length===workbookOperands.length
+        ? 'Invalid formula: choose numeric columns for calculations.'
+        : 'Invalid formula: non-numeric columns cannot be combined with numeric columns.';
+    }
+    return tickerFormulaValid(text)?'':'Invalid formula';
+  }
+  function updateFormulaValidation(input,warning){
+    const issue=formulaIssue(input.value);
+    input.classList.toggle('formula-invalid',!!issue);
+    input.setAttribute('aria-invalid',issue?'true':'false');
+    if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
+    return !issue;
+  }
   function renderTickerConfig(){
     const wrap=el('tickerMetricList');if(!wrap)return;const cols=state.headers.length?state.headers:[];
     wrap.replaceChildren();
@@ -2299,40 +2345,27 @@
     state.tickerConfigDraft.forEach((m,idx)=>{
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
-      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=true;row.dataset.index=idx;
-      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="ticker-title-input" data-index="${idx}" value="${esc(m.title)}" placeholder="Ticker title"></label><span class="ticker-drag-handle" title="Drag to reorder" aria-hidden="true">↕</span><button type="button" class="icon-btn ticker-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
-        <div class="ticker-settings-row"><label>Choose column<select class="ticker-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.filter(h=>state.types[h]==='numeric').map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="ticker-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a numeric column or combine columns with + - × / ( )" autocomplete="off"></label><label>Number format<select class="ticker-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="ticker-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="ticker-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
+      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="ticker-title-input" data-index="${idx}" value="${esc(m.title)}" placeholder="Ticker title"></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ticker-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
+        <div class="ticker-settings-row"><label>Choose column<select class="ticker-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="ticker-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="ticker-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="ticker-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="ticker-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
       wrap.appendChild(row);
     });
     const speedInput=el('tickerSpeed');const speedValue=el('tickerSpeedValue');if(speedInput){speedInput.value=String(state.tickerConfigDraftSpeed);if(speedValue)speedValue.textContent=String(state.tickerConfigDraftSpeed);}
     wrap.querySelectorAll('.ticker-title-input').forEach(s=>s.addEventListener('input',e=>{state.tickerConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.ticker-formula-input').forEach(s=>s.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}}));
+    wrap.querySelectorAll('.ticker-formula-input').forEach(s=>{const warning=s.parentElement.querySelector('.formula-warning');updateFormulaValidation(s,warning);s.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}updateFormulaValidation(e.target,warning);});});
     wrap.querySelectorAll('.ticker-aggregation-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
     wrap.querySelectorAll('.ticker-number-format-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderTickerConfig();}));
     wrap.querySelectorAll('.ticker-decimal-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
-    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}}e.target.value='';}));
-    wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{
-      e.preventDefault();e.stopPropagation();
-      const i=Number(b.dataset.index);
-      if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;
-      state.tickerConfigDraft.splice(i,1);
-      renderTickerConfig();
-    }));
+    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));}e.target.value='';}));
+    wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(b.dataset.index);if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;state.tickerConfigDraft.splice(i,1);renderTickerConfig();}));
     let dragFrom=-1;
     wrap.querySelectorAll('.ticker-config-row').forEach(row=>{
-      row.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
-      row.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
+      const handle=row.querySelector('.ticker-drag-handle');
+      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
+      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
       row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
       row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
-      row.addEventListener('drop',e=>{
-        e.preventDefault();row.classList.remove('drag-over');
-        const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));
-        const to=Number(row.dataset.index);
-        if(!Number.isInteger(from)||!Number.isInteger(to)||from===to||from<0||to<0||from>=state.tickerConfigDraft.length||to>=state.tickerConfigDraft.length)return;
-        const [moved]=state.tickerConfigDraft.splice(from,1);
-        state.tickerConfigDraft.splice(to,0,moved);
-        renderTickerConfig();
-      });
+      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(!Number.isInteger(from)||!Number.isInteger(to)||from===to||from<0||to<0||from>=state.tickerConfigDraft.length||to>=state.tickerConfigDraft.length)return;const [moved]=state.tickerConfigDraft.splice(from,1);state.tickerConfigDraft.splice(to,0,moved);renderTickerConfig();});
     });
   }
   function validateTickerDraft(){
@@ -2342,12 +2375,11 @@
     for(const [i,m] of state.tickerConfigDraft.entries()){
       const formula=String(m.formula||'').trim();
       if(!formula)return `Metric ${i+1} needs a formula.`;
-      if(!tickerFormulaValid(formula))return `Metric ${i+1} has an invalid formula. Choose operands from the exact workbook column headings and use +, -, ×, ÷ and parentheses.`;
+      const issue=formulaIssue(formula);
+      if(issue)return `Metric ${i+1}: ${issue}.`;
       const tokens=tokenizeTicker(formula)||[];
       for(const t of tokens){
-        if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value)){
-          return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
-        }
+        if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
       }
     }
     return '';
@@ -2419,6 +2451,10 @@
     el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
   }
+  el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
+  el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const column=state.headers[0]||'';state.popupConfigDraft.push({type:'column',column,formula:'',title:column,numberFormat:'auto',decimalPlaces:0});renderPopupConfig();});
+  el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
+  el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
   el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
   el('subjectReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetSubjectDefaults();});
   el('subjectApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
@@ -2431,28 +2467,29 @@
   }
   function renderSubjectConfig(){
     const wrap=el('subjectMetricList');if(!wrap)return;
-    const cols=state.headers.filter(h=>state.types[h]==='numeric');
+    const cols=state.headers.length?state.headers:[];
     wrap.replaceChildren();
-    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a workbook with numeric columns to configure Subjects.</div>';return;}
+    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first. Subjects use workbook columns as operands.</div>';return;}
     (state.subjectConfigDraft||[]).forEach((m,idx)=>{
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
-      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=true;row.dataset.index=idx;
-      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="subject-title-input" data-index="${idx}" value="${esc(tickerMetricTitle(m))}" placeholder="Subject title"></label><span class="ticker-drag-handle" title="Drag to reorder" aria-hidden="true">↕</span><button type="button" class="icon-btn subject-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
-        <div class="ticker-settings-row"><label>Choose column<select class="subject-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="subject-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a numeric column or combine columns with + - × / ( )" autocomplete="off"></label><label>Number format<select class="subject-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="subject-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="subject-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
+      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="subject-title-input" data-index="${idx}" value="${esc(tickerMetricTitle(m))}" placeholder="Subject title"></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn subject-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
+        <div class="ticker-settings-row"><label>Choose column<select class="subject-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="subject-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="subject-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="subject-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="subject-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.subject-title-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.subject-formula-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].formula=e.target.value;}));
-    wrap.querySelectorAll('.subject-operand-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(!chosen)return;const m=state.subjectConfigDraft[i];const formulaInput=wrap.querySelector(`.subject-formula-input[data-index="${i}"]`);const current=formulaInput.value.trim();formulaInput.value=current?`${current}${chosen}`:chosen;m.formula=formulaInput.value;if(!String(m.title||'').trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.subject-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}select.value='';}));
+    wrap.querySelectorAll('.subject-formula-input').forEach(input=>{const warning=input.parentElement.querySelector('.formula-warning');updateFormulaValidation(input,warning);input.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.subjectConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}updateFormulaValidation(e.target,warning);});});
+    wrap.querySelectorAll('.subject-operand-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(!chosen)return;const m=state.subjectConfigDraft[i];const formulaInput=wrap.querySelector(`.subject-formula-input[data-index="${i}"]`);const current=formulaInput.value.trim();formulaInput.value=current?`${current}${chosen}`:chosen;m.formula=formulaInput.value;if(!String(m.title||'').trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.subject-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(formulaInput,formulaInput.parentElement.querySelector('.formula-warning'));select.value='';}));
     wrap.querySelectorAll('.subject-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.subjectConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderSubjectConfig();}));
     wrap.querySelectorAll('.subject-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.subject-aggregation-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
     wrap.querySelectorAll('.subject-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.subjectConfigDraft.length){state.subjectConfigDraft.splice(i,1);renderSubjectConfig();}}));
     let dragFrom=-1;
     wrap.querySelectorAll('.ticker-config-row').forEach(row=>{
-      row.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
-      row.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
+      const handle=row.querySelector('.ticker-drag-handle');
+      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
+      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
       row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
       row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
       row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(from===to||from<0||to<0||from>=state.subjectConfigDraft.length||to>=state.subjectConfigDraft.length)return;const [moved]=state.subjectConfigDraft.splice(from,1);state.subjectConfigDraft.splice(to,0,moved);renderSubjectConfig();});
@@ -2464,7 +2501,8 @@
     for(const [i,m] of state.subjectConfigDraft.entries()){
       const formula=String(m.formula||'').trim();
       if(!formula)return `Metric ${i+1} needs a formula.`;
-      if(!tickerFormulaValid(formula))return `Metric ${i+1} has an invalid formula. Choose operands from the exact workbook column headings and use +, -, ×, ÷ and parentheses.`;
+      const issue=formulaIssue(formula);
+      if(issue)return `Metric ${i+1}: ${issue}.`;
       for(const t of tokenizeTicker(formula)||[]){
         if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
       }
@@ -2482,6 +2520,57 @@
     state.subjectConfigDraft=subjectDefaultMetrics(names.map(n=>exactHeaders.get(n)).filter(Boolean));
     renderSubjectConfig();
   }
+
+  // ---------- Popup configuration ----------
+  function openPopupConfig(){
+    if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
+    state.popupConfigDraft=(state.popupConfig||popupDefaultFieldsFromSubjects()).map(normalizePopupField);
+    renderPopupConfig();
+    el('popupDialog').showModal();
+  }
+  function renderPopupConfig(){
+    const wrap=el('popupFieldList');if(!wrap)return;
+    const cols=state.headers.length?state.headers:[];
+    wrap.replaceChildren();
+    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
+    (state.popupConfigDraft||[]).forEach((raw,idx)=>{
+      const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
+      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=`<div class="ticker-row-head"><strong>Field ${idx+1}</strong><label class="ticker-title-field">Title<input class="popup-title-input" data-index="${idx}" value="${esc(field.title)}" placeholder="Popup title"></label><label class="popup-type-field">Type<select class="popup-type-select" data-index="${idx}"><option value="column" ${field.type==='column'?'selected':''}>Column</option><option value="formula" ${field.type==='formula'?'selected':''}>Formula</option></select></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn popup-remove" data-index="${idx}" aria-label="Remove field">×</button></div>
+        <div class="ticker-settings-row"><label>Choose column<select class="popup-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${field.type==='column'&&field.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="popup-formula-input" data-index="${idx}" value="${esc(field.formula)}" placeholder="Formula for numeric calculation" autocomplete="off" ${field.type==='column'?'disabled':''}><span class="formula-warning" hidden></span></label><label>Number format<select class="popup-number-format-select" data-index="${idx}"><option value="auto" ${field.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${field.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${field.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${field.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="popup-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${field.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label></div>`;
+      wrap.appendChild(row);
+    });
+    wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
+    wrap.querySelectorAll('.popup-type-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.type=e.target.value;if(f.type==='column'){f.formula='';f.column=f.column||state.headers[0]||'';if(!f.title.trim())f.title=f.column;}else{f.column='';f.formula=f.formula||tickerDefaultFormula();if(!f.title.trim())f.title=firstTickerOperand(f.formula);}renderPopupConfig();}));
+    wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;if(f.type==='column'){f.column=chosen;if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}}else{const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;f.formula=input.value;updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));}e.target.value=f.type==='column'?chosen:'';}));
+    wrap.querySelectorAll('.popup-formula-input').forEach(input=>{if(input.disabled)return;const warning=input.parentElement.querySelector('.formula-warning');updateFormulaValidation(input,warning);input.addEventListener('input',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value;if(!f.title.trim()){const derived=firstTickerOperand(f.formula);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}updateFormulaValidation(e.target,warning);});});
+    wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
+    wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
+    wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
+    let dragFrom=-1;wrap.querySelectorAll('.ticker-config-row').forEach(row=>{const handle=row.querySelector('.ticker-drag-handle');handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(from===to||from<0||to<0||from>=state.popupConfigDraft.length||to>=state.popupConfigDraft.length)return;const [moved]=state.popupConfigDraft.splice(from,1);state.popupConfigDraft.splice(to,0,moved);renderPopupConfig();});});
+  }
+  function validatePopupDraft(){
+    if(!state.headers.length)return 'Load a financial workbook before saving the popup.';
+    const exactHeaders=new Set(state.headers);
+    for(const [i,raw] of state.popupConfigDraft.entries()){
+      const f=normalizePopupField(raw);
+      if(f.type==='column'){
+        if(!exactHeaders.has(f.column))return `Field ${i+1} uses a column that is not present in the workbook: ${f.column||'(blank)'}`;
+      }else{
+        const issue=formulaIssue(f.formula);if(issue)return `Field ${i+1}: ${issue}.`;
+        for(const t of tokenizeTicker(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
+      }
+    }
+    return '';
+  }
+  function applyPopupConfig(){
+    const error=validatePopupDraft();if(error){alert(error);return;}
+    state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
+    refreshConfigUI();
+    if(state.openPopupMarker){storePopupCard.innerHTML=popupCardContent(state.openPopupMarker.__row);const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}
+    el('popupDialog').close();
+  }
+  function resetPopupDefaults(){state.popupConfigDraft=popupDefaultFieldsFromSubjects();renderPopupConfig();}
 
   // ---------- UI wiring ----------
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});

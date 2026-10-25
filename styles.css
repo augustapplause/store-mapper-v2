@@ -679,7 +679,32 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-marker.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}
 
 
-/* v1.67: Subjects share the compact metric-builder styling used by Tickers. */
+/* v1.65: Subjects share the compact metric-builder styling used by Tickers. */
 .subject-config-dialog .ticker-config-row{background:#fafcfd;}
 .subject-config-dialog .ticker-settings-row .subject-operand-select{width:100%;min-width:0;}
 .subject-config-dialog .ticker-settings-row .subject-formula-input{width:100%;}
+
+
+/* v1.68: formula editing and validation */
+.ticker-formula-field{position:relative;}
+.ticker-formula-input,.subject-formula-input{user-select:text!important;-webkit-user-select:text!important;cursor:text!important;}
+.ticker-formula-input.formula-invalid,.subject-formula-input.formula-invalid{border-color:#c62828!important;box-shadow:0 0 0 1px #c62828 inset;}
+.formula-warning{display:block;margin-top:4px;color:#c62828;font-size:10px;font-weight:700;line-height:1.25;}
+.ticker-drag-handle{user-select:none;-webkit-user-select:none;cursor:grab;}
+.ticker-drag-handle:active{cursor:grabbing;}
+
+.popup-config-box .section-title-row{margin:0}
+.popup-config-box .section-title-row h2{font-size:14px;margin:0}
+.popup-config-box .config-button-inline{font-size:13px;padding:7px 10px}
+.popup-type-field{display:flex;align-items:center;gap:6px;font-size:10px!important;font-weight:800;color:var(--muted)}
+.popup-type-field select{border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:#fff;color:var(--text);font-size:11px;font-weight:600}
+.popup-formula-input:disabled{background:#f3f6f8;color:var(--muted);cursor:not-allowed}
+.popup-config-dialog{width:min(860px,96vw)}
+
+.popup-config-box .section-title-row{margin:0}
+.popup-config-box .section-title-row h2{font-size:14px;margin:0}
+.popup-config-box .config-button-inline{font-size:13px;padding:7px 10px}
+.popup-type-field{display:flex;align-items:center;gap:6px;font-size:10px!important;font-weight:800;color:var(--muted)}
+.popup-type-field select{border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:#fff;color:var(--text);font-size:11px;font-weight:600}
+.popup-formula-input:disabled{background:#f3f6f8;color:var(--muted);cursor:not-allowed}
+.popup-config-dialog{width:min(860px,96vw)}
