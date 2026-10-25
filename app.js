@@ -1,4 +1,4 @@
-/* Store Explorer - v1.79
+/* Store Explorer - v1.80
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2931,7 +2931,7 @@
     removeCircleHandles();
   }
   function exitCircleDrawMode(){
-    state.circleDrawMode=false;state.circleDrawing=null;
+    state.circleDrawMode=false;state.circleDrawing=null;state.markerClickSuppressed=false;
     map.getContainer().style.cursor='';
     el('drawCircleBtn').querySelector('span:last-child').textContent='Draw';
   }
@@ -2954,7 +2954,7 @@
     }
   }
   function clearCircle(){
-    removeCircleHandles();
+    removeCircleHandles();state.markerClickSuppressed=false;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
     state.circleSelection=null;
