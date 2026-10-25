@@ -1,4 +1,4 @@
-/* Store Explorer - v1.69
+/* Store Explorer - v1.71
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -429,7 +429,7 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);state.popupConfig=popupDefaultFieldsFromSubjects();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
@@ -720,24 +720,51 @@
   }
 
   function normalizePopupField(f){
-    const type=f?.type==='formula'?'formula':'column';
     const numberFormat=['auto','number','currency','percentage'].includes(f?.numberFormat)?f.numberFormat:'auto';
     const rawDecimals=Number(f?.decimalPlaces);
     const decimalPlaces=Number.isInteger(rawDecimals)&&rawDecimals>=0&&rawDecimals<=4?rawDecimals:defaultTickerDecimals(numberFormat);
-    const column=state.headers.includes(String(f?.column??''))?String(f.column):'';
-    const formula=f?.formula===null?'':String(f?.formula??'');
-    const title=String(f?.title??'').trim() || (type==='column'?column:firstTickerOperand(formula));
-    return {type,column,formula,title,numberFormat,decimalPlaces};
+    let formula=f?.formula===null?'':String(f?.formula??'').trim();
+    let column=state.headers.includes(String(f?.column??''))?String(f.column):'';
+    if(!formula&&column) formula=column;
+    if(formula&&state.headers.includes(formula)) column=formula;
+    const type=state.headers.includes(formula)?'column':'formula';
+    const title=String(f?.title??'').trim() || (type==='column'?formula:firstTickerOperand(formula));
+    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces};
+  }
+  function popupDirectColumn(field){
+    const formula=String(field?.formula??'').trim();
+    return state.headers.includes(formula)?formula:'';
+  }
+  function popupFormulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    if(state.headers.includes(text)) return '';
+    return formulaIssue(text);
   }
   function popupDefaultFieldsFromSubjects(){
-    return subjectItems().map(m=>({type:'formula',column:'',formula:m.formula,title:tickerMetricTitle(m),numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces}));
+    const totalSales=state.headers.includes('Total Sales')?'Total Sales':(state.headers.find(h=>norm(h)==='total sales')||'');
+    if(!totalSales) return [];
+    return [{type:'column',column:totalSales,formula:totalSales,title:totalSales,numberFormat:'auto',decimalPlaces:0}];
   }
-  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.type==='column'?f.column:f.formula);}
+  function loadPopupConfig(){
+    const fallback=popupDefaultFieldsFromSubjects();
+    try{
+      const raw=localStorage.getItem(POPUP_STORAGE_KEY);
+      if(!raw){state.popupConfig=fallback.map(normalizePopupField);return;}
+      const parsed=JSON.parse(raw);
+      state.popupConfig=Array.isArray(parsed)&&parsed.length?parsed.map(normalizePopupField):fallback.map(normalizePopupField);
+    }catch(_){state.popupConfig=fallback.map(normalizePopupField);}
+  }
+  function savePopupConfig(){
+    try{localStorage.setItem(POPUP_STORAGE_KEY,JSON.stringify(state.popupConfig));}catch(_){}
+  }
+  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);}
   function popupFieldValue(field,row){
-    if(field.type==='column'){
-      const raw=row[field.column];
+    const direct=popupDirectColumn(field);
+    if(direct){
+      const raw=row[direct];
       const n=toNumber(raw);
-      return n===null?String(raw??''):formatTickerValue(n,field.numberFormat,field.column,field.decimalPlaces);
+      return n===null?String(raw??''):formatTickerValue(n,field.numberFormat,direct,field.decimalPlaces);
     }
     const value=evaluateTickerFormula(field.formula,[row],'average');
     return formatTickerValue(value,field.numberFormat,field.formula,field.decimalPlaces);
@@ -2095,6 +2122,8 @@
     });
   });
 
+  const POPUP_STORAGE_KEY='cse_popup_config_v171';
+
   // ---------- Ticker ----------
   const TICKER_STORAGE_KEY='cse_ticker_config_v075_exact';
   const TICKER_OLD_STORAGE_KEYS=['cse_ticker_config_v074_exact','cse_ticker_config_v075_exact','cse_ticker_config_v075_exact'];
@@ -2524,7 +2553,7 @@
   // ---------- Popup configuration ----------
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
-    state.popupConfigDraft=(state.popupConfig||popupDefaultFieldsFromSubjects()).map(normalizePopupField);
+    if(!Array.isArray(state.popupConfig)||!state.popupConfig.length) loadPopupConfig(); state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     renderPopupConfig();
     el('popupDialog').showModal();
   }
@@ -2535,15 +2564,29 @@
     if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
     (state.popupConfigDraft||[]).forEach((raw,idx)=>{
       const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
-      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=`<div class="ticker-row-head"><strong>Field ${idx+1}</strong><label class="ticker-title-field">Title<input class="popup-title-input" data-index="${idx}" value="${esc(field.title)}" placeholder="Popup title"></label><label class="popup-type-field">Type<select class="popup-type-select" data-index="${idx}"><option value="column" ${field.type==='column'?'selected':''}>Column</option><option value="formula" ${field.type==='formula'?'selected':''}>Formula</option></select></label><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn popup-remove" data-index="${idx}" aria-label="Remove field">×</button></div>
-        <div class="ticker-settings-row"><label>Choose column<select class="popup-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${field.type==='column'&&field.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="popup-formula-input" data-index="${idx}" value="${esc(field.formula)}" placeholder="Formula for numeric calculation" autocomplete="off" ${field.type==='column'?'disabled':''}><span class="formula-warning" hidden></span></label><label>Number format<select class="popup-number-format-select" data-index="${idx}"><option value="auto" ${field.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${field.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${field.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${field.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="popup-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${field.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label></div>`;
+      const row=document.createElement('div');row.className='ticker-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=`<div class="ticker-row-head popup-row-head"><strong>Field ${idx+1}</strong><label class="ticker-title-field popup-title-field">Title<input class="popup-title-input" data-index="${idx}" value="${esc(field.title)}" placeholder="Popup title"></label><select class="popup-placeholder-select" data-index="${idx}" aria-label="Popup placeholder one"><option value="">Placeholder</option></select><select class="popup-placeholder-select" data-index="${idx}" aria-label="Popup placeholder two"><option value="">Placeholder</option></select><span class="ticker-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn popup-remove" data-index="${idx}" aria-label="Remove field">×</button></div>
+        <div class="ticker-settings-row popup-settings-row"><label class="popup-column-label">Choose column<select class="popup-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${popupDirectColumn(field)===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field popup-formula-field">Formula<input class="popup-formula-input" data-index="${idx}" value="${esc(field.formula)}" placeholder="Formula for numeric calculation" autocomplete="off"><span class="formula-warning" hidden></span></label><label class="popup-number-label">Number format<select class="popup-number-format-select" data-index="${idx}"><option value="auto" ${field.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${field.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${field.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${field.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label class="popup-decimal-label">Decimals<select class="popup-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${field.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label></div>`;
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.popup-type-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.type=e.target.value;if(f.type==='column'){f.formula='';f.column=f.column||state.headers[0]||'';if(!f.title.trim())f.title=f.column;}else{f.column='';f.formula=f.formula||tickerDefaultFormula();if(!f.title.trim())f.title=firstTickerOperand(f.formula);}renderPopupConfig();}));
-    wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;if(f.type==='column'){f.column=chosen;if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}}else{const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;f.formula=input.value;updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));}e.target.value=f.type==='column'?chosen:'';}));
-    wrap.querySelectorAll('.popup-formula-input').forEach(input=>{if(input.disabled)return;const warning=input.parentElement.querySelector('.formula-warning');updateFormulaValidation(input,warning);input.addEventListener('input',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value;if(!f.title.trim()){const derived=firstTickerOperand(f.formula);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}updateFormulaValidation(e.target,warning);});});
+    wrap.querySelectorAll('.popup-placeholder-select').forEach(select=>select.addEventListener('change',()=>{}));
+    wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{
+      const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;
+      const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();
+      input.value=current?`${current}${chosen}`:chosen;f.formula=input.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';
+      if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}
+      updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'));
+    }));
+    wrap.querySelectorAll('.popup-formula-input').forEach(input=>{
+      const warning=input.parentElement.querySelector('.formula-warning');
+      updateFormulaValidation(input,warning);
+      input.addEventListener('input',e=>{
+        const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';
+        if(!f.title.trim()){const derived=firstTickerOperand(f.formula)||popupDirectColumn(f);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}
+        updateFormulaValidation(e.target,warning);
+      });
+    });
     wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
     wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
@@ -2554,18 +2597,17 @@
     const exactHeaders=new Set(state.headers);
     for(const [i,raw] of state.popupConfigDraft.entries()){
       const f=normalizePopupField(raw);
-      if(f.type==='column'){
-        if(!exactHeaders.has(f.column))return `Field ${i+1} uses a column that is not present in the workbook: ${f.column||'(blank)'}`;
-      }else{
-        const issue=formulaIssue(f.formula);if(issue)return `Field ${i+1}: ${issue}.`;
-        for(const t of tokenizeTicker(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
-      }
+      if(!f.formula)return `Field ${i+1}: choose a column or enter a formula.`;
+      if(exactHeaders.has(f.formula))continue;
+      const issue=popupFormulaIssue(f.formula);if(issue)return `Field ${i+1}: ${issue}.`;
+      for(const t of tokenizeTicker(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
     }
     return '';
   }
   function applyPopupConfig(){
     const error=validatePopupDraft();if(error){alert(error);return;}
     state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
+    savePopupConfig();
     refreshConfigUI();
     if(state.openPopupMarker){storePopupCard.innerHTML=popupCardContent(state.openPopupMarker.__row);const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}
     el('popupDialog').close();
