@@ -1,4 +1,4 @@
-/* Store Explorer - v1.65
+/* Store Explorer - v1.66
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -429,7 +429,7 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];
+    state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
@@ -1294,6 +1294,7 @@
   function shortHeader(h){return h.length>18?h.slice(0,17)+'…':h;}
   function formatValue(header,v){if(v===null||v===undefined||v===''||Number.isNaN(v))return '—';const n=toNumber(v),hn=norm(header);if(n!==null){if(hn.includes('sales')||hn.includes('wage')||hn.includes('expense')||hn.includes('margin $')||hn.includes('profit')||hn.includes('ebit')||hn.includes('income')||hn.includes('cogs')||hn.includes('sga'))return fmtMoney(n);if(hn.includes('sq ft')||hn.includes('area'))return `${fmtInt(n)} sq.ft.`;if(hn.includes('pct')||hn.includes('percent')||hn.endsWith('%'))return `${n.toFixed(1)}%`;return fmtNum(n);}return String(v);}
   function refreshConfigUI(){
+    if(!Array.isArray(state.subjectConfigDraft)) state.subjectConfigDraft=(state.subjects||[]).map(normalizeSubjectMetric);
     el('subjectCount').textContent=state.subjects.length;
     el('groupCount').textContent=state.groups.length;
     el('distributionCount').textContent=state.distributionSubject?1:0;
@@ -2432,7 +2433,7 @@
     const cols=state.headers.filter(h=>state.types[h]==='numeric');
     wrap.replaceChildren();
     if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a workbook with numeric columns to configure Subjects.</div>';return;}
-    state.subjectConfigDraft.forEach((m,idx)=>{
+    (state.subjectConfigDraft||[]).forEach((m,idx)=>{
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
       const row=document.createElement('div');row.className='ticker-config-row';row.draggable=true;row.dataset.index=idx;

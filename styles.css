@@ -674,7 +674,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-marker.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}
 
 
-/* v1.65: Subjects share the compact metric-builder styling used by Tickers. */
+/* v1.66: Subjects share the compact metric-builder styling used by Tickers. */
 .subject-config-dialog .ticker-config-row{background:#fafcfd;}
 .subject-config-dialog .ticker-settings-row .subject-operand-select{width:100%;min-width:0;}
 .subject-config-dialog .ticker-settings-row .subject-formula-input{width:100%;}
