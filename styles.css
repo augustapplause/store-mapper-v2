@@ -551,7 +551,12 @@ button,
 .store-popup-leader-arrow{fill:#fff;stroke:#cfd8df;stroke-width:1;stroke-linejoin:round;filter:drop-shadow(0 1px 1px #0002);}
 .store-popup-card{position:absolute;width:350px;max-width:calc(100% - 24px);background:#fff;border:1px solid #d8e1e8;border-radius:12px;box-shadow:0 8px 24px #0003;pointer-events:auto;color:var(--text);z-index:2;overflow:hidden;}
 .store-popup-card .store-popup{padding:10px 12px;}
-.store-popup-card .store-popup-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-right:0;}
+.store-popup-card .store-popup-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding-right:0;}
+.store-popup-card .store-popup-head-main{min-width:0;flex:1 1 auto;}
+.store-popup-card .store-popup-head-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0;}
+.store-popup-card .store-popup-head-row h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;margin:0;color:var(--navy);}
+.store-popup-card .store-popup-store-id{flex:0 0 auto;font-size:14px;font-weight:700;color:var(--navy);white-space:nowrap;}
+.store-popup-card .store-popup-subtitle{margin-top:2px;font-size:11px;font-weight:400;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .store-popup-card .store-popup-head h3{font-size:14px;margin:0;color:var(--navy);}
 .store-popup-head-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
 .store-popup-card .store-popup-map-link{margin-right:0;}
@@ -674,7 +679,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-marker.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}
 
 
-/* v1.66: Subjects share the compact metric-builder styling used by Tickers. */
+/* v1.67: Subjects share the compact metric-builder styling used by Tickers. */
 .subject-config-dialog .ticker-config-row{background:#fafcfd;}
 .subject-config-dialog .ticker-settings-row .subject-operand-select{width:100%;min-width:0;}
 .subject-config-dialog .ticker-settings-row .subject-formula-input{width:100%;}

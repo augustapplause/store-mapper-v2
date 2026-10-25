@@ -1,4 +1,4 @@
-/* Store Explorer - v1.66
+/* Store Explorer - v1.67
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -353,7 +353,7 @@
       const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');
       const lat=c.location.y,lng=c.location.x;
       const provinceCode=provinceCodeFromAddress(query,c)||await queryProvinceAt(lat,lng);
-      clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+      closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
       state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='address search';
@@ -369,7 +369,7 @@
   }
 
   function resetCanada(){
-    clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+    closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
@@ -722,13 +722,14 @@
   function popupCardContent(row){
     const c=state.columns;
     const subjectMetrics=subjectItems();
-    const title=row[c.location]||row[c.storeId]||'Store';
+    const locationTitle=c.location?String(row[c.location]??'').trim():'Location';
+    const storeProfile=c.storeId?String(row[c.storeId]??'').trim():'—';
+    const city=String(row[c.city]??'').trim();
+    const prov=String(row[c.province]??'').trim();
+    const cityProv=[city,prov].filter(Boolean).join(', ');
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">↗</a>`:'';
-    let html=`<div class="store-popup-head"><h3>${esc(title)}</h3><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
-    if(c.storeId)html+=`<tr><td>${esc(c.storeId)}</td><td>${esc(formatValue(c.storeId,row[c.storeId]))}</td></tr>`;
-    if(c.location)html+=`<tr><td>${esc(c.location)}</td><td>${esc(formatValue(c.location,row[c.location]))}</td></tr>`;
-    if(c.city||c.province){const city=String(row[c.city]??'').trim();const prov=String(row[c.province]??'').trim();if(city||prov)html+=`<tr><td>City, Pr</td><td>${esc([city,prov].filter(Boolean).join(', ')||'—')}</td></tr>`;}
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3>${esc(locationTitle)}</h3><span class="store-popup-store-id">${esc(storeProfile)}</span></div>${cityProv?`<div class="store-popup-subtitle">${esc(cityProv)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
     for(const m of subjectMetrics){
       const value=evaluateTickerFormula(m.formula,[row],m.aggregation||'average');
       html+=`<tr><td>${esc(tickerMetricTitle(m))}</td><td>${esc(formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces))}</td></tr>`;
@@ -1962,7 +1963,7 @@
     const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
     // Header resolves from the current map position via the local CSD lookup.
     const km=2.5;
-    clearCircle(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
+    closeStorePopup(); clearCircle(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
     state.storeJumpTarget=target;
     state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
     state.initialNationalView=false; state.mapReadyForViewport=true; state.daActivationTrigger='store jump';
