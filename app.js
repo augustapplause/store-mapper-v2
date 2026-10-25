@@ -1,4 +1,4 @@
-/* Store Explorer - v1.64
+/* Store Explorer - v1.65
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -427,14 +427,14 @@
     const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
     const exactDefaultGroupNames=['location type'];
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
-    state.subjects=[...new Set(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
+    state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
     state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -721,8 +721,7 @@
 
   function popupCardContent(row){
     const c=state.columns;
-    const fields=[c.storeId,c.location,...state.subjects].filter(Boolean);
-    const uniq=[...new Set(fields)];
+    const subjectMetrics=subjectItems();
     const title=row[c.location]||row[c.storeId]||'Store';
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">↗</a>`:'';
@@ -730,7 +729,10 @@
     if(c.storeId)html+=`<tr><td>${esc(c.storeId)}</td><td>${esc(formatValue(c.storeId,row[c.storeId]))}</td></tr>`;
     if(c.location)html+=`<tr><td>${esc(c.location)}</td><td>${esc(formatValue(c.location,row[c.location]))}</td></tr>`;
     if(c.city||c.province){const city=String(row[c.city]??'').trim();const prov=String(row[c.province]??'').trim();if(city||prov)html+=`<tr><td>City, Pr</td><td>${esc([city,prov].filter(Boolean).join(', ')||'—')}</td></tr>`;}
-    for(const h of uniq){if(h===c.storeId||h===c.location)continue;html+=`<tr><td>${esc(h)}</td><td>${esc(formatValue(h,row[h]))}</td></tr>`;}
+    for(const m of subjectMetrics){
+      const value=evaluateTickerFormula(m.formula,[row],m.aggregation||'average');
+      html+=`<tr><td>${esc(tickerMetricTitle(m))}</td><td>${esc(formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces))}</td></tr>`;
+    }
     return `<div class="store-popup">${html}</table></div>`;
   }
 
@@ -1115,30 +1117,24 @@
   function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
 
   // ---------- Subjects / Groups ----------
+  function normalizeSubjectMetric(m){
+    const base=normalizeTickerMetric(m||{});
+    return {title:base.title,formula:base.formula,aggregation:['sum','average','median'].includes(base.aggregation)?base.aggregation:'average',numberFormat:base.numberFormat,decimalPlaces:base.decimalPlaces};
+  }
+  function subjectDefaultMetrics(names=[]){
+    return names.filter(Boolean).map(h=>normalizeSubjectMetric({title:h,formula:h,aggregation:'average',numberFormat:'auto',decimalPlaces:0}));
+  }
+  function subjectItems(){return (state.subjects||[]).map(normalizeSubjectMetric).filter(m=>m.formula);}
   function updateSubjects(){
     const box=el('subjectsSummary');
     if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}
-    if(!state.subjects.length){box.innerHTML='<div class="empty-message">No Subjects selected.</div>';return;}
-    const salesCol=state.columns.sales;
-    const salesTotal=salesCol?state.selectedRows.map(r=>toNumber(r[salesCol])).filter(v=>v!==null).reduce((a,b)=>a+b,0):NaN;
+    const items=subjectItems();
+    if(!items.length){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}
     let html='<table class="subject-table">';
-    for(const h of state.subjects){
-      const vals=state.selectedRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
-      let valueText='—';
-      let shareText='';
-      if(state.types[h]==='numeric'){
-        const mean=avg(vals);
-        valueText=formatValue(h,mean);
-        if(Number.isFinite(salesTotal)&&salesTotal!==0&&vals.length){
-          const subjectTotal=vals.reduce((a,b)=>a+b,0);
-          const share=subjectTotal/salesTotal*100;
-          shareText=` (${share.toFixed(1)}%)`;
-        }
-      } else {
-        const raw=state.selectedRows.map(r=>r[h]).filter(v=>v!==null&&v!==''&&v!==undefined);
-        valueText=mode(raw)||'—';
-      }
-      html+=`<tr><td><span class="subject-name">${esc(h)}</span>${shareText?`<span class="subject-share">${shareText}</span>`:''}</td><td>${esc(valueText)}</td></tr>`;
+    for(const m of items){
+      const value=evaluateTickerFormula(m.formula,state.selectedRows,m.aggregation||'average');
+      const valueText=formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces);
+      html+=`<tr><td><span class="subject-name">${esc(tickerMetricTitle(m))}</span></td><td>${esc(valueText)}</td></tr>`;
     }
     el('subjectsSummary').innerHTML=html+'</table>';
   }
@@ -1216,12 +1212,12 @@
     }
     const list=[...groups.entries()].sort((a,b)=>b[1].rows.length-a[1].rows.length).slice(0,100);
     const e=state.columns.ebit;
-    const groupedSubjectColumns=state.subjects;
-    let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectColumns.map(h=>`<th>${esc(shortHeader(h))}</th>`).join('')+'</tr></thead><tbody>';
+    const groupedSubjectMetrics=subjectItems();
+    let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectMetrics.map(m=>`<th>${esc(tickerMetricTitle(m))}</th>`).join('')+'</tr></thead><tbody>';
     for(const [key,g] of list){
       let success='';
       if(e){const ev=g.rows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
-      const subj=groupedSubjectColumns.map(h=>{const vals=g.rows.map(r=>r[h]).filter(v=>v!==null&&v!==''&&v!==undefined);const v=state.types[h]==='numeric'?formatValue(h,avg(vals.map(toNumber).filter(x=>x!==null))):(mode(vals)||'—');return `<td>${esc(v)}</td>`;}).join('');
+      const subj=groupedSubjectMetrics.map(m=>{const v=evaluateTickerFormula(m.formula,g.rows,m.aggregation||'average');return `<td>${esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces))}</td>`;}).join('');
       const active=state.selectedGroupKey===key;
       html+=`<tr class="group-select-row${active?' active-group':''}" data-group-key="${esc(key)}"><td><strong>${g.parts.map(esc).join(' / ')}</strong></td><td>${g.rows.length}</td>${success}${subj}</tr>`;
     }
@@ -1302,8 +1298,8 @@
     el('groupCount').textContent=state.groups.length;
     el('distributionCount').textContent=state.distributionSubject?1:0;
     el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=2+state.selectedStoreColumns.length;
-    renderChecklist('subjectsList',state.subjects,'subject');
     renderChecklist('groupsList',state.groups,'group');
+    renderSubjectConfig();
     renderDistributionList(el('distributionSearch')?.value||''); renderSelectedStoresConfig(el('selectedStoresSearch')?.value||'');
   }
   function renderChecklist(containerId,selected,kind,filter=''){
@@ -2421,6 +2417,70 @@
     el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
   }
+  el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
+  el('subjectReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetSubjectDefaults();});
+  el('subjectApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
+  // ---------- Subjects configuration ----------
+  function openSubjectConfig(){
+    if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}
+    state.subjectConfigDraft=state.subjects.length?state.subjects.map(normalizeSubjectMetric):subjectDefaultMetrics();
+    renderSubjectConfig();
+    el('subjectsDialog').showModal();
+  }
+  function renderSubjectConfig(){
+    const wrap=el('subjectMetricList');if(!wrap)return;
+    const cols=state.headers.filter(h=>state.types[h]==='numeric');
+    wrap.replaceChildren();
+    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a workbook with numeric columns to configure Subjects.</div>';return;}
+    state.subjectConfigDraft.forEach((m,idx)=>{
+      const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
+      if(!m.title&&derivedTitle)m.title=derivedTitle;
+      const row=document.createElement('div');row.className='ticker-config-row';row.draggable=true;row.dataset.index=idx;
+      row.innerHTML=`<div class="ticker-row-head"><strong>Metric ${idx+1}</strong><label class="ticker-title-field">Title<input class="subject-title-input" data-index="${idx}" value="${esc(tickerMetricTitle(m))}" placeholder="Subject title"></label><span class="ticker-drag-handle" title="Drag to reorder" aria-hidden="true">↕</span><button type="button" class="icon-btn subject-remove" data-index="${idx}" aria-label="Remove metric">×</button></div>
+        <div class="ticker-settings-row"><label>Choose column<select class="subject-operand-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select></label><label class="ticker-formula-field">Formula<input class="subject-formula-input" data-index="${idx}" value="${esc(m.formula)}" placeholder="Choose a numeric column or combine columns with + - × / ( )" autocomplete="off"></label><label>Number format<select class="subject-number-format-select" data-index="${idx}"><option value="auto" ${m.numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${m.numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${m.numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${m.numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="subject-decimal-select" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${m.decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label><label>Aggregation<select class="subject-aggregation-select" data-index="${idx}"><option value="sum" ${m.aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${m.aggregation==='average'?'selected':''}>Average</option><option value="median" ${m.aggregation==='median'?'selected':''}>Median</option></select></label></div>`;
+      wrap.appendChild(row);
+    });
+    wrap.querySelectorAll('.subject-title-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].title=e.target.value;}));
+    wrap.querySelectorAll('.subject-formula-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].formula=e.target.value;}));
+    wrap.querySelectorAll('.subject-operand-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(!chosen)return;const m=state.subjectConfigDraft[i];const formulaInput=wrap.querySelector(`.subject-formula-input[data-index="${i}"]`);const current=formulaInput.value.trim();formulaInput.value=current?`${current}${chosen}`:chosen;m.formula=formulaInput.value;if(!String(m.title||'').trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.subject-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}select.value='';}));
+    wrap.querySelectorAll('.subject-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.subjectConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderSubjectConfig();}));
+    wrap.querySelectorAll('.subject-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
+    wrap.querySelectorAll('.subject-aggregation-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
+    wrap.querySelectorAll('.subject-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.subjectConfigDraft.length){state.subjectConfigDraft.splice(i,1);renderSubjectConfig();}}));
+    let dragFrom=-1;
+    wrap.querySelectorAll('.ticker-config-row').forEach(row=>{
+      row.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
+      row.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
+      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
+      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(from===to||from<0||to<0||from>=state.subjectConfigDraft.length||to>=state.subjectConfigDraft.length)return;const [moved]=state.subjectConfigDraft.splice(from,1);state.subjectConfigDraft.splice(to,0,moved);renderSubjectConfig();});
+    });
+  }
+  function validateSubjectDraft(){
+    if(!state.headers.length)return 'Load a financial workbook before saving Subjects.';
+    const exactHeaders=new Set(state.headers);
+    for(const [i,m] of state.subjectConfigDraft.entries()){
+      const formula=String(m.formula||'').trim();
+      if(!formula)return `Metric ${i+1} needs a formula.`;
+      if(!tickerFormulaValid(formula))return `Metric ${i+1} has an invalid formula. Choose operands from the exact workbook column headings and use +, -, ×, ÷ and parentheses.`;
+      for(const t of tokenizeTicker(formula)||[]){
+        if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
+      }
+    }
+    return '';
+  }
+  function applySubjectConfig(){
+    const error=validateSubjectDraft();if(error){alert(error);return;}
+    state.subjects=state.subjectConfigDraft.map(normalizeSubjectMetric);
+    refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();el('subjectsDialog').close();
+  }
+  function resetSubjectDefaults(){
+    const names=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
+    const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
+    state.subjectConfigDraft=subjectDefaultMetrics(names.map(n=>exactHeaders.get(n)).filter(Boolean));
+    renderSubjectConfig();
+  }
+
   // ---------- UI wiring ----------
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
   el('clearFileBtn').addEventListener('click',clearFinancial);
@@ -2658,18 +2718,18 @@
     },250);
   });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();});
-  el('subjectsBtn').addEventListener('click',()=>{renderChecklist('subjectsList',state.subjects,'subject',el('subjectSearch').value);el('subjectsDialog').showModal();});
+  el('subjectsBtn').addEventListener('click',()=>{openSubjectConfig();});
   el('selectedStoresBtn').addEventListener('click',()=>{renderSelectedStoresConfig(el('selectedStoresSearch').value);el('selectedStoresDialog').showModal();});
   el('selectedStoresSearch').addEventListener('input',e=>renderSelectedStoresConfig(e.target.value));
   el('selectedStoresClear').addEventListener('click',()=>{renderSelectedStoresConfig('');});
   el('selectedStoresApply').addEventListener('click',()=>{state.selectedStoreColumns=selectedStoreCheckedValues();refreshConfigUI();updateSelectedStoresList();});
   el('exportSelectedBtn').addEventListener('click',exportSelectedStores);
   el('groupsBtn').addEventListener('click',()=>{renderChecklist('groupsList',state.groups,'group',el('groupSearch').value);el('groupsDialog').showModal();});
-  el('subjectSearch').addEventListener('input',e=>renderChecklist('subjectsList',checkedValues('subjectsList'),'subject',e.target.value));
+
   el('groupSearch').addEventListener('input',e=>renderChecklist('groupsList',checkedValues('groupsList'),'group',e.target.value));
-  el('subjectsClear').addEventListener('click',()=>renderChecklist('subjectsList',[],'subject',el('subjectSearch').value));
+
   el('groupsClear').addEventListener('click',()=>renderChecklist('groupsList',[],'group',el('groupSearch').value));
-  el('subjectsApply').addEventListener('click',()=>{state.subjects=checkedValues('subjectsList');refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();});
+
   el('groupsApply').addEventListener('click',()=>{state.groups=[...new Set(checkedValues('groupsList'))];state.distributionBinKey=null;state.distributionBinKey2=null;state.selectedGroupKey=null;state.selectedStoreRow=null;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
   el('distributionBtn').addEventListener('click',()=>{state.distributionDialogTarget=1;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
   el('distributionBtn2').addEventListener('click',()=>{state.distributionDialogTarget=2;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
