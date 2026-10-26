@@ -1,4 +1,4 @@
-/* Store Explorer - v1.85
+/* Store Explorer - v1.86
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -21,7 +21,6 @@
       YT:'YT_da_census_13vars_30m.geojson'
     },
     prCodeByUid: {'10':'NL','11':'PE','12':'NS','13':'NB','24':'QC','35':'ON','46':'MB','47':'SK','48':'AB','59':'BC','60':'YT','61':'NT','62':'NU'},
-    csdMinZoom: 6,
     daMinRenderZoom: 8
   };
 
@@ -36,7 +35,7 @@
     selectedRows: [],
     selectedGroupKey: null,
     selectedStoreRow: null,
-    provinceGeo: null, csdGeo: null, csdLayer: null, provinceLayer: null,
+    provinceGeo: null, csdGeo: null, provinceLayer: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
@@ -74,8 +73,6 @@
 
   const provinceStyle = {color:'#47677d',weight:1.2,fillColor:'#dce8ef',fillOpacity:.10};
   const provinceSelectedStyle = {color:'#086fb4',weight:3,fillColor:'#58a9d8',fillOpacity:.13};
-  const csdStyle = {color:'#5e8399',weight:1,fillColor:'#64a3c5',fillOpacity:.035};
-  const csdHoverStyle = {color:'#0877bd',weight:2,fillOpacity:.08};
   const daStyle = {color:'#298ac2',weight:.7,fillColor:'#45a3d4',fillOpacity:.12,interactive:false};
 
   async function fetchJson(url, options={}) {
@@ -298,51 +295,8 @@
       setMapLoading(false);
       setTimeout(()=>{
         map.invalidateSize(false);
-        refreshCsdLayer();
       },100);
     }
-  }
-
-  function csdFeaturesForViewport() {
-    if (!state.csdLookupGeo?.features?.length || !state.csdLookupIndex?.size) return [];
-    const b = map.getBounds();
-    const bb = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    const size = state.csdLookupCellSize;
-    const minLat = Math.floor(bb[1] / size), maxLat = Math.floor(bb[3] / size);
-    const minLng = Math.floor(bb[0] / size), maxLng = Math.floor(bb[2] / size);
-    const candidates = new Set();
-    for (let gy=minLat; gy<=maxLat; gy++) for (let gx=minLng; gx<=maxLng; gx++) {
-      const bucket=state.csdLookupIndex.get(`${gy}:${gx}`)||[];
-      for(const feature of bucket)candidates.add(feature);
-    }
-    const viewport=turf.bboxPolygon(bb), hits=[];
-    for(const feature of candidates){
-      try{
-        const fbb=feature.__headerBBox||(feature.__headerBBox=turf.bbox(feature));
-        if(fbb[2]<bb[0]||fbb[0]>bb[2]||fbb[3]<bb[1]||fbb[1]>bb[3]) continue;
-        if(turf.booleanIntersects(feature,viewport)) hits.push(feature);
-      }catch{}
-    }
-    return hits;
-  }
-
-  function refreshCsdLayerLocal() {
-    if (map.getZoom() < CONFIG.csdMinZoom) {
-      if (state.csdLayer) { map.removeLayer(state.csdLayer); state.csdLayer=null; }
-      return;
-    }
-    if (!state.headerLookupReady) return;
-    const geo={type:'FeatureCollection',features:csdFeaturesForViewport()};
-    if(state.csdLayer)map.removeLayer(state.csdLayer);
-    state.csdLayer=L.geoJSON(geo,{style:csdStyle,interactive:false,onEachFeature:(feature,layer)=>{
-      const q=feature.properties||{};
-      layer.bindTooltip(`${q.CSDNAME||'Municipality'}${q.CSDTYPE?` (${q.CSDTYPE})`:''}`,{sticky:true});
-    }}).addTo(map);
-  }
-
-  async function refreshCsdLayer() {
-    await loadHeaderCsdLookup();
-    refreshCsdLayerLocal();
   }
 
   function fitMapProgrammatically(bounds, options){
@@ -3206,9 +3160,6 @@
     updateSelection();
     if(state.moveTimer)clearTimeout(state.moveTimer);
     state.moveTimer=setTimeout(async()=>{
-      state.csdRequestKey=null;
-      await loadHeaderCsdLookup();
-      refreshCsdLayerLocal();
       updateHeaderGeography();
       if (state.circleSelection?.circle) return;
       state.daProvinceCacheKey=null; state.daProvinceCache=null;
