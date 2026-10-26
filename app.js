@@ -1,4 +1,4 @@
-/* Store Explorer - v1.84
+/* Store Explorer - v1.85
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -45,7 +45,7 @@
     programmaticMoveUntil: 0,
     userMapInteraction: false,
     daActivationTrigger: null,
-    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, analysisReactionTimer:null, analysisReactionMs:500,
+    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daSelectionCache:new Map(), daRenderedSignature:null, analysisReactionTimer:null, analysisReactionMs:500,
     censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -408,7 +408,7 @@
     fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});updateSelection();
   }
 
-  function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
+  function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;state.daRenderedSignature=null;}
   function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
   function setMapLoading(on){el('mapLoading').classList.toggle('hidden',!on);}
 
@@ -2010,9 +2010,13 @@
   // This component intentionally knows nothing about stores, KPIs, workbook data,
   // or Census population attributes. Its only job is:
   //   DA GeoJSON -> spatial index -> boundary intersections -> threshold -> DA features.
+  const DA_OVERLAY_MIN_ZOOM = 6;
+  const DA_LIST_DISPLAY_LIMIT = 500;
+
   const DA_ENGINE = (() => {
     const cache = new Map();
     const geoCache = new Map();
+    const selectionCache = new Map();
     const defaultThresholdPct = 50;
 
     function getId(feature) {
@@ -2085,6 +2089,14 @@
       const metaMap=new Map((provinceMeta||[]).map(x=>[x.code,x.status]));
       const resolvedProvinces = [...new Set((provinces || []).filter(code => CONFIG.daFiles[code]))];
       if (!resolvedProvinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
+      const allInside = resolvedProvinces.every(code => metaMap.get(code) === 'inside');
+      const fastCacheKey = allInside
+        ? `inside:${resolvedProvinces.slice().sort().join(',')}:threshold:${threshold}`
+        : null;
+      if (fastCacheKey && selectionCache.has(fastCacheKey)) {
+        const cached = selectionCache.get(fastCacheKey);
+        return {...cached, boundary, cacheKey:fastCacheKey, cacheHit:true};
+      }
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
@@ -2128,7 +2140,7 @@
       }
 
       selected.sort((a,b) => getId(a.feature).localeCompare(getId(b.feature), undefined, {numeric:true}));
-      return {
+      const result = {
         threshold,
         boundary,
         provinces: resolvedProvinces,
@@ -2139,11 +2151,19 @@
         selected,
         selectedCount: selected.length
       };
+      if (fastCacheKey) {
+        const cached = {...result};
+        delete cached.boundary;
+        selectionCache.set(fastCacheKey, cached);
+        result.cacheKey = fastCacheKey;
+      }
+      return result;
     }
 
     function clearCache() {
       cache.clear();
       geoCache.clear();
+      selectionCache.clear();
     }
 
     return { select, clearCache, getId };
@@ -2225,9 +2245,17 @@
   }
 
   function renderDaSelection(result) {
+    const features = result.selected.map(item => item.feature);
+    const canRenderOverlay = state.showDaOverlay && map.getZoom() >= DA_OVERLAY_MIN_ZOOM;
+    const renderSignature = `${result.cacheKey || `boundary:${result.selectedCount}:${result.threshold}:${result.provinces.join(',')}`}:overlay:${canRenderOverlay}`;
+
+    if (state.daRenderedSignature === renderSignature) {
+      state.daSelectionResult = result;
+      return;
+    }
+
     clearDaOverlay();
     state.daSelectionResult = result;
-    const features = result.selected.map(item => item.feature);
     if (!features.length) {
       setDaTestStatus(`No DAs meet the ${result.threshold}% inclusion threshold. Boundary: ${result.provinces.join(', ') || 'none'}.`);
       resetCensusPopulationSummary();
@@ -2235,22 +2263,33 @@
       if (list) list.innerHTML = '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
       return;
     }
+
     state.currentDaProvince = result.provinces.join(',');
-    if (state.showDaOverlay) {
+    if (canRenderOverlay) {
       state.daLayer = L.geoJSON(turf.featureCollection(features), {
         pane: 'daSelectionPane',
         interactive: false,
         style: daStyle
       }).addTo(map);
     }
+    state.daRenderedSignature = renderSignature;
+
     updateCensusPopulationSummary(result.selected);
-    setDaTestStatus(`${features.length.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.`);
+    const overlayNote = state.showDaOverlay && !canRenderOverlay
+      ? ` DA polygons are hidden below zoom ${DA_OVERLAY_MIN_ZOOM} to keep the Canada-wide view responsive.`
+      : '';
+    setDaTestStatus(`${features.length.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.${overlayNote}`);
     const list = el('censusDaList');
     if (list) {
-      list.innerHTML = result.selected.map(item => {
+      const display = result.selected.slice(0, DA_LIST_DISPLAY_LIMIT);
+      const rows = display.map(item => {
         const a = censusAttributes(item.feature);
         return `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
       }).join('');
+      const remainder = result.selected.length > DA_LIST_DISPLAY_LIMIT
+        ? `<div class="empty-message">Showing the first ${DA_LIST_DISPLAY_LIMIT.toLocaleString()} of ${result.selected.length.toLocaleString()} selected DAs. Population totals include all selected DAs.</div>`
+        : '';
+      list.innerHTML = rows + remainder;
     }
   }
 
@@ -3183,7 +3222,6 @@
       refreshCsdLayerLocal();
       updateHeaderGeography();
       if (state.circleSelection?.circle) return;
-      state.daProvinceCacheKey=null; state.daProvinceCache=null;
       updateSelection();
       scheduleDaRefresh(0,'map pan/zoom');
     },clampAnalysisReactionMs(state.analysisReactionMs));
@@ -3224,10 +3262,17 @@
   el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleDaRefresh(0,'threshold change'),250); });
   el('showSelectedDAs')?.addEventListener('change',(event)=>{
     state.showDaOverlay = !!event.target.checked;
-    if (state.showDaOverlay && state.daSelectionResult?.selected?.length) {
+    if (state.daSelectionResult?.selected?.length) {
+      const result = state.daSelectionResult;
+      const canRenderOverlay = state.showDaOverlay && map.getZoom() >= DA_OVERLAY_MIN_ZOOM;
       clearDaOverlay();
-      const features = state.daSelectionResult.selected.map(item => item.feature);
-      state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
+      if (canRenderOverlay) {
+        const features = result.selected.map(item => item.feature);
+        state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
+        state.daRenderedSignature = `${result.cacheKey || `boundary:${result.selectedCount}:${result.threshold}:${result.provinces.join(',')}`}:overlay:true`;
+      } else {
+        state.daRenderedSignature = `${result.cacheKey || `boundary:${result.selectedCount}:${result.threshold}:${result.provinces.join(',')}`}:overlay:false`;
+      }
     } else {
       clearDaOverlay();
     }
