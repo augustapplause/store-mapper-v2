@@ -1,4 +1,4 @@
-/* Store Explorer - v1.82
+/* Store Explorer - v1.83
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -45,7 +45,7 @@
     programmaticMoveUntil: 0,
     userMapInteraction: false,
     daActivationTrigger: null,
-    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null,
+    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, analysisReactionTimer:null, analysisReactionMs:500,
     censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -56,6 +56,27 @@
   const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const ANALYSIS_REACTION_STORAGE_KEY='storeExplorer.analysisReactionMs';
+  const DEFAULT_ANALYSIS_REACTION_MS=500;
+  function clampAnalysisReactionMs(value){
+    const n=Number(value);
+    if(!Number.isFinite(n)) return DEFAULT_ANALYSIS_REACTION_MS;
+    return Math.max(0,Math.min(5000,Math.round(n/50)*50));
+  }
+  function loadAnalysisReactionSetting(){
+    let value=DEFAULT_ANALYSIS_REACTION_MS;
+    try{ value=clampAnalysisReactionMs(localStorage.getItem(ANALYSIS_REACTION_STORAGE_KEY)); }catch(_){}
+    state.analysisReactionMs=value;
+    const input=el('analysisReactionMs');
+    if(input) input.value=String(value);
+  }
+  function saveAnalysisReactionSetting(){
+    const input=el('analysisReactionMs');
+    const value=clampAnalysisReactionMs(input?.value);
+    state.analysisReactionMs=value;
+    if(input) input.value=String(value);
+    try{localStorage.setItem(ANALYSIS_REACTION_STORAGE_KEY,String(value));}catch(_){}
+  }
 
   const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
   const daSelectionPane = map.createPane('daSelectionPane');
@@ -1929,6 +1950,35 @@
     el('filterDialog').close();
   }
 
+  function classifyProvincesForBoundary(boundary){
+    const features=state.provinceGeo?.features||[];
+    if(!boundary?.geometry || !features.length) return [];
+    const boundaryBbox=turf.bbox(boundary);
+    const result=[];
+    for(const feature of features){
+      const code=provinceCodeFromFeature(feature);
+      if(!code || !CONFIG.daFiles[code]) continue;
+      try{
+        const fb=turf.bbox(feature);
+        if(fb[2] < boundaryBbox[0] || fb[0] > boundaryBbox[2] || fb[3] < boundaryBbox[1] || fb[1] > boundaryBbox[3]){
+          result.push({code,status:'outside'});
+          continue;
+        }
+        const provinceBbox=turf.bboxPolygon(fb);
+        if(turf.booleanContains(boundary,feature)){
+          result.push({code,status:'inside'});
+        }else if(turf.booleanDisjoint(feature,boundary)){
+          result.push({code,status:'outside'});
+        }else{
+          result.push({code,status:'partial'});
+        }
+      }catch(_){
+        result.push({code,status:'partial'});
+      }
+    }
+    return result;
+  }
+
   function provincesForBoundaryFromCsd(boundary) {
     if (!boundary?.geometry || !state.csdLookupGeo?.features?.length || !state.csdLookupIndex?.size) return [];
     const bb = turf.bbox(boundary);
@@ -2014,24 +2064,34 @@
       throw new Error(`Could not load ${provinceCode} DA file ${file}. ${errors.join(' | ')}`);
     }
 
-    async function select(boundary, provinces, thresholdPct) {
+    async function select(boundary, provinces, thresholdPct, provinceMeta=[]) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
+      const metaMap=new Map((provinceMeta||[]).map(x=>[x.code,x.status]));
       const resolvedProvinces = [...new Set((provinces || []).filter(code => CONFIG.daFiles[code]))];
       if (!resolvedProvinces.length) throw new Error('Could not determine a Canadian province or territory for the active map boundary.');
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
       let indexedFeatures = 0;
+      let fullyContainedProvinceCount = 0;
 
       for (const provinceCode of resolvedProvinces) {
+        const status=metaMap.get(provinceCode)||'partial';
+        if(status==='outside') continue;
         const entry = await loadProvince(provinceCode);
         indexedFeatures += entry.indexedCount;
-        const candidates = entry.index.search({minX:boundaryBbox[0], minY:boundaryBbox[1], maxX:boundaryBbox[2], maxY:boundaryBbox[3]});
-        for (const item of candidates) {
-          allCandidates.push({provinceCode, feature:item.feature});
+        if(status==='inside'){
+          fullyContainedProvinceCount += 1;
+          for(const feature of entry.geo?.features||[]){
+            if(!feature?.geometry) continue;
+            selected.push({feature,provinceCode,overlapPct:100});
+          }
+          continue;
         }
+        const candidates = entry.index.search({minX:boundaryBbox[0], minY:boundaryBbox[1], maxX:boundaryBbox[2], maxY:boundaryBbox[3]});
+        for (const item of candidates) allCandidates.push({provinceCode, feature:item.feature});
       }
 
       for (const {provinceCode, feature} of allCandidates) {
@@ -2053,8 +2113,9 @@
         boundary,
         provinces: resolvedProvinces,
         indexedFeatures,
-        candidateCount: allCandidates.length,
-        actualIntersectionCount,
+        candidateCount: allCandidates.length + selected.filter(x=>x.overlapPct===100).length,
+        actualIntersectionCount:actualIntersectionCount + selected.filter(x=>x.overlapPct===100).length,
+        fullyContainedProvinceCount,
         selected,
         selectedCount: selected.length
       };
@@ -2207,14 +2268,17 @@
       const boundaryKey = hasCircle
         ? `circle:${c.lat.toFixed(5)}:${c.lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}`
         : `viewport:${map.getBounds().toBBoxString()}`;
-      let provinces;
-      if (boundaryKey === state.daProvinceCacheKey && Array.isArray(state.daProvinceCache)) provinces = state.daProvinceCache;
-      else {
-        provinces = provincesForBoundaryFromCsd(boundary);
-        state.daProvinceCacheKey = boundaryKey;
-        state.daProvinceCache = provinces;
+      let provinceMeta=classifyProvincesForBoundary(boundary);
+      let provinces=provinceMeta.filter(x=>x.status!=='outside').map(x=>x.code);
+      if(!provinceMeta.length){
+        if (boundaryKey === state.daProvinceCacheKey && Array.isArray(state.daProvinceCache)) provinces = state.daProvinceCache;
+        else {
+          provinces = provincesForBoundaryFromCsd(boundary);
+          state.daProvinceCacheKey = boundaryKey;
+          state.daProvinceCache = provinces;
+        }
       }
-      const result = await DA_ENGINE.select(boundary, provinces, threshold);
+      const result = await DA_ENGINE.select(boundary, provinces, threshold, provinceMeta);
       if (requestId !== state.censusRequestId) return;
       
       renderDaSelection(result);
@@ -3088,20 +3152,24 @@
       state.daActivationTrigger=state.daActivationTrigger||'map pan/zoom';
     }
     state.userMapInteraction=false;
+    if(state.circleSelection?.circle) return;
     updateHeaderGeography();
-    updateSelection();
     if(state.moveTimer)clearTimeout(state.moveTimer);
     state.moveTimer=setTimeout(async()=>{
+      state.moveTimer=null;
       state.csdRequestKey=null;
       await loadHeaderCsdLookup();
       refreshCsdLayerLocal();
       updateHeaderGeography();
       if (state.circleSelection?.circle) return;
       state.daProvinceCacheKey=null; state.daProvinceCache=null;
+      updateSelection();
       scheduleDaRefresh(0,'map pan/zoom');
-    },250);
+    },clampAnalysisReactionMs(state.analysisReactionMs));
   });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();});
+  el('analysisReactionMs')?.addEventListener('change',()=>{saveAnalysisReactionSetting();});
+  el('analysisReactionMs')?.addEventListener('blur',()=>{saveAnalysisReactionSetting();});
   el('subjectsBtn').addEventListener('click',()=>{openSubjectConfig();});
   el('selectedStoresBtn').addEventListener('click',()=>{renderSelectedStoresConfig(el('selectedStoresSearch').value);el('selectedStoresDialog').showModal();});
   el('selectedStoresSearch').addEventListener('input',e=>renderSelectedStoresConfig(e.target.value));
@@ -3144,6 +3212,7 @@
     }
   });
 
+  loadAnalysisReactionSetting();
   if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
