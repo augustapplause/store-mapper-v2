@@ -1,4 +1,4 @@
-/* Store Explorer - v1.84
+/* Store Explorer - v1.85
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -22,7 +22,7 @@
     },
     prCodeByUid: {'10':'NL','11':'PE','12':'NS','13':'NB','24':'QC','35':'ON','46':'MB','47':'SK','48':'AB','59':'BC','60':'YT','61':'NT','62':'NU'},
     csdMinZoom: 6,
-    daMinRenderZoom: 6
+    daMinRenderZoom: 8
   };
 
   const state = {
@@ -1954,15 +1954,19 @@
     el('filterDialog').close();
   }
 
-  function candidateProvincesFromVisibleMarkers() {
-    if (!state.markers?.length || !state.columns.province) return [];
+  function candidateProvincesFromFilteredRowsInViewport() {
+    // Candidate provinces are derived from DATA ROWS that pass the active filters,
+    // not from Leaflet marker visibility/opacity. This keeps Census geography
+    // synchronized with the actual filtered workbook rows.
+    if (!state.rows?.length || !state.columns.province || !state.columns.lat || !state.columns.lon) return [];
     const bounds = map.getBounds();
     const found = new Set();
-    for (const marker of state.markers) {
-      const ll = marker?.__trueLatLng;
-      if (!ll || !bounds.contains(ll)) continue;
-      const row = marker.__row;
-      const code = provinceCodeFromText(row?.[state.columns.province] || '');
+    for (const row of state.rows) {
+      if (!filterRowPasses(row) || !hasCoords(row)) continue;
+      const lat = toNumber(row[state.columns.lat]);
+      const lng = toNumber(row[state.columns.lon]);
+      if (lat === null || lng === null || !bounds.contains([lat, lng])) continue;
+      const code = provinceCodeFromText(row[state.columns.province] || '');
       if (code && CONFIG.daFiles[code]) found.add(code);
     }
     return [...found].sort();
@@ -2002,7 +2006,8 @@
   // ---------- DA spatial selection engine (isolated) ----------
   // This component intentionally knows nothing about stores, KPIs, workbook data,
   // or Census population attributes. Its only job is:
-  //   DA GeoJSON -> spatial index -> boundary intersections -> threshold -> DA features.
+  //   DA GeoJSON -> boundary selection -> threshold -> selected DA features.
+  // Province selection is owned by the outer app; rendering consumes the same selected set.
   const DA_ENGINE = (() => {
     const cache = new Map();
     const defaultThresholdPct = 50;
@@ -2306,10 +2311,10 @@
     setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      // Candidate provinces come ONLY from filtered store markers currently visible in the map viewport.
-      // The local CSD file is used only to derive conservative province bounding boxes for full-coverage tests.
+      // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
+      // Leaflet marker opacity/visibility is intentionally irrelevant. The local CSD file is used only to derive conservative province bounding boxes for full-coverage tests.
       await loadHeaderCsdLookup();
-      const candidates = candidateProvincesFromVisibleMarkers();
+      const candidates = candidateProvincesFromFilteredRowsInViewport();
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
         clearDaOverlay();
@@ -3246,12 +3251,11 @@
   el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleDaRefresh(0,'threshold change'),250); });
   el('showSelectedDAs')?.addEventListener('change',(event)=>{
     state.showDaOverlay = !!event.target.checked;
-    if (state.showDaOverlay && state.daSelectionResult?.selected?.length) {
-      clearDaOverlay();
+    clearDaOverlay();
+    const canRender = map.getZoom() >= CONFIG.daMinRenderZoom;
+    if (state.showDaOverlay && canRender && state.daSelectionResult?.selected?.length) {
       const features = state.daSelectionResult.selected.map(item => item.feature);
       state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
-    } else {
-      clearDaOverlay();
     }
   });
 
