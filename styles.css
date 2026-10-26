@@ -626,9 +626,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-box{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
 .census-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .census-title-row .box-title{margin:0;font-size:12px;font-weight:700;color:#111;line-height:1.2}
-.census-controls{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .census-threshold-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex:0 0 auto}
 .census-threshold-control input{width:58px!important;min-width:58px;box-sizing:border-box;text-align:center}
+.census-delay-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:11px}.census-delay-control{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-delay-control input{width:72px!important;min-width:72px;box-sizing:border-box;text-align:center}
 .census-da-toggle{display:flex!important;align-items:center;justify-content:flex-start;gap:8px;margin:8px 0 10px;color:#111!important;font-size:12px!important;font-weight:700!important;cursor:pointer}
 .census-da-toggle .toggle-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
 .census-da-toggle input{position:absolute;opacity:0;pointer-events:none}
