@@ -1,4 +1,4 @@
-/* Store Explorer - v1.81
+/* Store Explorer - v1.82
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -361,9 +361,19 @@
       const km=2.5;
       const dLat=km/110.5,dLon=km/(111*Math.cos(lat*Math.PI/180));
       const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
-      map.once('moveend',()=>{if(token===state.searchToken){updateSelection();showNavigationResult(lat,lng,'address');}});
+      let completed=false;
+      const finish=()=>{
+        if(completed || token!==state.searchToken)return;
+        completed=true;
+        updateSelection();
+        showNavigationResult(lat,lng,'address',null,()=>{
+          if(token!==state.searchToken)return;
+          createOrReplaceCircle(L.latLng(lat,lng),1000,'address navigation');
+        });
+      };
+      map.once('moveend',finish);
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
-      setTimeout(()=>{if(token===state.searchToken&&!state.navigationResultLatLng)showNavigationResult(lat,lng,'address');},900);
+      setTimeout(finish,900);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
     finally{if(token===state.searchToken)setMapLoading(false);}
   }
@@ -521,7 +531,7 @@
     ctx.restore();
   }
 
-  function runNavigationResultAnimation(latlng){
+  function runNavigationResultAnimation(latlng,onComplete=null){
     if(!latlng)return;
     if(state.navigationResultAnimation){
       try{state.navigationResultAnimation.cancel?.();}catch(_){ }
@@ -536,6 +546,7 @@
     const dpr=Math.max(1,window.devicePixelRatio||1);
     let rect=container.getBoundingClientRect();
     const ctl={id:0,cancel:()=>cancelAnimationFrame(ctl.id),remove:()=>{if(canvas.parentNode)canvas.parentNode.removeChild(canvas);}};
+    ctl.onComplete=typeof onComplete==='function'?onComplete:null;
     state.navigationResultAnimation=ctl;
 
     function size(){
@@ -598,16 +609,21 @@
         }else{
           ctl.remove();
           if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;
+          if(typeof ctl.onComplete==='function'){
+            const done=ctl.onComplete;
+            ctl.onComplete=null;
+            try{done();}catch(err){console.error('Navigation completion callback failed:',err);}
+          }
         }
       }
       ctl.id=requestAnimationFrame(frame);
     }
   }
 
-  function showNavigationResult(lat,lng,kind,row=null){
+  function showNavigationResult(lat,lng,kind,row=null,onComplete=null){
     const ll=L.latLng(lat,lng);
     navigationResultMarker(ll,kind,row);
-    requestAnimationFrame(()=>runNavigationResultAnimation(ll));
+    requestAnimationFrame(()=>runNavigationResultAnimation(ll,onComplete));
   }
 
   // ---------- Store markers ----------
@@ -2962,10 +2978,10 @@
     map.getContainer().style.cursor='';
     el('drawCircleBtn').querySelector('span:last-child').textContent='Draw';
   }
-  function createOrReplaceCircle(center,radiusMeters){
+  function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
     state.initialNationalView=false;
     state.mapReadyForViewport=true;
-    state.daActivationTrigger='circle draw';
+    state.daActivationTrigger=reason;
     clearCircle();
     state.daProvinceCacheKey=null; state.daProvinceCache=null;
     const radius=Math.max(10,radiusMeters);
