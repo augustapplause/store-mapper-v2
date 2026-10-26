@@ -1,4 +1,4 @@
-/* Store Explorer - v1.83
+/* Store Explorer - v1.84
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2012,6 +2012,7 @@
   //   DA GeoJSON -> spatial index -> boundary intersections -> threshold -> DA features.
   const DA_ENGINE = (() => {
     const cache = new Map();
+    const geoCache = new Map();
     const defaultThresholdPct = 50;
 
     function getId(feature) {
@@ -2042,9 +2043,14 @@
       return entry;
     }
 
-    async function loadProvince(provinceCode) {
+    async function loadProvinceGeo(provinceCode) {
       if (!provinceCode) throw new Error('Province code is required.');
-      if (cache.has(provinceCode)) return cache.get(provinceCode);
+      if (geoCache.has(provinceCode)) return geoCache.get(provinceCode);
+      const cached = cache.get(provinceCode);
+      if (cached?.geo) {
+        geoCache.set(provinceCode, cached.geo);
+        return cached.geo;
+      }
       const file = CONFIG.daFiles[provinceCode];
       if (!file) throw new Error(`No DA file configured for ${provinceCode}.`);
       const errors = [];
@@ -2056,12 +2062,20 @@
         try {
           const geo = await fetchJson(url, {timeout:180000});
           if (!geo?.features) throw new Error('GeoJSON contained no features.');
-          return buildIndex(geo, provinceCode);
+          geoCache.set(provinceCode, geo);
+          return geo;
         } catch (err) {
           errors.push(`${url}: ${err.message}`);
         }
       }
       throw new Error(`Could not load ${provinceCode} DA file ${file}. ${errors.join(' | ')}`);
+    }
+
+    async function loadProvinceIndex(provinceCode) {
+      if (!provinceCode) throw new Error('Province code is required.');
+      if (cache.has(provinceCode)) return cache.get(provinceCode);
+      const geo = await loadProvinceGeo(provinceCode);
+      return buildIndex(geo, provinceCode);
     }
 
     async function select(boundary, provinces, thresholdPct, provinceMeta=[]) {
@@ -2080,16 +2094,22 @@
       for (const provinceCode of resolvedProvinces) {
         const status=metaMap.get(provinceCode)||'partial';
         if(status==='outside') continue;
-        const entry = await loadProvince(provinceCode);
-        indexedFeatures += entry.indexedCount;
+
+        // A fully contained province needs its raw DA features, but NOT a spatial index.
+        // This is the critical fast path for province-wide and Canada-wide viewports.
         if(status==='inside'){
+          const geo = await loadProvinceGeo(provinceCode);
           fullyContainedProvinceCount += 1;
-          for(const feature of entry.geo?.features||[]){
+          for(const feature of geo?.features||[]){
             if(!feature?.geometry) continue;
             selected.push({feature,provinceCode,overlapPct:100});
           }
           continue;
         }
+
+        // Partial province: use the existing indexed/exact-intersection path.
+        const entry = await loadProvinceIndex(provinceCode);
+        indexedFeatures += entry.indexedCount;
         const candidates = entry.index.search({minX:boundaryBbox[0], minY:boundaryBbox[1], maxX:boundaryBbox[2], maxY:boundaryBbox[3]});
         for (const item of candidates) allCandidates.push({provinceCode, feature:item.feature});
       }
@@ -2123,6 +2143,7 @@
 
     function clearCache() {
       cache.clear();
+      geoCache.clear();
     }
 
     return { select, clearCache, getId };
