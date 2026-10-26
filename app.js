@@ -1,4 +1,4 @@
-/* Store Explorer - v1.85
+/* Store Explorer - v1.86
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2082,6 +2082,37 @@
       return buildIndex(geo, provinceCode);
     }
 
+    function aggregateGeoFeatures(geo, provinceCode, sampleLimit=DA_LIST_DISPLAY_LIMIT) {
+      const sample=[];
+      let count=0;
+      const totals={total:0,senior:0,forty:0,visibleMinority:0,households:0,incomeWeighted:0};
+      for (const feature of geo?.features || []) {
+        if (!feature?.geometry) continue;
+        count += 1;
+        const p = feature.properties || {};
+        const total = Number(p.total_population);
+        const senior = Number(p.population_65_plus);
+        const age40to64 = Number(p.population_40_64);
+        const visibleMinority = Number(p.visible_minority_population);
+        const households = Number(p.total_households);
+        const householdIncome = Number(p.average_household_income);
+        const population = Number.isFinite(total) ? total : 0;
+        const population65Plus = Number.isFinite(senior) ? senior : 0;
+        const population40Plus = population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
+        const visibleMinorityPopulation = Number.isFinite(visibleMinority) ? visibleMinority : 0;
+        const totalHouseholds = Number.isFinite(households) ? households : 0;
+        const avgIncome = Number.isFinite(householdIncome) ? householdIncome : 0;
+        totals.total += population;
+        totals.senior += population65Plus;
+        totals.forty += population40Plus;
+        totals.visibleMinority += visibleMinorityPopulation;
+        totals.households += totalHouseholds;
+        totals.incomeWeighted += avgIncome * totalHouseholds;
+        if (sample.length < sampleLimit) sample.push({feature, provinceCode, overlapPct:100});
+      }
+      return {count, totals, sample};
+    }
+
     async function select(boundary, provinces, thresholdPct, provinceMeta=[]) {
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
@@ -2097,29 +2128,42 @@
         const cached = selectionCache.get(fastCacheKey);
         return {...cached, boundary, cacheKey:fastCacheKey, cacheHit:true};
       }
+
       const allCandidates = [];
       const selected = [];
       let actualIntersectionCount = 0;
       let indexedFeatures = 0;
       let fullyContainedProvinceCount = 0;
+      let containedCount = 0;
+      let partialSelectedCount = 0;
+      const containedGeos=[];
+      const totals={total:0,senior:0,forty:0,visibleMinority:0,households:0,incomeWeighted:0};
 
+      // Fully contained provinces are independent of one another, so load them in parallel.
+      // This avoids serially waiting on up to 13 provincial GeoJSON requests for a Canada-wide view.
+      const insideCodes = resolvedProvinces.filter(code => metaMap.get(code) === 'inside');
+      const insideGeos = await Promise.all(insideCodes.map(async provinceCode => ({
+        provinceCode, geo: await loadProvinceGeo(provinceCode)
+      })));
+
+      for (const {provinceCode, geo} of insideGeos) {
+        fullyContainedProvinceCount += 1;
+        const aggregate = aggregateGeoFeatures(geo, provinceCode);
+        containedCount += aggregate.count;
+        containedGeos.push({provinceCode, geo});
+        totals.total += aggregate.totals.total;
+        totals.senior += aggregate.totals.senior;
+        totals.forty += aggregate.totals.forty;
+        totals.visibleMinority += aggregate.totals.visibleMinority;
+        totals.households += aggregate.totals.households;
+        totals.incomeWeighted += aggregate.totals.incomeWeighted;
+        selected.push(...aggregate.sample);
+      }
+
+      // Partial provinces still require the spatial index and exact overlap calculation.
       for (const provinceCode of resolvedProvinces) {
         const status=metaMap.get(provinceCode)||'partial';
-        if(status==='outside') continue;
-
-        // A fully contained province needs its raw DA features, but NOT a spatial index.
-        // This is the critical fast path for province-wide and Canada-wide viewports.
-        if(status==='inside'){
-          const geo = await loadProvinceGeo(provinceCode);
-          fullyContainedProvinceCount += 1;
-          for(const feature of geo?.features||[]){
-            if(!feature?.geometry) continue;
-            selected.push({feature,provinceCode,overlapPct:100});
-          }
-          continue;
-        }
-
-        // Partial province: use the existing indexed/exact-intersection path.
+        if(status==='outside' || status==='inside') continue;
         const entry = await loadProvinceIndex(provinceCode);
         indexedFeatures += entry.indexedCount;
         const candidates = entry.index.search({minX:boundaryBbox[0], minY:boundaryBbox[1], maxX:boundaryBbox[2], maxY:boundaryBbox[3]});
@@ -2135,7 +2179,26 @@
           const inter = turf.intersect(turf.featureCollection([feature, boundary]));
           if (!inter) continue;
           const overlapPct = turf.area(inter) / daArea * 100;
-          if (overlapPct >= threshold) selected.push({feature, provinceCode, overlapPct});
+          if (overlapPct >= threshold) {
+            partialSelectedCount += 1;
+            selected.push({feature, provinceCode, overlapPct});
+            const p = feature.properties || {};
+            const total = Number(p.total_population);
+            const senior = Number(p.population_65_plus);
+            const age40to64 = Number(p.population_40_64);
+            const visibleMinority = Number(p.visible_minority_population);
+            const households = Number(p.total_households);
+            const householdIncome = Number(p.average_household_income);
+            const population = Number.isFinite(total) ? total : 0;
+            const population65Plus = Number.isFinite(senior) ? senior : 0;
+            const totalHouseholds = Number.isFinite(households) ? households : 0;
+            totals.total += population;
+            totals.senior += population65Plus;
+            totals.forty += population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
+            totals.visibleMinority += Number.isFinite(visibleMinority) ? visibleMinority : 0;
+            totals.households += totalHouseholds;
+            totals.incomeWeighted += (Number.isFinite(householdIncome) ? householdIncome : 0) * totalHouseholds;
+          }
         } catch {}
       }
 
@@ -2145,11 +2208,13 @@
         boundary,
         provinces: resolvedProvinces,
         indexedFeatures,
-        candidateCount: allCandidates.length + selected.filter(x=>x.overlapPct===100).length,
-        actualIntersectionCount:actualIntersectionCount + selected.filter(x=>x.overlapPct===100).length,
+        candidateCount: allCandidates.length + containedCount,
+        actualIntersectionCount:actualIntersectionCount + containedCount,
         fullyContainedProvinceCount,
         selected,
-        selectedCount: selected.length
+        selectedCount: containedCount + partialSelectedCount,
+        censusTotals: totals,
+        containedGeos
       };
       if (fastCacheKey) {
         const cached = {...result};
@@ -2212,8 +2277,8 @@
     return `<span class="census-metric-value">${esc(fmtInt(value))}</span><span class="census-share">(${pct}%)</span>`;
   }
 
-  function updateCensusPopulationSummary(selected) {
-    const totals = selected.reduce((acc, item) => {
+  function updateCensusPopulationSummary(selected, presetTotals=null) {
+    const totals = presetTotals || selected.reduce((acc, item) => {
       const a = censusAttributes(item.feature);
       acc.total += a.totalPopulation;
       acc.senior += a.population65Plus;
@@ -2245,8 +2310,10 @@
   }
 
   function renderDaSelection(result) {
-    const features = result.selected.map(item => item.feature);
     const canRenderOverlay = state.showDaOverlay && map.getZoom() >= DA_OVERLAY_MIN_ZOOM;
+    const features = canRenderOverlay && result.containedGeos?.length
+      ? result.containedGeos.flatMap(({geo}) => geo?.features || []).filter(Boolean).concat(result.selected.filter(item => item.overlapPct !== 100).map(item => item.feature))
+      : result.selected.map(item => item.feature);
     const renderSignature = `${result.cacheKey || `boundary:${result.selectedCount}:${result.threshold}:${result.provinces.join(',')}`}:overlay:${canRenderOverlay}`;
 
     if (state.daRenderedSignature === renderSignature) {
@@ -2274,11 +2341,11 @@
     }
     state.daRenderedSignature = renderSignature;
 
-    updateCensusPopulationSummary(result.selected);
+    updateCensusPopulationSummary(result.selected, result.censusTotals || null);
     const overlayNote = state.showDaOverlay && !canRenderOverlay
       ? ` DA polygons are hidden below zoom ${DA_OVERLAY_MIN_ZOOM} to keep the Canada-wide view responsive.`
       : '';
-    setDaTestStatus(`${features.length.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.${overlayNote}`);
+    setDaTestStatus(`${result.selectedCount.toLocaleString()} DAs selected at >= ${result.threshold}% overlap. ${result.provinces.join(', ') || 'No province'}. Spatial-index candidates: ${result.candidateCount.toLocaleString()}.${overlayNote}`);
     const list = el('censusDaList');
     if (list) {
       const display = result.selected.slice(0, DA_LIST_DISPLAY_LIMIT);
@@ -3267,7 +3334,9 @@
       const canRenderOverlay = state.showDaOverlay && map.getZoom() >= DA_OVERLAY_MIN_ZOOM;
       clearDaOverlay();
       if (canRenderOverlay) {
-        const features = result.selected.map(item => item.feature);
+        const features = result.containedGeos?.length
+          ? result.containedGeos.flatMap(({geo}) => geo?.features || []).filter(Boolean).concat(result.selected.filter(item => item.overlapPct !== 100).map(item => item.feature))
+          : result.selected.map(item => item.feature);
         state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
         state.daRenderedSignature = `${result.cacheKey || `boundary:${result.selectedCount}:${result.threshold}:${result.provinces.join(',')}`}:overlay:true`;
       } else {
