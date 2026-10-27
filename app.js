@@ -876,12 +876,14 @@
     const cacheBase=`${storeId}|${lat.toFixed(6)}|${lng.toFixed(6)}|${threshold}`;
     const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
     const out={};
-    await loadHeaderCsdLookup();
+    const storeProvince = state.columns.province ? provinceCodeFromText(row[state.columns.province] || '') : null;
     for(const radiusKm of neededRadii){
       const cacheKey=`${cacheBase}|${radiusKm}`;
       if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
       const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
-      const provinces=provincesForBoundaryFromCsd(boundary);
+      let provinces=[];
+      try { if (state.headerLookupReady) provinces=provincesForBoundaryFromCsd(boundary); } catch {}
+      if(!provinces.length && storeProvince) provinces=[{provinceCode:storeProvince,mode:'partial'}];
       const result=await DA_ENGINE.select(boundary,provinces,threshold);
       const totals=result.selected.reduce((acc,item)=>{const a=censusAttributes(item.feature);acc.population+=a.totalPopulation;acc.population65Plus+=a.population65Plus;return acc;},{population:0,population65Plus:0});
       const radiusValues={[`Population ${radiusKm} km`]:totals.population,[`Population 65+ ${radiusKm} km`]:totals.population65Plus};
@@ -1109,7 +1111,12 @@
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
     requestStorePopupLayout();
-    const censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
+    let censusValues={};
+    try {
+      censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
+    } catch(err) {
+      console.warn('[POPUP] Census calculation failed:', err);
+    }
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
     storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
@@ -1957,6 +1964,28 @@
     }));
   }
 
+  function activeDaBoundary() {
+    if (state.circleSelection?.circle) {
+      const geo = state.circleSelection.circle.toGeoJSON();
+      if (!geo || !geo.geometry) throw new Error('Active circle boundary is unavailable.');
+      return geo;
+    }
+    const b = map.getBounds();
+    if (!b?.isValid?.()) throw new Error('Map viewport is unavailable.');
+    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+  }
+
+  function provincesForBoundaryFromCsd(boundary) {
+    const bbox = turf.bbox(boundary);
+    const out = [];
+    for (const [provinceCode, pb] of state.csdProvinceBBoxes || []) {
+      if (!pb || pb.length < 4) continue;
+      if (pb[0] > bbox[2] || pb[2] < bbox[0] || pb[1] > bbox[3] || pb[3] < bbox[1]) continue;
+      out.push({provinceCode, mode:'partial'});
+    }
+    return out;
+  }
+
   // ---------- DA spatial selection engine (prebuilt province assets) ----------
   // Provincial assets contain the complete Census properties + geometry, precomputed
   // DA bboxes, a packed R-tree, and province aggregates. The runtime only decodes
@@ -2082,6 +2111,23 @@
       return [];
     }
 
+    function provinceBboxFromAsset(entry) {
+      const tree = entry.asset?.spatial_index;
+      const scale = entry.asset?.coordinate_scale || 1e7;
+      const rootLevel = Number(tree?.root_level);
+      const rootNodes = Number.isInteger(rootLevel) ? (tree?.levels?.[rootLevel] || []) : [];
+      if (!rootNodes.length) return null;
+      const b = rootNodes[0]?.b;
+      if (!Array.isArray(b) || b.length < 4) return null;
+      return [b[0]/scale, b[1]/scale, b[2]/scale, b[3]/scale];
+    }
+
+    function boundaryContainsProvinceBbox(boundary, bbox) {
+      if (!bbox) return false;
+      try { return turf.booleanContains(boundary, turf.bboxPolygon(bbox)); }
+      catch { return false; }
+    }
+
     function entryForAsset(asset, provinceCode) {
       return {
         asset,
@@ -2164,13 +2210,28 @@
 
       for (const mode of modes) {
         const entry = await loadProvince(mode.provinceCode);
-        if (mode.mode === 'full') {
+        const fullyContained = boundaryContainsProvinceBbox(boundary, provinceBboxFromAsset(entry));
+        if (fullyContained) {
           addAggregate(aggregate, aggregateProvince(entry));
           fullProvinceCodes.push(mode.provinceCode);
           if (shouldRender) {
-            for (let i = 0; i < entry.featureCount; i++) {
-              const feature = featureFromAsset(entry, i);
-              selected.push({feature, provinceCode:mode.provinceCode, overlapPct:100});
+            const candidateIndexes = bboxQuery(entry, boundaryBbox);
+            candidateCount += candidateIndexes.length;
+            for (const index of candidateIndexes) {
+              const feature = featureFromAsset(entry, index);
+              try {
+                if (!turf.booleanIntersects(feature, boundary)) continue;
+                actualIntersectionCount += 1;
+                const daArea = turf.area(feature);
+                if (!(daArea > 0)) continue;
+                const inter = turf.intersect(turf.featureCollection([feature, boundary]));
+                if (!inter) continue;
+                const overlapPct = turf.area(inter) / daArea * 100;
+                if (overlapPct + 1e-9 < threshold) continue;
+                selected.push({feature, provinceCode:mode.provinceCode, overlapPct});
+              } catch (err) {
+                console.warn('[DA] fully-contained render candidate failed', mode.provinceCode, index, err);
+              }
             }
           }
           continue;
@@ -2310,8 +2371,8 @@
       setDaTestStatus('DA selection is dormant on the initial Canada view. Pan, zoom, search, draw a circle, or go to a store to activate it.');
       return;
     }
-    if (typeof turf === 'undefined' || typeof RBush === 'undefined') {
-      setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
+    if (typeof turf === 'undefined') {
+      setDaTestStatus('DA spatial engine could not start because Turf did not load.');
       return;
     }
     const threshold = Number(el('censusThreshold')?.value ?? 15);
@@ -2321,8 +2382,7 @@
     try {
       const boundary = activeDaBoundary();
       // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
-      // Leaflet marker opacity/visibility is intentionally irrelevant. The local CSD file is used only to derive conservative province bounding boxes for full-coverage tests.
-      await loadHeaderCsdLookup();
+      // Leaflet marker opacity/visibility is irrelevant. Province coverage is determined from the prebuilt provincial asset bbox.
       const candidates = candidateProvincesFromFilteredRowsInViewport();
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
