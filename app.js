@@ -1,4 +1,4 @@
-/* Store Explorer - v1.87
+/* Store Explorer - v1.89
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read from prebuilt provincial DA assets:
    filtered stores -> candidate provinces -> local coverage -> prebuilt spatial index -> active boundary intersections -> selected DAs.
@@ -46,6 +46,7 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500,
+    daDiagnostics:{events:[],assets:{},last:null},
     censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -56,6 +57,30 @@
   const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  function updateDaDiagnostics(patch={}) {
+    state.daDiagnostics.last = {...(state.daDiagnostics.last || {}), ...patch, timestamp:new Date().toISOString()};
+    const node = el('daDiagnostics');
+    if (!node) return;
+    const d = state.daDiagnostics.last || {};
+    const lines = [];
+    lines.push(`ENGINE: ${d.engine || 'new provincial asset engine'}`);
+    lines.push(`TRIGGER: ${d.trigger || '—'}`);
+    lines.push(`TARGET: ${d.boundaryType || '—'} | zoom ${d.zoom ?? '—'} | threshold ${d.threshold ?? '—'}%`);
+    lines.push(`FILTERED ROWS: ${d.filteredRows ?? '—'} | VISIBLE FILTERED ROWS: ${d.visibleFilteredRows ?? '—'}`);
+    lines.push(`CANDIDATE PROVINCES: ${d.candidates || '—'}`);
+    lines.push(`PROVINCE MODES: ${d.provinceModes || '—'}`);
+    lines.push(`ASSETS: ${d.assets || '—'}`);
+    lines.push(`ASSET STATUS: ${d.assetStatus || '—'}`);
+    if (d.assetFeatureCounts) lines.push(`ASSET DA COUNTS: ${d.assetFeatureCounts}`);
+    if (d.assetAggregates) lines.push(`ASSET POP TOTALS: ${d.assetAggregates}`);
+    if (d.indexLevels) lines.push(`INDEX: ${d.indexLevels}`);
+    lines.push(`INDEX CANDIDATES: ${d.candidateCount ?? '—'} | EXACT INTERSECTIONS: ${d.actualIntersectionCount ?? '—'}`);
+    lines.push(`SELECTED DAs: ${d.selectedCount ?? '—'} | SELECTED POP: ${d.selectedPopulation ?? '—'}`);
+    lines.push(`FULL: ${d.fullProvinceCodes || '—'} | PARTIAL: ${d.partialProvinceCodes || '—'}`);
+    lines.push(`TIMING: ${d.totalMs != null ? `${d.totalMs.toFixed(1)} ms` : '—'} | province load ${d.loadMs != null ? `${d.loadMs.toFixed(1)} ms` : '—'} | selection ${d.selectionMs != null ? `${d.selectionMs.toFixed(1)} ms` : '—'}`);
+    if (d.error) lines.push(`ERROR: ${d.error}`);
+    node.textContent = lines.join('\\n');
+  }
 
   const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
   const daSelectionPane = map.createPane('daSelectionPane');
@@ -2139,15 +2164,29 @@
     }
 
     async function loadProvince(provinceCode) {
-      if (cache.has(provinceCode)) return cache.get(provinceCode);
-      const url = assetUrl(provinceCode);
-      const asset = await fetchJson(url, {timeout:180000});
-      if (!asset || asset.format !== 'StoreExplorerDAProvinceAsset' || !Array.isArray(asset.geometry_records) || !asset.spatial_index) {
-        throw new Error(`Invalid provincial DA asset for ${provinceCode}.`);
+      const cached = cache.get(provinceCode);
+      if (cached) {
+        updateDaDiagnostics({assets:`${provinceCode}=cached`, assetStatus:`${provinceCode} cached`, assetFeatureCounts:`${provinceCode}:${cached.featureCount.toLocaleString()}`, assetAggregates:`${provinceCode}:${fmtInt(Number(cached.aggregate?.total_population)||0)}`, indexLevels:Array.isArray(cached.asset?.spatial_index?.levels)?cached.asset.spatial_index.levels.length:'—'});
+        return cached;
       }
-      const entry = entryForAsset(asset, provinceCode);
-      cache.set(provinceCode, entry);
-      return entry;
+      const url = assetUrl(provinceCode);
+      const started = performance.now();
+      updateDaDiagnostics({assets:`loading ${provinceCode}`, assetStatus:`FETCH ${url}`});
+      try {
+        const asset = await fetchJson(url, {timeout:180000});
+        if (!asset || asset.format !== 'StoreExplorerDAProvinceAsset' || !Array.isArray(asset.geometry_records) || !asset.spatial_index) {
+          throw new Error(`Invalid provincial DA asset for ${provinceCode}.`);
+        }
+        const entry = entryForAsset(asset, provinceCode);
+        cache.set(provinceCode, entry);
+        const rootLevel = Number(asset.spatial_index?.root_level);
+        const levelCount = Array.isArray(asset.spatial_index?.levels) ? asset.spatial_index.levels.length : 0;
+        updateDaDiagnostics({assets:`${provinceCode}=loaded`, assetStatus:`${provinceCode} loaded in ${(performance.now()-started).toFixed(1)} ms`, assetFeatureCounts:`${provinceCode}:${entry.featureCount.toLocaleString()}`, assetAggregates:`${provinceCode}:${fmtInt(Number(entry.aggregate?.total_population)||0)}`, indexLevels:`${provinceCode}: ${levelCount} levels, root ${Number.isFinite(rootLevel)?rootLevel:'—'}`});
+        return entry;
+      } catch (err) {
+        updateDaDiagnostics({assetStatus:`${provinceCode} FAILED`, error:String(err?.message||err)});
+        throw err;
+      }
     }
 
     function aggregateProvince(entry) {
@@ -2192,6 +2231,7 @@
     }
 
     async function select(boundary, provinceModes, thresholdPct, options={}) {
+      const selectStarted = performance.now();
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
       const boundaryBbox = turf.bbox(boundary);
@@ -2207,9 +2247,14 @@
       let candidateCount = 0, actualIntersectionCount = 0, indexedFeatures = 0;
       const fullProvinceCodes = [], partialProvinceCodes = [];
       const shouldRender = !!options.shouldRender;
+      const assetFeatureCounts = [];
+      const assetAggregates = [];
+      updateDaDiagnostics({engine:'new provincial asset engine', provinceModes:modes.map(x=>`${x.provinceCode}:${x.mode}`).join(', ')||'—', threshold, zoom:map.getZoom(), assets:modes.map(x=>x.provinceCode).join(', ')||'—'});
 
       for (const mode of modes) {
         const entry = await loadProvince(mode.provinceCode);
+        assetFeatureCounts.push(`${mode.provinceCode}:${entry.featureCount.toLocaleString()}`);
+        assetAggregates.push(`${mode.provinceCode}:${fmtInt(Number(entry.aggregate?.total_population)||0)}`);
         const fullyContained = boundaryContainsProvinceBbox(boundary, provinceBboxFromAsset(entry));
         if (fullyContained) {
           addAggregate(aggregate, aggregateProvince(entry));
@@ -2261,6 +2306,14 @@
         }
       }
 
+      updateDaDiagnostics({
+        assetFeatureCounts:assetFeatureCounts.join(' | '),
+        assetAggregates:assetAggregates.join(' | '),
+        candidateCount, actualIntersectionCount, selectedCount:selected.length,
+        selectedPopulation:fmtInt(aggregate.totalPopulation), fullProvinceCodes:fullProvinceCodes.join(', ')||'none',
+        partialProvinceCodes:partialProvinceCodes.join(', ')||'none', selectionMs:performance.now()-selectStarted,
+        indexLevels:assetFeatureCounts.length?'loaded above':'—'
+      });
       return { threshold, boundary, provinces:modes, selected, selectedCount:selected.length, candidateCount, actualIntersectionCount, indexedFeatures,
         aggregate, fullProvinceCodes, partialProvinceCodes, renderableSelected:selected };
     }
@@ -2379,11 +2432,14 @@
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
     setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
+    const refreshStarted = performance.now();
     try {
       const boundary = activeDaBoundary();
       // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
       // Leaflet marker opacity/visibility is irrelevant. Province coverage is determined from the prebuilt provincial asset bbox.
       const candidates = candidateProvincesFromFilteredRowsInViewport();
+      const visibleFilteredRows = state.rows.reduce((n,row)=>n + (filterRowPasses(row) && hasCoords(row) && map.getBounds().contains([toNumber(row[state.columns.lat]), toNumber(row[state.columns.lon])]) ? 1 : 0),0);
+      updateDaDiagnostics({trigger:state.daActivationTrigger || 'unknown', boundaryType, zoom:map.getZoom(), threshold, filteredRows:state.rows.reduce((n,row)=>n+(filterRowPasses(row)?1:0),0), visibleFilteredRows, candidates:candidates.join(', ')||'none', totalMs:performance.now()-refreshStarted});
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
         clearDaOverlay();
@@ -2392,12 +2448,14 @@
         state.daSelectionResult=empty;
         updateCensusPopulationSummary(empty.aggregate);
         const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">No filtered store markers are visible in the current viewport, so no Census DAs are included.</div>';
+        updateDaDiagnostics({totalMs:performance.now()-refreshStarted, candidates:'none', assetStatus:'no assets needed', selectedCount:0, selectedPopulation:'0'});
         setDaTestStatus('No candidate provinces: there are no filtered store markers in the current viewport.');
         return;
       }
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
       const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay});
+      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, selectedCount:result.selectedCount, selectedPopulation:fmtInt(result.aggregate.totalPopulation)});
       if (requestId !== state.censusRequestId) return;
       state.daProvinceCacheKey = boundaryKey;
       state.daProvinceCache = candidates;
@@ -2405,6 +2463,7 @@
     } catch (err) {
       if (requestId !== state.censusRequestId) return;
       clearDaOverlay();
+      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, error:String(err?.stack||err?.message||err)});
       setDaTestStatus(`DA selection failed: ${err.message}`);
     }
   }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.88</title>
+  <title>Store Explorer v1.89</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css?v=1.88.0" />
 </head>
@@ -11,7 +11,7 @@
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.88</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.89</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCircleStatus" class="header-circle-status hidden" aria-label="Selection circle active"><span class="header-circle-icon" aria-hidden="true"></span><span id="headerCircleRadius">— km</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -140,7 +140,7 @@
             <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
             <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
           </div>
-          <div id="censusNote" class="small muted">A qualifying DA contributes its full Census population. Store selection does not affect which DAs qualify.</div>
+          <div id="censusNote" class="small muted">A qualifying DA contributes its full Census population. Store selection does not affect which DAs qualify.</div><details class="da-diagnostics" open><summary>DA diagnostics</summary><pre id="daDiagnostics">ENGINE: new provincial asset engine\nWaiting for Census/DA calculation…</pre></details>
         </div>
 
         <div class="subject-box">
