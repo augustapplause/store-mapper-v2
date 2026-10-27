@@ -1,4 +1,4 @@
-/* Store Explorer - v1.89
+/* Store Explorer - v1.91
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read from prebuilt provincial DA assets:
    filtered stores -> candidate provinces -> local coverage -> prebuilt spatial index -> active boundary intersections -> selected DAs.
@@ -12,7 +12,7 @@
     provinceLayer: 0,
     csdLayer: 9,
     geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
-    daAssetBase: './provincial_assets',
+    daAssetBase: '.',
     daFiles: {
       AB:'AB_da_spatial_asset_v1.json', BC:'BC_da_spatial_asset_v1.json', MB:'MB_da_spatial_asset_v1.json',
       NB:'NB_da_spatial_asset_v1.json', NL:'NL_da_spatial_asset_v1.json', NS:'NS_da_spatial_asset_v1.json',
