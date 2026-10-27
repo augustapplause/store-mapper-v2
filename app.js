@@ -1,4 +1,4 @@
-/* Store Explorer - v1.94
+/* Store Explorer - v1.95
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2078,14 +2078,43 @@
       return {type:'Polygon', coordinates:allRings};
     }
 
-    function featureFromAsset(entry, index) {
-      if (entry.featureCache.has(index)) return entry.featureCache.get(index);
+    function featureFromAsset(entry, index, includeGeometry=true) {
+      const cacheKey = includeGeometry ? index : `p:${index}`;
+      if (entry.featureCache.has(cacheKey)) return entry.featureCache.get(cacheKey);
       const props = {};
       for (const key of entry.asset.property_keys) props[key] = entry.asset.properties[key]?.[index] ?? null;
-      const geometry = decodeGeometry(entry.asset.geometry_records[index], entry.asset.coordinate_scale || 1e7);
+      const geometry = includeGeometry ? decodeGeometry(entry.asset.geometry_records[index], entry.asset.coordinate_scale || 1e7) : null;
       const feature = {type:'Feature', properties:props, geometry};
-      entry.featureCache.set(index, feature);
+      entry.featureCache.set(cacheKey, feature);
       return feature;
+    }
+
+    function bboxForAssetIndex(entry, index) {
+      const record = entry.asset.geometry_records[index];
+      if (!record || !Array.isArray(record.b) || record.b.length !== 4) return null;
+      const scale = entry.asset.coordinate_scale || 1e7;
+      return [Number(record.b[0]) / scale, Number(record.b[1]) / scale, Number(record.b[2]) / scale, Number(record.b[3]) / scale];
+    }
+
+    function bboxFullyContainedInTarget(entry, index, targetBbox, boundaryType, targetCircle) {
+      const daBbox = bboxForAssetIndex(entry, index);
+      if (!daBbox) return false;
+      if (boundaryType !== 'circle') {
+        return daBbox[0] >= targetBbox[0] && daBbox[1] >= targetBbox[1] &&
+          daBbox[2] <= targetBbox[2] && daBbox[3] <= targetBbox[3];
+      }
+      if (!targetCircle) return false;
+      const cx = targetCircle.lng;
+      const cy = targetCircle.lat;
+      const r = targetCircle.radiusMeters;
+      const corners = [
+        [daBbox[0], daBbox[1]], [daBbox[0], daBbox[3]],
+        [daBbox[2], daBbox[1]], [daBbox[2], daBbox[3]]
+      ];
+      for (const [lng, lat] of corners) {
+        if (turf.distance([cx, cy], [lng, lat], {units:'meters'}) > r + 0.01) return false;
+      }
+      return true;
     }
 
     function bboxQuery(entry, bbox) {
@@ -2214,8 +2243,23 @@
         indexedFeatures += entry.featureCount;
         candidateCount += candidates.length;
         for (const index of candidates) {
-          const feature = featureFromAsset(entry, index);
           try {
+            const fullyContained = bboxFullyContainedInTarget(entry, index, boundaryBbox, options.boundaryType || 'viewport', options.targetCircle || null);
+            if (fullyContained) {
+              const feature = featureFromAsset(entry, index, shouldRender);
+              selected.push({feature, provinceCode:mode.provinceCode, overlapPct:100});
+              const a = censusAttributes(feature);
+              aggregate.totalPopulation += a.totalPopulation;
+              aggregate.population65Plus += a.population65Plus;
+              aggregate.population40Plus += a.population40Plus;
+              aggregate.visibleMinorityPopulation += a.visibleMinorityPopulation;
+              aggregate.totalHouseholds += a.totalHouseholds;
+              aggregate.incomeWeighted += a.householdIncome * a.totalHouseholds;
+              aggregate.daCount += 1;
+              continue;
+            }
+
+            const feature = featureFromAsset(entry, index, true);
             if (!turf.booleanIntersects(feature, boundary)) continue;
             actualIntersectionCount += 1;
             const daArea = turf.area(feature);
@@ -2396,7 +2440,12 @@
       }
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
-      const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay});
+      const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
+      const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {
+        shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay,
+        boundaryType,
+        targetCircle
+      });
       if (requestId !== state.censusRequestId) return;
       state.daProvinceCacheKey = boundaryKey;
       state.daProvinceCache = candidates;
