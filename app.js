@@ -1,4 +1,4 @@
-/* Store Explorer - v1.98
+/* Store Explorer - v1.99
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2236,11 +2236,35 @@
 
           if (!shouldRender) continue;
 
+          // Full province Census aggregation does not require DA geometry.
+          // Rendering is separate: use the exact same target-region rules to
+          // determine which DAs are actually inside the active render target.
           const entry = await loadProvince(mode.provinceCode);
-          const allIndices = Array.from({length: entry.featureCount}, (_, index) => index);
-          candidateCount += allIndices.length;
-          for (const index of allIndices) {
-            selected.push({feature:featureFromAsset(entry,index,true), provinceCode:mode.provinceCode, overlapPct:100});
+          const renderCandidates = bboxQuery(entry, boundaryBbox);
+          candidateCount += renderCandidates.length;
+          for (const index of renderCandidates) {
+            try {
+              const fullyContained = bboxFullyContainedInTarget(
+                entry, index, boundaryBbox,
+                options.boundaryType || 'viewport',
+                options.targetCircle || null
+              );
+              if (fullyContained) {
+                selected.push({feature:featureFromAsset(entry,index,true), provinceCode:mode.provinceCode, overlapPct:100});
+                continue;
+              }
+
+              const feature = featureFromAsset(entry, index, true);
+              if (!turf.booleanIntersects(feature, boundary)) continue;
+              actualIntersectionCount += 1;
+              const daArea = turf.area(feature);
+              if (!(daArea > 0)) continue;
+              const inter = turf.intersect(turf.featureCollection([feature, boundary]));
+              if (!inter) continue;
+              const overlapPct = turf.area(inter) / daArea * 100;
+              if (overlapPct < threshold) continue;
+              selected.push({feature, provinceCode:mode.provinceCode, overlapPct});
+            } catch {}
           }
           continue;
         }
