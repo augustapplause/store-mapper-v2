@@ -1,4 +1,4 @@
-/* Store Explorer - v1.95
+/* Store Explorer - v1.96
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -62,7 +62,7 @@
     programmaticMoveUntil: 0,
     userMapInteraction: false,
     daActivationTrigger: null,
-    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500,
+    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false,
     censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -348,6 +348,7 @@
       const lat=c.location.y,lng=c.location.x;
       const provinceCode=provinceCodeFromAddress(query,c)||await queryProvinceAt(lat,lng);
       closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+      state.navigationDaSuppressed=true;
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
       state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='address search';
@@ -362,6 +363,7 @@
         updateSelection();
         showNavigationResult(lat,lng,'address',null,()=>{
           if(token!==state.searchToken)return;
+          state.navigationDaSuppressed=false;
           createOrReplaceCircle(L.latLng(lat,lng),1000,'address navigation');
         });
       };
@@ -877,6 +879,19 @@
     return popupVirtualNames().map(name=>`<option value="${esc(name)}" ${selected===name?'selected':''}>${esc(name)}</option>`).join('');
   }
 
+  async function selectCensusBoundary(boundary, provinceCodes, threshold, options={}){
+    const codes=[...new Set((provinceCodes||[]).filter(Boolean))].sort();
+    if(!codes.length)return null;
+    const boundaryType=options.boundaryType || 'viewport';
+    const hasCircle=boundaryType==='circle';
+    const provinceModes=options.provinceModes || classifyCandidateProvinces(codes, hasCircle);
+    return DA_ENGINE.select(boundary, provinceModes, threshold, {
+      shouldRender: !!options.shouldRender,
+      boundaryType,
+      targetCircle: options.targetCircle || null
+    });
+  }
+
   async function calculatePopupCensusForStore(row){
     const required=new Set();
     for(const field of popupItems()){
@@ -894,14 +909,14 @@
     const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
     const out={};
     const provinceCode=provinceCodeFromText(row[state.columns.province] || '');
-    if(!provinceCode) return {};
+    if(!provinceCode)return {};
     for(const radiusKm of neededRadii){
       const cacheKey=`${cacheBase}|${radiusKm}`;
       if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
       const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
-      const result=await DA_ENGINE.select(boundary,[{provinceCode,mode:'partial'}],threshold);
-      const totals=result.selected.reduce((acc,item)=>{const a=censusAttributes(item.feature);acc.population+=a.totalPopulation;acc.population65Plus+=a.population65Plus;return acc;},{population:0,population65Plus:0});
-      const radiusValues={[`Population ${radiusKm} km`]:totals.population,[`Population 65+ ${radiusKm} km`]:totals.population65Plus};
+      const result=await selectCensusBoundary(boundary,[provinceCode],threshold,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
+      const aggregate=result?.aggregate || {totalPopulation:0,population65Plus:0};
+      const radiusValues={[`Population ${radiusKm} km`]:aggregate.totalPopulation,[`Population 65+ ${radiusKm} km`]:aggregate.population65Plus};
       state.popupCensusCache.set(cacheKey,radiusValues);
       Object.assign(out,radiusValues);
     }
@@ -2397,6 +2412,7 @@
   }
 
   function scheduleDaRefresh(delay=null, reason='map change') {
+    if(state.navigationDaSuppressed) return;
     if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
     if(reason)state.daActivationTrigger=reason;
     const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
@@ -2404,6 +2420,7 @@
   }
 
   async function refreshDaSelection() {
+    if(state.navigationDaSuppressed) return;
     const hasCircle = !!state.circleSelection?.circle;
     const boundaryType = hasCircle ? 'circle' : 'viewport';
     if (state.initialNationalView) {
@@ -2424,8 +2441,7 @@
     try {
       const boundary = activeDaBoundary();
       // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
-      // Leaflet marker opacity/visibility is intentionally irrelevant. The local CSD file is used only to derive conservative province bounding boxes for full-coverage tests.
-      await loadHeaderCsdLookup();
+      // Leaflet marker opacity/visibility is intentionally irrelevant.
       const candidates = candidateProvincesFromFilteredRowsInViewport();
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
@@ -2441,8 +2457,9 @@
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
       const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
-      const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {
-        shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay,
+      const result = await selectCensusBoundary(boundary, candidates, threshold, {
+        provinceModes,
+        shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay && !state.navigationDaSuppressed,
         boundaryType,
         targetCircle
       });
@@ -2479,6 +2496,7 @@
     // Header resolves from the current map position via the local CSD lookup.
     const km=2.5;
     closeStorePopup(); clearCircle(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
+    state.navigationDaSuppressed=true;
     state.storeJumpTarget=target;
     state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
     state.initialNationalView=false; state.mapReadyForViewport=true; state.daActivationTrigger='store jump';
@@ -2490,7 +2508,11 @@
     const finish=()=>{
       if(completed || token!==state.searchToken)return;
       completed=true;
-      showNavigationResult(lat,lng,'store',target);
+      showNavigationResult(lat,lng,'store',target,()=>{
+        if(token!==state.searchToken)return;
+        state.navigationDaSuppressed=false;
+        scheduleDaRefresh(null,'store navigation complete');
+      });
     };
     map.once('moveend',finish);
     setTimeout(finish,900);
@@ -3321,6 +3343,7 @@
     state.userMapInteraction=false;
     updateHeaderGeography();
     updateSelection();
+    if(state.navigationDaSuppressed) return;
     if(state.moveTimer)clearTimeout(state.moveTimer);
     state.moveTimer=setTimeout(async()=>{
       updateHeaderGeography();
