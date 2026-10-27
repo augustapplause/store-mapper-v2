@@ -57,6 +57,7 @@
   const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  function setDaTestStatus(message) { const note = el('censusNote'); if (note) note.textContent = String(message ?? ''); }
   function updateDaDiagnostics(patch={}) {
     state.daDiagnostics.last = {...(state.daDiagnostics.last || {}), ...patch, timestamp:new Date().toISOString()};
     const node = el('daDiagnostics');
@@ -429,13 +430,10 @@
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
   function afterWorkbookLoaded(file,parsed){
+    const hadActiveTarget = !!state.circleSelection?.circle || (!state.initialNationalView && state.mapReadyForViewport);
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);
-    const c=state.columns;
     const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
-    if(!tickerReady){
-      state.tickerMetrics=tickerDefaultMetrics();
-      saveTickerConfig();
-    }
+    if(!tickerReady){state.tickerMetrics=tickerDefaultMetrics();saveTickerConfig();}
     const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
     const exactDefaultGroupNames=['location type'];
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
@@ -443,7 +441,15 @@
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
     state.popupCensusCache.clear();state.popupRenderToken++;state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
-    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
+    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();
+    if(hadActiveTarget){
+      state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='workbook loaded';
+      updateSelection();
+      scheduleDaRefresh(0,'workbook loaded');
+    }else{
+      state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
+      fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
+    }
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
   function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
@@ -1139,11 +1145,14 @@
     let censusValues={};
     try {
       censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
     } catch(err) {
       console.warn('[POPUP] Census calculation failed:', err);
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      storePopupCard.innerHTML=await popupCardContent(marker.__row,{}).catch(()=>'<div class="store-popup-error">Census calculation unavailable.</div>');
     }
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-    storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
     closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
     requestStorePopupLayout();
@@ -2411,12 +2420,18 @@
     if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
     if(reason)state.daActivationTrigger=reason;
     const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
-    state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshDaSelection();},wait);
+    updateDaDiagnostics({trigger:reason||'map change', boundaryType:state.circleSelection?.circle?'circle':'viewport', zoom:map.getZoom(), schedule:`scheduled ${wait} ms`});
+    state.daRefreshTimer=setTimeout(()=>{
+      state.daRefreshTimer=null;
+      updateDaDiagnostics({trigger:reason||'map change', boundaryType:state.circleSelection?.circle?'circle':'viewport', zoom:map.getZoom(), schedule:'timer fired'});
+      refreshDaSelection();
+    },wait);
   }
 
   async function refreshDaSelection() {
     const hasCircle = !!state.circleSelection?.circle;
     const boundaryType = hasCircle ? 'circle' : 'viewport';
+    updateDaDiagnostics({trigger:state.daActivationTrigger||'unknown', boundaryType, zoom:map.getZoom(), schedule:'refresh entered'});
     if (state.initialNationalView) {
       clearDaOverlay();
       resetCensusPopulationSummary();
