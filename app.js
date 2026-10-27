@@ -1,7 +1,7 @@
-/* Store Explorer - v1.91
+/* Store Explorer - v1.93
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   DA spatial selection remains independent of store/KPI selection; Census attributes are read from prebuilt provincial DA assets:
-   filtered stores -> candidate provinces -> local coverage -> prebuilt spatial index -> active boundary intersections -> selected DAs.
+   DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
+   province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
 */
 (() => {
   'use strict';
@@ -46,7 +46,6 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500,
-    daDiagnostics:{events:[],assets:{},last:null},
     censusRequestId:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -57,33 +56,6 @@
   const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  function setDaTestStatus(message) { const note = el('censusNote'); if (note) note.textContent = String(message ?? ''); }
-  function updateDaDiagnostics(patch={}) {
-    state.daDiagnostics.last = {...(state.daDiagnostics.last || {}), ...patch, timestamp:new Date().toISOString()};
-    const node = el('daDiagnostics');
-    if (!node) return;
-    const d = state.daDiagnostics.last || {};
-    const lines = [];
-    lines.push(`ENGINE: ${d.engine || 'new provincial asset engine'}`);
-    lines.push(`TRIGGER: ${d.trigger || '—'}`);
-    lines.push(`TARGET: ${d.boundaryType || '—'} | zoom ${d.zoom ?? '—'} | threshold ${d.threshold ?? '—'}%`);
-    lines.push(`FILTERED ROWS: ${d.filteredRows ?? '—'} | VISIBLE FILTERED ROWS: ${d.visibleFilteredRows ?? '—'}`);
-    lines.push(`CANDIDATE PROVINCES: ${d.candidates || '—'}`);
-    lines.push(`PROVINCE MODES: ${d.provinceModes || '—'}`);
-    lines.push(`ASSETS: ${d.assets || '—'}`);
-    lines.push(`ASSET STATUS: ${d.assetStatus || '—'}`);
-    if (d.assetFeatureCounts) lines.push(`ASSET DA COUNTS: ${d.assetFeatureCounts}`);
-    if (d.assetAggregates) lines.push(`ASSET POP TOTALS: ${d.assetAggregates}`);
-    if (d.indexLevels) lines.push(`INDEX: ${d.indexLevels}`);
-    lines.push(`INDEX CANDIDATES: ${d.candidateCount ?? '—'} | EXACT INTERSECTIONS: ${d.actualIntersectionCount ?? '—'}`);
-    lines.push(`SELECTED DAs: ${d.selectedCount ?? '—'} | SELECTED POP: ${d.selectedPopulation ?? '—'}`);
-    lines.push(`FULL: ${d.fullProvinceCodes || '—'} | PARTIAL: ${d.partialProvinceCodes || '—'}`);
-    lines.push(`LIFECYCLE: req ${d.requestId ?? '—'} | current ${d.currentRequestId ?? '—'} | ${d.commit || '—'}`);
-    lines.push(`RENDER: allowed ${d.renderAllowed == null ? '—' : d.renderAllowed ? 'YES' : 'NO'} | selected in result ${d.resultSelectedCount ?? '—'} | features sent ${d.renderFeatureCount ?? '—'} | layer ${d.renderLayerStatus || '—'}`);
-    lines.push(`TIMING: ${d.totalMs != null ? `${d.totalMs.toFixed(1)} ms` : '—'} | province load ${d.loadMs != null ? `${d.loadMs.toFixed(1)} ms` : '—'} | selection ${d.selectionMs != null ? `${d.selectionMs.toFixed(1)} ms` : '—'}`);
-    if (d.error) lines.push(`ERROR: ${d.error}`);
-    node.textContent = lines.join('\\n');
-  }
 
   const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
   const daSelectionPane = map.createPane('daSelectionPane');
@@ -432,10 +404,13 @@
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
   function afterWorkbookLoaded(file,parsed){
-    const hadActiveTarget = !!state.circleSelection?.circle || (!state.initialNationalView && state.mapReadyForViewport);
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);
+    const c=state.columns;
     const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
-    if(!tickerReady){state.tickerMetrics=tickerDefaultMetrics();saveTickerConfig();}
+    if(!tickerReady){
+      state.tickerMetrics=tickerDefaultMetrics();
+      saveTickerConfig();
+    }
     const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
     const exactDefaultGroupNames=['location type'];
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
@@ -443,15 +418,7 @@
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
     state.popupCensusCache.clear();state.popupRenderToken++;state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
-    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();
-    if(hadActiveTarget){
-      state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='workbook loaded';
-      updateSelection();
-      scheduleDaRefresh(0,'workbook loaded');
-    }else{
-      state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
-      fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
-    }
+    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
   function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
@@ -909,14 +876,12 @@
     const cacheBase=`${storeId}|${lat.toFixed(6)}|${lng.toFixed(6)}|${threshold}`;
     const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
     const out={};
-    const storeProvince = state.columns.province ? provinceCodeFromText(row[state.columns.province] || '') : null;
+    await loadHeaderCsdLookup();
     for(const radiusKm of neededRadii){
       const cacheKey=`${cacheBase}|${radiusKm}`;
       if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
       const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
-      let provinces=[];
-      try { if (state.headerLookupReady) provinces=provincesForBoundaryFromCsd(boundary); } catch {}
-      if(!provinces.length && storeProvince) provinces=[{provinceCode:storeProvince,mode:'partial'}];
+      const provinces=provincesForBoundaryFromCsd(boundary);
       const result=await DA_ENGINE.select(boundary,provinces,threshold);
       const totals=result.selected.reduce((acc,item)=>{const a=censusAttributes(item.feature);acc.population+=a.totalPopulation;acc.population65Plus+=a.population65Plus;return acc;},{population:0,population65Plus:0});
       const radiusValues={[`Population ${radiusKm} km`]:totals.population,[`Population 65+ ${radiusKm} km`]:totals.population65Plus};
@@ -1144,17 +1109,9 @@
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
     requestStorePopupLayout();
-    let censusValues={};
-    try {
-      censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
-      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
-    } catch(err) {
-      console.warn('[POPUP] Census calculation failed:', err);
-      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      storePopupCard.innerHTML=await popupCardContent(marker.__row,{}).catch(()=>'<div class="store-popup-error">Census calculation unavailable.</div>');
-    }
+    const censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+    storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
     closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
     requestStorePopupLayout();
@@ -2000,32 +1957,11 @@
     }));
   }
 
-  function activeDaBoundary() {
-    if (state.circleSelection?.circle) {
-      const geo = state.circleSelection.circle.toGeoJSON();
-      if (!geo || !geo.geometry) throw new Error('Active circle boundary is unavailable.');
-      return geo;
-    }
-    const b = map.getBounds();
-    if (!b?.isValid?.()) throw new Error('Map viewport is unavailable.');
-    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
-  }
-
-  function provincesForBoundaryFromCsd(boundary) {
-    const bbox = turf.bbox(boundary);
-    const out = [];
-    for (const [provinceCode, pb] of state.csdProvinceBBoxes || []) {
-      if (!pb || pb.length < 4) continue;
-      if (pb[0] > bbox[2] || pb[2] < bbox[0] || pb[1] > bbox[3] || pb[3] < bbox[1]) continue;
-      out.push({provinceCode, mode:'partial'});
-    }
-    return out;
-  }
-
-  // ---------- DA spatial selection engine (prebuilt province assets) ----------
-  // Provincial assets contain the complete Census properties + geometry, precomputed
-  // DA bboxes, a packed R-tree, and province aggregates. The runtime only decodes
-  // candidate geometries returned by the packed index.
+  // ---------- DA spatial selection engine (isolated) ----------
+  // This component intentionally knows nothing about stores, KPIs, workbook data,
+  // or Census population attributes. Its only job is:
+  //   DA GeoJSON -> boundary selection -> threshold -> selected DA features.
+  // Province selection is owned by the outer app; rendering consumes the same selected set.
   const DA_ENGINE = (() => {
     const cache = new Map();
     const defaultThresholdPct = 50;
@@ -2075,9 +2011,8 @@
       const allRings = [];
       for (let ringIndex = 0; ringIndex < record.r.length; ringIndex++) {
         const count = Number(record.r[ringIndex]);
+        if (!(count > 0)) throw new Error('Provincial DA ring has no vertices.');
         const ring = [];
-        // Ring starts are delta-encoded from the previous ring start; vertices
-        // within a ring are delta-encoded from the preceding vertex.
         if (ringIndex === 0) {
           x = nums[pos++];
           y = nums[pos++];
@@ -2106,7 +2041,6 @@
         if (ringOffset !== allRings.length) throw new Error('Provincial DA multipolygon ring structure mismatch.');
         return {type:'MultiPolygon', coordinates:polygons};
       }
-      if (allRings.length === 1 && record.p.length === 1) return {type:'Polygon', coordinates:allRings};
       return {type:'Polygon', coordinates:allRings};
     }
 
@@ -2124,7 +2058,7 @@
       const tree = entry.asset.spatial_index;
       if (!tree?.levels?.length) return [];
       const scale = entry.asset.coordinate_scale || 1e7;
-      const q = [bbox[0]*scale, bbox[1]*scale, bbox[2]*scale, bbox[3]*scale];
+      const q = [bbox[0] * scale, bbox[1] * scale, bbox[2] * scale, bbox[3] * scale];
       const intersects = node => node.b[0] <= q[2] && node.b[2] >= q[0] && node.b[1] <= q[3] && node.b[3] >= q[1];
       let nodes = tree.levels[tree.root_level] || [];
       for (let level = tree.root_level; level >= 0; level--) {
@@ -2147,157 +2081,89 @@
       return [];
     }
 
-    function provinceBboxFromAsset(entry) {
-      const tree = entry.asset?.spatial_index;
-      const scale = entry.asset?.coordinate_scale || 1e7;
-      const rootLevel = Number(tree?.root_level);
-      const rootNodes = Number.isInteger(rootLevel) ? (tree?.levels?.[rootLevel] || []) : [];
-      if (!rootNodes.length) return null;
-      const b = rootNodes[0]?.b;
-      if (!Array.isArray(b) || b.length < 4) return null;
-      return [b[0]/scale, b[1]/scale, b[2]/scale, b[3]/scale];
-    }
-
-    function boundaryContainsProvinceBbox(boundary, bbox) {
-      if (!bbox) return false;
-      try { return turf.booleanContains(boundary, turf.bboxPolygon(bbox)); }
-      catch { return false; }
-    }
-
     function entryForAsset(asset, provinceCode) {
-      return {
-        asset,
-        provinceCode,
-        featureCache:new Map(),
-        aggregate:asset.province_aggregate || null,
-        featureCount:asset.feature_count || 0
-      };
+      return { asset, provinceCode, featureCache:new Map(), aggregate:asset.province_aggregate || null, featureCount:asset.feature_count || 0 };
     }
 
     async function loadProvince(provinceCode) {
-      const cached = cache.get(provinceCode);
-      if (cached) {
-        updateDaDiagnostics({assets:`${provinceCode}=cached`, assetStatus:`${provinceCode} cached`, assetFeatureCounts:`${provinceCode}:${cached.featureCount.toLocaleString()}`, assetAggregates:`${provinceCode}:${fmtInt(Number(cached.aggregate?.total_population)||0)}`, indexLevels:Array.isArray(cached.asset?.spatial_index?.levels)?cached.asset.spatial_index.levels.length:'—'});
-        return cached;
+      if (!provinceCode) throw new Error('Province code is required.');
+      if (cache.has(provinceCode)) return cache.get(provinceCode);
+      const file = CONFIG.daFiles[provinceCode];
+      if (!file) throw new Error(`No DA asset configured for ${provinceCode}.`);
+      const asset = await fetchJson(assetUrl(provinceCode), {timeout:180000});
+      if (!asset || asset.format !== 'StoreExplorerDAProvinceAsset' || !Array.isArray(asset.geometry_records) || !asset.spatial_index) {
+        throw new Error(`Invalid provincial DA asset for ${provinceCode}.`);
       }
-      const url = assetUrl(provinceCode);
-      const started = performance.now();
-      updateDaDiagnostics({assets:`loading ${provinceCode}`, assetStatus:`FETCH ${url}`});
-      try {
-        const asset = await fetchJson(url, {timeout:180000});
-        if (!asset || asset.format !== 'StoreExplorerDAProvinceAsset' || !Array.isArray(asset.geometry_records) || !asset.spatial_index) {
-          throw new Error(`Invalid provincial DA asset for ${provinceCode}.`);
-        }
-        const entry = entryForAsset(asset, provinceCode);
-        cache.set(provinceCode, entry);
-        const rootLevel = Number(asset.spatial_index?.root_level);
-        const levelCount = Array.isArray(asset.spatial_index?.levels) ? asset.spatial_index.levels.length : 0;
-        updateDaDiagnostics({assets:`${provinceCode}=loaded`, assetStatus:`${provinceCode} loaded in ${(performance.now()-started).toFixed(1)} ms`, assetFeatureCounts:`${provinceCode}:${entry.featureCount.toLocaleString()}`, assetAggregates:`${provinceCode}:${fmtInt(Number(entry.aggregate?.total_population)||0)}`, indexLevels:`${provinceCode}: ${levelCount} levels, root ${Number.isFinite(rootLevel)?rootLevel:'—'}`});
-        return entry;
-      } catch (err) {
-        updateDaDiagnostics({assetStatus:`${provinceCode} FAILED`, error:String(err?.message||err)});
-        throw err;
-      }
+      const entry = entryForAsset(asset, provinceCode);
+      cache.set(provinceCode, entry);
+      return entry;
     }
 
     function aggregateProvince(entry) {
-      if (entry.aggregate) {
-        const a = entry.aggregate;
-        const households = Number(a.total_households) || 0;
-        const avgIncome = Number(a.average_household_income) || 0;
-        return {
-          totalPopulation:Number(a.total_population)||0,
-          population65Plus:Number(a.population_65_plus)||0,
-          population40Plus:(Number(a.population_65_plus)||0)+(Number(a.population_40_64)||0),
-          visibleMinorityPopulation:Number(a.visible_minority_population)||0,
-          totalHouseholds:households,
-          incomeWeighted:avgIncome * households,
-          daCount:entry.featureCount
-        };
-      }
-      return { totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0 };
-    }
-
-    function censusAggregateFromFeature(feature) {
-      const a = censusAttributes(feature);
+      const a = entry.aggregate || {};
+      const households = Number(a.total_households) || 0;
+      const avgIncome = Number(a.average_household_income) || 0;
       return {
-        totalPopulation:a.totalPopulation,
-        population65Plus:a.population65Plus,
-        population40Plus:a.population40Plus,
-        visibleMinorityPopulation:a.visibleMinorityPopulation,
-        totalHouseholds:a.totalHouseholds,
-        incomeWeighted:a.householdIncome * a.totalHouseholds,
-        daCount:1
+        totalPopulation:Number(a.total_population)||0,
+        population65Plus:Number(a.population_65_plus)||0,
+        population40Plus:(Number(a.population_65_plus)||0)+(Number(a.population_40_64)||0),
+        visibleMinorityPopulation:Number(a.visible_minority_population)||0,
+        totalHouseholds:households,
+        incomeWeighted:avgIncome * households,
+        daCount:entry.featureCount
       };
     }
 
-    function addAggregate(target, a) {
-      target.totalPopulation += a.totalPopulation;
-      target.population65Plus += a.population65Plus;
-      target.population40Plus += a.population40Plus;
-      target.visibleMinorityPopulation += a.visibleMinorityPopulation;
-      target.totalHouseholds += a.totalHouseholds;
-      target.incomeWeighted += a.incomeWeighted;
-      target.daCount += a.daCount;
+    function buildRenderSet(entry, boundary) {
+      const indices = bboxQuery(entry, turf.bbox(boundary));
+      return indices.map(index => ({feature:featureFromAsset(entry, index), provinceCode:entry.provinceCode, overlapPct:100}));
     }
 
     async function select(boundary, provinceModes, thresholdPct, options={}) {
-      const selectStarted = performance.now();
       if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
       const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
-      const boundaryBbox = turf.bbox(boundary);
       const modes = [...new Map((provinceModes || []).map(x => [x.provinceCode, x])).values()].filter(x => CONFIG.daFiles[x.provinceCode]);
       if (!modes.length) {
-        return { threshold, boundary, provinces:[], selected:[], selectedCount:0, candidateCount:0, actualIntersectionCount:0, indexedFeatures:0,
+        return {threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,
           aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},
-          fullProvinceCodes:[], partialProvinceCodes:[], renderableSelected:[] };
+          fullProvinceCodes:[],partialProvinceCodes:[],renderableSelected:[]};
       }
 
       const selected = [];
-      const aggregate = { totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0 };
-      let candidateCount = 0, actualIntersectionCount = 0, indexedFeatures = 0;
-      const fullProvinceCodes = [], partialProvinceCodes = [];
+      const aggregate = {totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0};
+      let candidateCount = 0;
+      let actualIntersectionCount = 0;
+      let indexedFeatures = 0;
+      const fullProvinceCodes = [];
+      const partialProvinceCodes = [];
       const shouldRender = !!options.shouldRender;
-      const assetFeatureCounts = [];
-      const assetAggregates = [];
-      updateDaDiagnostics({engine:'new provincial asset engine', provinceModes:modes.map(x=>`${x.provinceCode}:${x.mode}`).join(', ')||'—', threshold, zoom:map.getZoom(), assets:modes.map(x=>x.provinceCode).join(', ')||'—'});
+      const boundaryBbox = turf.bbox(boundary);
 
       for (const mode of modes) {
         const entry = await loadProvince(mode.provinceCode);
-        assetFeatureCounts.push(`${mode.provinceCode}:${entry.featureCount.toLocaleString()}`);
-        assetAggregates.push(`${mode.provinceCode}:${fmtInt(Number(entry.aggregate?.total_population)||0)}`);
-        const fullyContained = boundaryContainsProvinceBbox(boundary, provinceBboxFromAsset(entry));
-        if (fullyContained) {
-          addAggregate(aggregate, aggregateProvince(entry));
+        if (mode.mode === 'full') {
+          const a = aggregateProvince(entry);
+          aggregate.totalPopulation += a.totalPopulation;
+          aggregate.population65Plus += a.population65Plus;
+          aggregate.population40Plus += a.population40Plus;
+          aggregate.visibleMinorityPopulation += a.visibleMinorityPopulation;
+          aggregate.totalHouseholds += a.totalHouseholds;
+          aggregate.incomeWeighted += a.incomeWeighted;
+          aggregate.daCount += a.daCount;
           fullProvinceCodes.push(mode.provinceCode);
           if (shouldRender) {
-            const candidateIndexes = bboxQuery(entry, boundaryBbox);
-            candidateCount += candidateIndexes.length;
-            for (const index of candidateIndexes) {
-              const feature = featureFromAsset(entry, index);
-              try {
-                if (!turf.booleanIntersects(feature, boundary)) continue;
-                actualIntersectionCount += 1;
-                const daArea = turf.area(feature);
-                if (!(daArea > 0)) continue;
-                const inter = turf.intersect(turf.featureCollection([feature, boundary]));
-                if (!inter) continue;
-                const overlapPct = turf.area(inter) / daArea * 100;
-                if (overlapPct + 1e-9 < threshold) continue;
-                selected.push({feature, provinceCode:mode.provinceCode, overlapPct});
-              } catch (err) {
-                console.warn('[DA] fully-contained render candidate failed', mode.provinceCode, index, err);
-              }
-            }
+            const renderCandidates = bboxQuery(entry, boundaryBbox);
+            candidateCount += renderCandidates.length;
+            for (const index of renderCandidates) selected.push({feature:featureFromAsset(entry,index), provinceCode:mode.provinceCode, overlapPct:100});
           }
           continue;
         }
 
         partialProvinceCodes.push(mode.provinceCode);
+        const candidates = bboxQuery(entry, boundaryBbox);
         indexedFeatures += entry.featureCount;
-        const candidateIndexes = bboxQuery(entry, boundaryBbox);
-        candidateCount += candidateIndexes.length;
-        for (const index of candidateIndexes) {
+        candidateCount += candidates.length;
+        for (const index of candidates) {
           const feature = featureFromAsset(entry, index);
           try {
             if (!turf.booleanIntersects(feature, boundary)) continue;
@@ -2307,30 +2173,48 @@
             const inter = turf.intersect(turf.featureCollection([feature, boundary]));
             if (!inter) continue;
             const overlapPct = turf.area(inter) / daArea * 100;
-            if (overlapPct + 1e-9 < threshold) continue;
-            const a = censusAggregateFromFeature(feature);
-            addAggregate(aggregate, a);
+            if (overlapPct < threshold) continue;
             selected.push({feature, provinceCode:mode.provinceCode, overlapPct});
-          } catch (err) {
-            console.warn('[DA] candidate geometry failed', mode.provinceCode, index, err);
-          }
+            const a = censusAttributes(feature);
+            aggregate.totalPopulation += a.totalPopulation;
+            aggregate.population65Plus += a.population65Plus;
+            aggregate.population40Plus += a.population40Plus;
+            aggregate.visibleMinorityPopulation += a.visibleMinorityPopulation;
+            aggregate.totalHouseholds += a.totalHouseholds;
+            aggregate.incomeWeighted += a.householdIncome * a.totalHouseholds;
+            aggregate.daCount += 1;
+          } catch {}
         }
       }
 
-      updateDaDiagnostics({
-        assetFeatureCounts:assetFeatureCounts.join(' | '),
-        assetAggregates:assetAggregates.join(' | '),
-        candidateCount, actualIntersectionCount, selectedCount:selected.length,
-        selectedPopulation:fmtInt(aggregate.totalPopulation), fullProvinceCodes:fullProvinceCodes.join(', ')||'none',
-        partialProvinceCodes:partialProvinceCodes.join(', ')||'none', selectionMs:performance.now()-selectStarted,
-        indexLevels:assetFeatureCounts.length?'loaded above':'—'
-      });
-      return { threshold, boundary, provinces:modes, selected, selectedCount:selected.length, candidateCount, actualIntersectionCount, indexedFeatures,
-        aggregate, fullProvinceCodes, partialProvinceCodes, renderableSelected:selected };
+      selected.sort((a,b) => getId(a.feature).localeCompare(getId(b.feature), undefined, {numeric:true}));
+      return {threshold,boundary,provinces:modes.map(x=>x.provinceCode),indexedFeatures,candidateCount,actualIntersectionCount,selected,selectedCount:aggregate.daCount,aggregate,fullProvinceCodes,partialProvinceCodes,renderableSelected:selected};
     }
 
-    return { select, getId, clear(){cache.clear();} };
+    function clearCache() { cache.clear(); }
+    return {select,clearCache,getId};
   })();
+
+  function viewportBoundary() {
+    const b = map.getBounds();
+    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+  }
+
+  function circleBoundary() {
+    const circle = state.circleSelection?.circle;
+    if (!circle) return null;
+    return turf.circle([circle.getLngLat ? circle.getLngLat().lng : circle.getLatLng().lng, circle.getLatLng().lat], circle.getRadius() / 1000, {units:'kilometers', steps:96});
+  }
+
+  function activeDaBoundary() {
+    return circleBoundary() || viewportBoundary();
+  }
+
+  function setDaTestStatus(text) {
+    const note = el('censusNote');
+    if (note) note.textContent = text;
+  }
+
 
   function censusAttributes(feature) {
     const p = feature?.properties || {};
@@ -2385,26 +2269,11 @@
     const zoom = map.getZoom();
     const renderAllowed = zoom >= CONFIG.daMinRenderZoom && state.showDaOverlay;
     const features = renderAllowed ? result.selected : [];
-    let renderLayerStatus = renderAllowed ? (features.length ? 'creating' : 'empty') : 'suppressed-by-zoom-or-toggle';
     if (renderAllowed && features.length) {
-      try {
-        state.daLayer = L.geoJSON(turf.featureCollection(features.map(item => item.feature)), {
-          pane: 'daSelectionPane', interactive: false, style: daStyle
-        }).addTo(map);
-        renderLayerStatus = `created:${features.length}`;
-      } catch (err) {
-        renderLayerStatus = `FAILED:${err?.message || err}`;
-        console.error('[DA] render failed', err);
-      }
+      state.daLayer = L.geoJSON(turf.featureCollection(features.map(item => item.feature)), {
+        pane: 'daSelectionPane', interactive: false, style: daStyle
+      }).addTo(map);
     }
-    updateDaDiagnostics({
-      commit:'RESULT COMMITTED',
-      currentRequestId:state.censusRequestId,
-      resultSelectedCount:result.selectedCount,
-      renderAllowed,
-      renderFeatureCount:features.length,
-      renderLayerStatus
-    });
 
     const detailLimit = 500;
     const detail = result.selected.slice(0, detailLimit);
@@ -2418,11 +2287,11 @@
     const list = el('censusDaList');
     if (list) {
       if (!detail.length) {
-        list.innerHTML = result.selectedCount ? '<div class=\"empty-message\">DA detail is suppressed at this zoom level; totals above include all selected DAs.</div>' : '<div class=\"empty-message\">No qualifying DAs in the active boundary.</div>';
+        list.innerHTML = result.selectedCount ? '<div class="empty-message">DA detail is suppressed at this zoom level; totals above include all selected DAs.</div>' : '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
       } else {
         list.innerHTML = detail.map(item => {
           const a = censusAttributes(item.feature);
-          return `<div class=\"census-da-row\"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
+          return `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
         }).join('');
       }
     }
@@ -2437,18 +2306,12 @@
     if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
     if(reason)state.daActivationTrigger=reason;
     const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
-    updateDaDiagnostics({trigger:reason||'map change', boundaryType:state.circleSelection?.circle?'circle':'viewport', zoom:map.getZoom(), schedule:`scheduled ${wait} ms`});
-    state.daRefreshTimer=setTimeout(()=>{
-      state.daRefreshTimer=null;
-      updateDaDiagnostics({trigger:reason||'map change', boundaryType:state.circleSelection?.circle?'circle':'viewport', zoom:map.getZoom(), schedule:'timer fired'});
-      refreshDaSelection();
-    },wait);
+    state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshDaSelection();},wait);
   }
 
   async function refreshDaSelection() {
     const hasCircle = !!state.circleSelection?.circle;
     const boundaryType = hasCircle ? 'circle' : 'viewport';
-    updateDaDiagnostics({trigger:state.daActivationTrigger||'unknown', boundaryType, zoom:map.getZoom(), schedule:'refresh entered'});
     if (state.initialNationalView) {
       clearDaOverlay();
       resetCensusPopulationSummary();
@@ -2456,23 +2319,20 @@
       setDaTestStatus('DA selection is dormant on the initial Canada view. Pan, zoom, search, draw a circle, or go to a store to activate it.');
       return;
     }
-    if (typeof turf === 'undefined') {
-      setDaTestStatus('DA spatial engine could not start because Turf did not load.');
+    if (typeof turf === 'undefined' || typeof RBush === 'undefined') {
+      setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
     const threshold = Number(el('censusThreshold')?.value ?? 15);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
-    updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'REQUEST STARTED',resultSelectedCount:'—',renderFeatureCount:'—',renderLayerStatus:'—'});
     setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
-    const refreshStarted = performance.now();
     try {
       const boundary = activeDaBoundary();
       // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
-      // Leaflet marker opacity/visibility is irrelevant. Province coverage is determined from the prebuilt provincial asset bbox.
+      // Leaflet marker opacity/visibility is intentionally irrelevant. The local CSD file is used only to derive conservative province bounding boxes for full-coverage tests.
+      await loadHeaderCsdLookup();
       const candidates = candidateProvincesFromFilteredRowsInViewport();
-      const visibleFilteredRows = state.rows.reduce((n,row)=>n + (filterRowPasses(row) && hasCoords(row) && map.getBounds().contains([toNumber(row[state.columns.lat]), toNumber(row[state.columns.lon])]) ? 1 : 0),0);
-      updateDaDiagnostics({trigger:state.daActivationTrigger || 'unknown', boundaryType, zoom:map.getZoom(), threshold, filteredRows:state.rows.reduce((n,row)=>n+(filterRowPasses(row)?1:0),0), visibleFilteredRows, candidates:candidates.join(', ')||'none', totalMs:performance.now()-refreshStarted});
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
         clearDaOverlay();
@@ -2481,22 +2341,19 @@
         state.daSelectionResult=empty;
         updateCensusPopulationSummary(empty.aggregate);
         const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">No filtered store markers are visible in the current viewport, so no Census DAs are included.</div>';
-        updateDaDiagnostics({totalMs:performance.now()-refreshStarted, candidates:'none', assetStatus:'no assets needed', selectedCount:0, selectedPopulation:'0'});
         setDaTestStatus('No candidate provinces: there are no filtered store markers in the current viewport.');
         return;
       }
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
       const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay});
-      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, selectedCount:result.selectedCount, selectedPopulation:fmtInt(result.aggregate.totalPopulation), requestId, currentRequestId:state.censusRequestId, commit:'SELECTION COMPLETE', resultSelectedCount:result.selectedCount});
-      if (requestId !== state.censusRequestId) { updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'RESULT DISCARDED: stale request'}); return; }
+      if (requestId !== state.censusRequestId) return;
       state.daProvinceCacheKey = boundaryKey;
       state.daProvinceCache = candidates;
       renderDaSelection(result);
     } catch (err) {
-      if (requestId !== state.censusRequestId) { updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'ERROR DISCARDED: stale request',error:String(err?.stack||err?.message||err)}); return; }
+      if (requestId !== state.censusRequestId) return;
       clearDaOverlay();
-      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, error:String(err?.stack||err?.message||err)});
       setDaTestStatus(`DA selection failed: ${err.message}`);
     }
   }

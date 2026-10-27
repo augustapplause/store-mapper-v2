@@ -711,5 +711,3 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-header-config-controls{display:grid;grid-template-columns:minmax(0,1fr) 74px 92px;gap:6px;min-width:0;}
 .popup-header-config-controls select{width:100%;min-width:0;}
 .store-popup-loading{padding:18px 20px;font-size:12px;color:var(--muted);font-weight:500;}
-
-.da-diagnostics{margin-top:9px;border:1px solid rgba(71,103,125,.22);background:#f7fafc;padding:6px 7px}.da-diagnostics summary{cursor:pointer;font-size:10px;font-weight:800;color:#47677d}.da-diagnostics pre{margin:6px 0 0;font:9px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;color:#22313b}
