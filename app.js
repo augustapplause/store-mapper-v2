@@ -78,6 +78,8 @@
     lines.push(`INDEX CANDIDATES: ${d.candidateCount ?? '—'} | EXACT INTERSECTIONS: ${d.actualIntersectionCount ?? '—'}`);
     lines.push(`SELECTED DAs: ${d.selectedCount ?? '—'} | SELECTED POP: ${d.selectedPopulation ?? '—'}`);
     lines.push(`FULL: ${d.fullProvinceCodes || '—'} | PARTIAL: ${d.partialProvinceCodes || '—'}`);
+    lines.push(`LIFECYCLE: req ${d.requestId ?? '—'} | current ${d.currentRequestId ?? '—'} | ${d.commit || '—'}`);
+    lines.push(`RENDER: allowed ${d.renderAllowed == null ? '—' : d.renderAllowed ? 'YES' : 'NO'} | selected in result ${d.resultSelectedCount ?? '—'} | features sent ${d.renderFeatureCount ?? '—'} | layer ${d.renderLayerStatus || '—'}`);
     lines.push(`TIMING: ${d.totalMs != null ? `${d.totalMs.toFixed(1)} ms` : '—'} | province load ${d.loadMs != null ? `${d.loadMs.toFixed(1)} ms` : '—'} | selection ${d.selectionMs != null ? `${d.selectionMs.toFixed(1)} ms` : '—'}`);
     if (d.error) lines.push(`ERROR: ${d.error}`);
     node.textContent = lines.join('\\n');
@@ -2383,11 +2385,26 @@
     const zoom = map.getZoom();
     const renderAllowed = zoom >= CONFIG.daMinRenderZoom && state.showDaOverlay;
     const features = renderAllowed ? result.selected : [];
+    let renderLayerStatus = renderAllowed ? (features.length ? 'creating' : 'empty') : 'suppressed-by-zoom-or-toggle';
     if (renderAllowed && features.length) {
-      state.daLayer = L.geoJSON(turf.featureCollection(features.map(item => item.feature)), {
-        pane: 'daSelectionPane', interactive: false, style: daStyle
-      }).addTo(map);
+      try {
+        state.daLayer = L.geoJSON(turf.featureCollection(features.map(item => item.feature)), {
+          pane: 'daSelectionPane', interactive: false, style: daStyle
+        }).addTo(map);
+        renderLayerStatus = `created:${features.length}`;
+      } catch (err) {
+        renderLayerStatus = `FAILED:${err?.message || err}`;
+        console.error('[DA] render failed', err);
+      }
     }
+    updateDaDiagnostics({
+      commit:'RESULT COMMITTED',
+      currentRequestId:state.censusRequestId,
+      resultSelectedCount:result.selectedCount,
+      renderAllowed,
+      renderFeatureCount:features.length,
+      renderLayerStatus
+    });
 
     const detailLimit = 500;
     const detail = result.selected.slice(0, detailLimit);
@@ -2401,11 +2418,11 @@
     const list = el('censusDaList');
     if (list) {
       if (!detail.length) {
-        list.innerHTML = result.selectedCount ? '<div class="empty-message">DA detail is suppressed at this zoom level; totals above include all selected DAs.</div>' : '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
+        list.innerHTML = result.selectedCount ? '<div class=\"empty-message\">DA detail is suppressed at this zoom level; totals above include all selected DAs.</div>' : '<div class=\"empty-message\">No qualifying DAs in the active boundary.</div>';
       } else {
         list.innerHTML = detail.map(item => {
           const a = censusAttributes(item.feature);
-          return `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
+          return `<div class=\"census-da-row\"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
         }).join('');
       }
     }
@@ -2446,6 +2463,7 @@
     const threshold = Number(el('censusThreshold')?.value ?? 15);
     const requestId = ++state.censusRequestId;
     state.daSelectionResult = null;
+    updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'REQUEST STARTED',resultSelectedCount:'—',renderFeatureCount:'—',renderLayerStatus:'—'});
     setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
     const refreshStarted = performance.now();
     try {
@@ -2470,13 +2488,13 @@
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
       const result = await DA_ENGINE.select(boundary, provinceModes, threshold, {shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay});
-      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, selectedCount:result.selectedCount, selectedPopulation:fmtInt(result.aggregate.totalPopulation)});
-      if (requestId !== state.censusRequestId) return;
+      updateDaDiagnostics({totalMs:performance.now()-refreshStarted, selectedCount:result.selectedCount, selectedPopulation:fmtInt(result.aggregate.totalPopulation), requestId, currentRequestId:state.censusRequestId, commit:'SELECTION COMPLETE', resultSelectedCount:result.selectedCount});
+      if (requestId !== state.censusRequestId) { updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'RESULT DISCARDED: stale request'}); return; }
       state.daProvinceCacheKey = boundaryKey;
       state.daProvinceCache = candidates;
       renderDaSelection(result);
     } catch (err) {
-      if (requestId !== state.censusRequestId) return;
+      if (requestId !== state.censusRequestId) { updateDaDiagnostics({requestId,currentRequestId:state.censusRequestId,commit:'ERROR DISCARDED: stale request',error:String(err?.stack||err?.message||err)}); return; }
       clearDaOverlay();
       updateDaDiagnostics({totalMs:performance.now()-refreshStarted, error:String(err?.stack||err?.message||err)});
       setDaTestStatus(`DA selection failed: ${err.message}`);
