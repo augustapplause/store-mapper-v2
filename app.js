@@ -1,4 +1,4 @@
-/* Store Explorer - v1.93
+/* Store Explorer - v1.94
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -21,7 +21,24 @@
       YT:'YT_da_spatial_asset_v1.json'
     },
     prCodeByUid: {'10':'NL','11':'PE','12':'NS','13':'NB','24':'QC','35':'ON','46':'MB','47':'SK','48':'AB','59':'BC','60':'YT','61':'NT','62':'NU'},
-    daMinRenderZoom: 8
+    daMinRenderZoom: 8,
+    // Precomputed province totals used when a candidate province is fully contained
+    // in the active viewport/circle. This avoids loading the province DA asset for totals.
+    provinceAggregates: {
+      AB:{total_population:4262635,population_65_plus:628920,population_40_64:1387155,visible_minority_population:1156960,total_households:1632615,incomeWeighted:681797100,da_count:6216},
+      BC:{total_population:5000879,population_65_plus:1015980,population_40_64:1668985,visible_minority_population:1686695,total_households:2040715,incomeWeighted:807433700,da_count:7873},
+      MB:{total_population:1342153,population_65_plus:228925,population_40_64:415175,visible_minority_population:288905,total_households:517860,incomeWeighted:198230800,da_count:2225},
+      NB:{total_population:775610,population_65_plus:177005,population_40_64:274480,visible_minority_population:41860,total_households:337530,incomeWeighted:116248600,da_count:1470},
+      NL:{total_population:510550,population_65_plus:120595,population_40_64:187685,visible_minority_population:15145,total_households:223065,incomeWeighted:79260700,da_count:1084},
+      NS:{total_population:969383,population_65_plus:215220,population_40_64:333110,visible_minority_population:91140,total_households:428195,incomeWeighted:139549500,da_count:1672},
+      NT:{total_population:41070,population_65_plus:4090,population_40_64:13550,visible_minority_population:4900,total_households:15145,incomeWeighted:10533300,da_count:98},
+      NU:{total_population:36858,population_65_plus:1615,population_40_64:8825,visible_minority_population:1370,total_households:9915,incomeWeighted:4821300,da_count:50},
+      ON:{total_population:14223942,population_65_plus:2637090,population_40_64:4732200,visible_minority_population:4805055,total_households:5490200,incomeWeighted:2364264460,da_count:20520},
+      PE:{total_population:154331,population_65_plus:32665,population_40_64:51655,visible_minority_population:13740,total_households:64555,incomeWeighted:23376100,da_count:319},
+      QC:{total_population:8501833,population_65_plus:1753955,population_40_64:2852340,visible_minority_population:1325005,total_households:3748525,incomeWeighted:1237514200,da_count:13827},
+      SK:{total_population:1132505,population_65_plus:197445,population_40_64:347290,visible_minority_population:156565,total_households:448210,incomeWeighted:182436700,da_count:2628},
+      YT:{total_population:40232,population_65_plus:6010,population_40_64:13615,visible_minority_population:5060,total_households:17065,incomeWeighted:5282700,da_count:74}
+    }
   };
 
   const state = {
@@ -876,13 +893,13 @@
     const cacheBase=`${storeId}|${lat.toFixed(6)}|${lng.toFixed(6)}|${threshold}`;
     const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
     const out={};
-    await loadHeaderCsdLookup();
+    const provinceCode=provinceCodeFromText(row[state.columns.province] || '');
+    if(!provinceCode) return {};
     for(const radiusKm of neededRadii){
       const cacheKey=`${cacheBase}|${radiusKm}`;
       if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
       const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
-      const provinces=provincesForBoundaryFromCsd(boundary);
-      const result=await DA_ENGINE.select(boundary,provinces,threshold);
+      const result=await DA_ENGINE.select(boundary,[{provinceCode,mode:'partial'}],threshold);
       const totals=result.selected.reduce((acc,item)=>{const a=censusAttributes(item.feature);acc.population+=a.totalPopulation;acc.population65Plus+=a.population65Plus;return acc;},{population:0,population65Plus:0});
       const radiusValues={[`Population ${radiusKm} km`]:totals.population,[`Population 65+ ${radiusKm} km`]:totals.population65Plus};
       state.popupCensusCache.set(cacheKey,radiusValues);
@@ -1965,6 +1982,23 @@
   const DA_ENGINE = (() => {
     const cache = new Map();
     const defaultThresholdPct = 50;
+    const provinceAggregateCache = new Map();
+    function getProvinceAggregate(provinceCode) {
+      if (provinceAggregateCache.has(provinceCode)) return provinceAggregateCache.get(provinceCode);
+      const raw = CONFIG.provinceAggregates?.[provinceCode] || {};
+      const households = Number(raw.total_households) || 0;
+      const aggregate = {
+        totalPopulation:Number(raw.total_population)||0,
+        population65Plus:Number(raw.population_65_plus)||0,
+        population40Plus:(Number(raw.population_65_plus)||0)+(Number(raw.population_40_64)||0),
+        visibleMinorityPopulation:Number(raw.visible_minority_population)||0,
+        totalHouseholds:households,
+        incomeWeighted:Number(raw.incomeWeighted)||0,
+        daCount:Number(raw.da_count)||0
+      };
+      provinceAggregateCache.set(provinceCode, aggregate);
+      return aggregate;
+    }
 
     function getId(feature) {
       const p = feature?.properties || {};
@@ -2102,14 +2136,14 @@
     function aggregateProvince(entry) {
       const a = entry.aggregate || {};
       const households = Number(a.total_households) || 0;
-      const avgIncome = Number(a.average_household_income) || 0;
+      
       return {
         totalPopulation:Number(a.total_population)||0,
         population65Plus:Number(a.population_65_plus)||0,
         population40Plus:(Number(a.population_65_plus)||0)+(Number(a.population_40_64)||0),
         visibleMinorityPopulation:Number(a.visible_minority_population)||0,
         totalHouseholds:households,
-        incomeWeighted:avgIncome * households,
+        incomeWeighted:Number(raw.incomeWeighted)||0,
         daCount:entry.featureCount
       };
     }
@@ -2140,8 +2174,26 @@
       const boundaryBbox = turf.bbox(boundary);
 
       for (const mode of modes) {
-        const entry = await loadProvince(mode.provinceCode);
+        // FULL provinces do not need their DA asset for Census totals. Use the
+        // precomputed province aggregate directly. Only load the DA asset when
+        // rendering is actually enabled, because rendering needs selected DA
+        // geometries even for a fully contained province.
         if (mode.mode === 'full') {
+          fullProvinceCodes.push(mode.provinceCode);
+          if (!shouldRender) {
+            const file = CONFIG.daFiles[mode.provinceCode];
+            if (!file) continue;
+            const aggregateStub = getProvinceAggregate(mode.provinceCode);
+            aggregate.totalPopulation += aggregateStub.totalPopulation;
+            aggregate.population65Plus += aggregateStub.population65Plus;
+            aggregate.population40Plus += aggregateStub.population40Plus;
+            aggregate.visibleMinorityPopulation += aggregateStub.visibleMinorityPopulation;
+            aggregate.totalHouseholds += aggregateStub.totalHouseholds;
+            aggregate.incomeWeighted += aggregateStub.incomeWeighted;
+            aggregate.daCount += aggregateStub.daCount;
+            continue;
+          }
+          const entry = await loadProvince(mode.provinceCode);
           const a = aggregateProvince(entry);
           aggregate.totalPopulation += a.totalPopulation;
           aggregate.population65Plus += a.population65Plus;
@@ -2150,15 +2202,13 @@
           aggregate.totalHouseholds += a.totalHouseholds;
           aggregate.incomeWeighted += a.incomeWeighted;
           aggregate.daCount += a.daCount;
-          fullProvinceCodes.push(mode.provinceCode);
-          if (shouldRender) {
-            const renderCandidates = bboxQuery(entry, boundaryBbox);
-            candidateCount += renderCandidates.length;
-            for (const index of renderCandidates) selected.push({feature:featureFromAsset(entry,index), provinceCode:mode.provinceCode, overlapPct:100});
-          }
+          const renderCandidates = bboxQuery(entry, boundaryBbox);
+          candidateCount += renderCandidates.length;
+          for (const index of renderCandidates) selected.push({feature:featureFromAsset(entry,index), provinceCode:mode.provinceCode, overlapPct:100});
           continue;
         }
 
+        const entry = await loadProvince(mode.provinceCode);
         partialProvinceCodes.push(mode.provinceCode);
         const candidates = bboxQuery(entry, boundaryBbox);
         indexedFeatures += entry.featureCount;
