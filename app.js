@@ -1,4 +1,4 @@
-/* Store Explorer - v1.97
+/* Store Explorer - v1.98
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -1959,7 +1959,7 @@
   }
 
   function bboxFullyInsideViewport(provinceCode) {
-    const bbox = state.csdProvinceBBoxes.get(provinceCode);
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
     if (!bbox) return false;
     const mapBounds = map.getBounds();
     return mapBounds.getWest() <= bbox[0] &&
@@ -1969,7 +1969,7 @@
   }
 
   function bboxFullyInsideCircle(provinceCode) {
-    const bbox = state.csdProvinceBBoxes.get(provinceCode);
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
     const circle = state.circleSelection?.circle;
     if (!bbox || !circle) return false;
     // A circle is convex, so containing all four bbox corners contains the entire bbox.
@@ -1989,6 +1989,26 @@
     }));
   }
 
+
+  // Runtime Census/DA province coverage is intentionally independent of the CSD
+  // lookup. These conservative province/territory bounding boxes are used only
+  // as a sufficient full-containment test; they are intentionally no smaller
+  // than the actual jurisdiction, so a false 'full' classification cannot occur.
+  const PROVINCE_COVERAGE_BBOXES = {
+    AB: [-120.1, 48.9, -109.9, 60.1],
+    BC: [-139.2, 48.2, -113.9, 60.2],
+    MB: [-102.1, 48.9, -94.9, 60.1],
+    NB: [-69.2, 44.5, -63.6, 48.2],
+    NL: [-68.0, 46.5, -52.4, 60.6],
+    NS: [-66.4, 43.3, -59.4, 47.2],
+    NT: [-136.6, 59.8, -101.9, 78.6],
+    NU: [-110.1, 51.3, -60.8, 83.3],
+    ON: [-95.3, 41.5, -74.2, 57.0],
+    PE: [-64.6, 45.8, -61.8, 47.2],
+    QC: [-80.0, 44.7, -56.9, 62.8],
+    SK: [-110.1, 48.9, -101.3, 60.2],
+    YT: [-141.2, 59.3, -123.8, 69.8]
+  };
   // ---------- DA spatial selection engine (isolated) ----------
   // This component intentionally knows nothing about stores, KPIs, workbook data,
   // or Census population attributes. Its only job is:
