@@ -711,3 +711,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-header-config-controls{display:grid;grid-template-columns:minmax(0,1fr) 74px 92px;gap:6px;min-width:0;}
 .popup-header-config-controls select{width:100%;min-width:0;}
 .store-popup-loading{padding:18px 20px;font-size:12px;color:var(--muted);font-weight:500;}
+
+/* Store Explorer v1.100 municipality orientation labels */
+.municipality-label-wrap{pointer-events:none !important;}
+.municipality-label-wrap>div{pointer-events:none !important;}
+.municipality-label{white-space:nowrap;font-family:inherit;font-size:12px;line-height:1.1;font-weight:600;color:#1f2937;text-shadow:0 0 2px rgba(255,255,255,.98),0 0 4px rgba(255,255,255,.9);transform:translate(-50%,-50%);user-select:none;}
+.unified-hover-tooltip{pointer-events:none !important;}
