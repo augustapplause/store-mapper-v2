@@ -815,3 +815,77 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
   .popup-quartile-scale{margin-right:46px;margin-left:4px;}
   .popup-quartile-label{left:calc(50% + 50px);max-width:70px;}
 }
+
+
+/* v1.117 deterministic popup geometry */
+.store-popup-card{
+  width:450px;
+  height:300px;
+  max-width:calc(100% - 24px);
+  max-height:calc(100% - 24px);
+  box-sizing:border-box;
+  display:grid;
+  grid-template-rows:64px 194px 42px;
+  overflow:hidden;
+}
+.store-popup-card .store-popup{
+  width:100%;
+  height:100%;
+  min-width:0;
+  min-height:0;
+  display:grid;
+  grid-template-rows:64px 194px 42px;
+}
+.store-popup-card .store-popup-head{height:64px;box-sizing:border-box;min-height:0;overflow:hidden;}
+.store-popup-body{
+  height:194px;
+  min-height:194px;
+  max-height:194px;
+  box-sizing:border-box;
+  display:grid;
+  grid-template-columns:230px minmax(0,1fr);
+  column-gap:4px;
+  padding:8px 8px 6px;
+  align-items:stretch;
+  overflow:hidden;
+}
+.store-popup-metrics-scroll{
+  width:230px;
+  min-width:230px;
+  max-width:230px;
+  height:180px;
+  max-height:180px;
+  box-sizing:border-box;
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+.store-popup-metrics-scroll table{width:222px;min-width:222px;max-width:222px;}
+.store-popup-quartile{
+  width:auto;
+  min-width:0;
+  height:180px;
+  min-height:180px;
+  max-height:180px;
+  overflow:visible;
+}
+.popup-quartile-scale{
+  height:150px;
+  margin-left:4px;
+  margin-right:38px;
+}
+.popup-quartile-heading{left:-10px;}
+.popup-quartile-label{left:calc(50% + 44px);max-width:82px;}
+.store-popup-ticker{
+  height:42px;
+  min-height:42px;
+  max-height:42px;
+  box-sizing:border-box;
+}
+@media (max-width:760px){
+  .store-popup-card{width:min(450px,calc(100% - 24px));height:300px;}
+  .store-popup-body{grid-template-columns:230px minmax(0,1fr);column-gap:4px;}
+  .store-popup-metrics-scroll{width:230px;min-width:230px;max-width:230px;}
+  .store-popup-quartile{min-width:0;}
+  .popup-quartile-scale{margin-left:2px;margin-right:34px;}
+  .popup-quartile-label{left:calc(50% + 40px);max-width:70px;}
+}
