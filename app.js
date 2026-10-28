@@ -1,4 +1,4 @@
-/* Store Explorer - v1.102
+/* Store Explorer - v1.106
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -1185,8 +1185,36 @@
     return evaluatePopupFormula(field.formula,row,censusValues);
   }
   function renderPopupQuartileBar(row,fields){
-    const items=fields||[];
-    const dots=items.map((f,i)=>{const pct=state.popupQuartileValues?.[f.formula];if(!Number.isFinite(pct))return '';const top=(1-pct)*100;const label=tickerMetricTitle(f);return `<span class="popup-quartile-item" style="top:${top.toFixed(3)}%"><span class="popup-quartile-dot qdot-${i%6}" title="${esc(label)}"></span><span class="popup-quartile-leader" aria-hidden="true"></span><span class="popup-quartile-label">${esc(label)}</span></span>`;}).join('');
+    const items=(fields||[]).map((f,i)=>{
+      const pct=state.popupQuartileValues?.[f.formula];
+      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*180:null};
+    }).filter(x=>x.pct!==null);
+    const minGap=18, minY=10, maxY=170;
+    const sorted=[...items].sort((a,b)=>a.actualY-b.actualY);
+    let prev=-Infinity;
+    for(const item of sorted){
+      item.labelY=Math.max(item.actualY,prev+minGap,minY);
+      prev=item.labelY;
+    }
+    if(sorted.length && sorted[sorted.length-1].labelY>maxY){
+      sorted[sorted.length-1].labelY=maxY;
+      for(let i=sorted.length-2;i>=0;i--) sorted[i].labelY=Math.min(sorted[i].labelY,sorted[i+1].labelY-minGap);
+      if(sorted[0].labelY<minY){
+        const shift=minY-sorted[0].labelY;
+        sorted.forEach(x=>x.labelY+=shift);
+      }
+    }
+    const byIndex=new Map(sorted.map(x=>[x.index,x]));
+    const dots=(items.map(item=>{
+      const x=byIndex.get(item.index);
+      const label=tickerMetricTitle(item.field);
+      const dx=58-29;
+      const dy=x.labelY-x.actualY;
+      const width=Math.sqrt(dx*dx+dy*dy);
+      const angle=Math.atan2(dy,dx)*180/Math.PI;
+      const labelOffset=x.labelY-x.actualY;
+      return `<span class="popup-quartile-item" style="top:${item.actualY.toFixed(3)}px;--label-offset:${labelOffset.toFixed(2)}px;--leader-width:${width.toFixed(2)}px;--leader-angle:${angle.toFixed(2)}deg"><span class="popup-quartile-dot qdot-${item.index%6}" title="${esc(label)}"></span><span class="popup-quartile-leader" aria-hidden="true"></span><span class="popup-quartile-label">${esc(label)}</span></span>`;
+    }).join(''));
     return `<aside class="store-popup-quartile" aria-label="Store quartile position"><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
   }
   function startPopupTicker(){
@@ -1208,7 +1236,16 @@
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
     storePopupCard.innerHTML=await popupCardContent(row,values);
     wirePopupCardActions(marker);
-    requestStorePopupLayout();startPopupTicker();
+    requestStorePopupLayout();
+    requestAnimationFrame(()=>{
+      requestStorePopupLayout();
+      requestAnimationFrame(()=>{
+        requestStorePopupLayout();
+        if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
+      });
+    });
+    setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
+    startPopupTicker();
   }
   function wirePopupCardActions(marker){
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
@@ -1230,6 +1267,7 @@
     storePopupFrame=null;
     storePopupLayoutQueued=false;
     state.openPopupMarker=null;
+    if(storePopupCard)storePopupCard.style.visibility='hidden';
     storePopupLayer.classList.remove('open');
     storePopupLayer.setAttribute('aria-hidden','true');
     if(storePopupSvg)storePopupSvg.replaceChildren();
@@ -1360,6 +1398,7 @@
     state.openPopupMarker=marker;
     state.popupTickerIndex=0;
     state.popupQuartileValues={};
+    storePopupCard.style.visibility='hidden';
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
