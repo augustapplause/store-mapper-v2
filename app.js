@@ -1218,7 +1218,7 @@
   function renderPopupQuartileBar(row,fields){
     const items=(fields||[]).map((f,i)=>{
       const pct=state.popupQuartileValues?.[f.formula];
-      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*138:null};
+      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*123:null};
     }).filter(x=>x.pct!==null);
     const minGap=16, minY=8, maxY=130;
     const sorted=[...items].sort((a,b)=>a.actualY-b.actualY);

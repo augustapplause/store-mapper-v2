@@ -742,7 +742,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-quartile-heading{position:absolute;left:-18px;top:50%;z-index:3;transform:translate(-50%,-50%) rotate(-90deg);font-size:10px;line-height:1;font-weight:700;color:#4b5563;white-space:nowrap;}
 .popup-quartile-label{position:absolute;left:calc(50% + 58px);top:var(--label-offset,0px);transform:translateY(-50%);font-size:10px;line-height:1.1;font-weight:700;color:#4b5563;white-space:nowrap;max-width:78px;overflow:hidden;text-overflow:ellipsis;}
 .popup-quartile-dot.qdot-0{background:#3b5ccc}.popup-quartile-dot.qdot-1{background:#d34c4c}.popup-quartile-dot.qdot-2{background:#00897b}.popup-quartile-dot.qdot-3{background:#8e5aa7}.popup-quartile-dot.qdot-4{background:#c98600}.popup-quartile-dot.qdot-5{background:#546e7a;}
-.store-popup-ticker{width:100%;box-sizing:border-box;background:#a81f24;color:#fff;font-weight:600;font-size:12px;line-height:18px;padding:8px 12px;cursor:pointer;user-select:none;overflow:hidden;}
+.store-popup-ticker{width:100%;box-sizing:border-box;background:#a81f24;color:#fff;font-weight:600;font-size:12px;line-height:16px;padding:5px 12px;cursor:pointer;user-select:none;overflow:hidden;}
 .store-popup-ticker-viewport{width:100%;overflow:hidden;}
 .store-popup-ticker-track{display:inline-flex;align-items:center;gap:34px;min-width:max-content;white-space:nowrap;animation:popupTickerScroll 12s linear infinite;}
 .store-popup-ticker.paused .store-popup-ticker-track{animation-play-state:paused;}
@@ -893,7 +893,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 }
 
 
-/* v1.120 deterministic popup geometry refinements */
+/* v1.121 deterministic popup geometry refinements */
 .store-popup-card{
   width:450px;
   height:256px;
@@ -912,16 +912,16 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
   .store-popup-card{width:min(450px,calc(100% - 24px));height:256px;}
 }
 
-/* v1.120 popup refinements */
+/* v1.121 popup refinements */
 .store-popup-card{
   height:248px;
-  grid-template-rows:53px 165px 30px;
+  grid-template-rows:53px 165px 26px;
 }
 .store-popup-card .store-popup{
-  grid-template-rows:53px 165px 30px;
+  grid-template-rows:53px 165px 26px;
 }
 .store-popup-card .store-popup-head{height:53px;}
-.store-popup-ticker{height:30px;min-height:30px;max-height:30px;}
+.store-popup-ticker{height:26px;min-height:26px;max-height:26px;}
 .popup-quartile-scale{width:38px;min-width:38px;max-width:38px;}
 .store-popup-metrics-scroll td:last-child{transform:translateX(-10px);}
 .popup-quartile-heading{left:18px;}
