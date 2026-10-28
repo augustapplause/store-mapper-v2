@@ -1,4 +1,4 @@
-/* Store Explorer - v1.100
+/* Store Explorer - v1.101
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -43,7 +43,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
@@ -521,12 +521,12 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.popupRenderToken++;state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -981,9 +981,9 @@
     });
   }
 
-  async function calculatePopupCensusForStore(row){
+  async function calculatePopupCensusForStore(row, formulaFields=popupItems()){
     const required=new Set();
-    for(const field of popupItems()){
+    for(const field of formulaFields){
       const tokens=tokenizePopup(field.formula)||[];
       for(const t of tokens){
         if(t.type==='operand'&&isPopupVirtualOperand(t.value))required.add(t.value);
@@ -1022,7 +1022,8 @@
     if(formula&&state.headers.includes(formula)) column=formula;
     const type=state.headers.includes(formula)?'column':(isPopupVirtualOperand(formula)?'virtual':'formula');
     const title=String(f?.title??'').trim() || (type!=='formula'?formula:firstTickerOperand(formula));
-    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces};
+    const quartile=!!f?.quartile;
+    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces,quartile};
   }
   function popupDirectColumn(field){
     const formula=String(field?.formula??'').trim();
@@ -1084,11 +1085,122 @@
     const subtitle=popupHeaderValue(row,'subtitle');
     const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><table>`;
+    const quartileFields=popupFields.filter(f=>f.quartile);
+    const tickerItems=state.popupTickerMetrics||[];
+    const tickerField=tickerItems.length?tickerItems[(state.popupTickerIndex||0)%tickerItems.length]:null;
+    const tickerValue=tickerField?popupTickerValue(tickerField,row,values):'';
+    const tickerHtml=tickerField?`<div class="store-popup-ticker" data-popup-ticker><span>${esc(popupTickerTitle(tickerField))}</span><strong>${esc(tickerValue)}</strong></div>`:'';
+    const quartileHtml=renderPopupQuartileBar(row,quartileFields);
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div>${tickerHtml}<div class="store-popup-body"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    return `<div class="store-popup">${html}</table></div>`;
+    html+=`</table></div>${quartileHtml}</div></div>`;
+    return html;
   }
 
+  const POPUP_TICKER_STORAGE_KEY='cse_popup_ticker_config_v101';
+  function loadPopupTickerConfig(){
+    const fallback=[];
+    const defaults=['Total Sales','Store 4-Wall Profit (EBIT)','Total labour expense'].map(n=>state.headers.find(h=>norm(h)===norm(n))).filter(Boolean);
+    for(const h of defaults)fallback.push({formula:h,title:h});
+    try{
+      const raw=localStorage.getItem(POPUP_TICKER_STORAGE_KEY);
+      const parsed=raw?JSON.parse(raw):null;
+      state.popupTickerMetrics=Array.isArray(parsed)&&parsed.length?parsed.filter(x=>String(x?.formula||'').trim()).map(x=>({formula:String(x.formula).trim(),title:String(x.title||x.formula).trim()})):fallback;
+    }catch(_){state.popupTickerMetrics=fallback;}
+    state.popupTickerDraft=state.popupTickerMetrics.map(x=>({...x}));
+  }
+  function savePopupTickerConfig(){try{localStorage.setItem(POPUP_TICKER_STORAGE_KEY,JSON.stringify(state.popupTickerMetrics));}catch(_){}
+  }
+  function popupTickerTitle(m){return String(m?.title||m?.formula||'').trim()||'Metric';}
+  function popupTickerValue(m,row,censusValues){
+    const formula=String(m?.formula||'').trim();
+    if(!formula)return '—';
+    if(state.headers.includes(formula)){
+      const raw=row[formula];
+      if(raw===null||raw===undefined||raw==='')return '—';
+      const n=toNumber(raw);
+      return n===null?String(raw):formatTickerValue(n,'auto',formula,0);
+    }
+    if(isPopupVirtualOperand(formula))return formatTickerValue(Number(censusValues?.[formula]),'auto',formula,0);
+    return formatTickerValue(evaluatePopupFormula(formula,row,censusValues),'auto',formula,0);
+  }
+  function popupQuartileConfigFields(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula&&f.quartile);}
+  function popupQuartileRank(values,value){
+    const n=values.length;if(!n||!Number.isFinite(value))return null;
+    let lo=0,hi=values.length;
+    while(lo<hi){const mid=(lo+hi)>>1;if(values[mid]<value)lo=mid+1;else hi=mid;}
+    let a=lo,b=lo;while(a>0&&values[a-1]===value)a--;while(b<n&&values[b]===value)b++;
+    if(n===1)return .5;
+    const midRank=(a+b-1)/2;
+    return Math.max(0,Math.min(1,midRank/(n-1)));
+  }
+  async function computePopupQuartiles(selectedRow){
+    const fields=popupQuartileConfigFields();
+    const result={};
+    if(!fields.length||!state.rows.length){state.popupQuartileValues=result;return result;}
+    const virtualFields=new Set();
+    fields.forEach(f=>(tokenizePopup(f.formula)||[]).forEach(t=>{if(t.type==='operand'&&isPopupVirtualOperand(t.value))virtualFields.add(t.value);}));
+    const needsVirtual=virtualFields.size>0;
+    const valuesByField=new Map(fields.map(f=>[f,[]]));
+    const selectedValues=new Map();
+    const chunk=20;
+    for(let start=0;start<state.rows.length;start+=chunk){
+      const end=Math.min(state.rows.length,start+chunk);
+      for(let i=start;i<end;i++){
+        const row=state.rows[i];
+        let census={};
+        if(needsVirtual)census=await calculatePopupCensusForStore(row,fields);
+        for(const field of fields){
+          const value=popupFieldNumericValue(field,row,census);
+          if(Number.isFinite(value)){
+            valuesByField.get(field).push(value);
+            if(row===selectedRow)selectedValues.set(field,value);
+          }
+        }
+      }
+      await new Promise(r=>setTimeout(r,0));
+    }
+    for(const field of fields){
+      const vals=valuesByField.get(field).sort((a,b)=>a-b);
+      const v=selectedValues.get(field);
+      result[field.formula]=Number.isFinite(v)?popupQuartileRank(vals,v):null;
+    }
+    state.popupQuartileValues=result;return result;
+  }
+  function popupFieldNumericValue(field,row,censusValues){
+    if(isPopupVirtualOperand(field.formula))return Number(censusValues?.[field.formula]);
+    if(state.headers.includes(field.formula))return toNumber(row[field.formula]);
+    return evaluatePopupFormula(field.formula,row,censusValues);
+  }
+  function renderPopupQuartileBar(row,fields){
+    if(!fields.length)return '';
+    const dots=fields.map((f,i)=>{const pct=state.popupQuartileValues?.[f.formula];if(!Number.isFinite(pct))return '';const top=(1-pct)*100;return `<span class="popup-quartile-dot qdot-${i%6}" style="top:${top.toFixed(3)}%" title="${esc(tickerMetricTitle(f))}"></span>`;}).join('');
+    return `<aside class="store-popup-quartile" aria-label="Store quartile position"><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
+  }
+  function startPopupTicker(){
+    clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;
+    if(!state.popupTickerPlaying||state.popupTickerMetrics.length<2)return;
+    state.popupTickerTimer=setInterval(()=>{if(!state.openPopupMarker)return;state.popupTickerIndex=(state.popupTickerIndex+1)%state.popupTickerMetrics.length;refreshOpenPopupCard();},Math.max(1000,2000-Math.min(120,state.tickerSpeed)*8));
+  }
+  async function refreshOpenPopupCard(){
+    const marker=state.openPopupMarker;if(!marker)return;
+    const row=marker.__row;
+    const token=++state.popupRenderToken;
+    storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
+    const values=hasPopupVirtualFields()?await calculatePopupCensusForStore(row):{};
+    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+    await computePopupQuartiles(row);
+    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+    storePopupCard.innerHTML=await popupCardContent(row,values);
+    wirePopupCardActions(marker);
+    requestStorePopupLayout();startPopupTicker();
+  }
+  function wirePopupCardActions(marker){
+    const closeBtn=storePopupCard.querySelector('.store-popup-close');
+    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
+    const ticker=storePopupCard.querySelector('[data-popup-ticker]');
+    ticker?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;startPopupTicker();});
+  }
   function hasPopupVirtualFields(){return popupItems().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));}
 
   function closeStorePopup(){
@@ -1223,19 +1335,15 @@
   async function openStorePopup(marker){
     ensureStorePopupOverlay();
     if(state.openPopupMarker===marker && storePopupLayer.classList.contains('open')){ closeStorePopup(); return; }
-    const token=++state.popupRenderToken;
+    ++state.popupRenderToken;
     state.openPopupMarker=marker;
-    const needsCensus=hasPopupVirtualFields();
-    storePopupCard.innerHTML=needsCensus?'<div class="store-popup-loading">Calculating…</div>':'<div class="store-popup-loading">Loading…</div>';
+    state.popupTickerIndex=0;
+    state.popupQuartileValues={};
+    storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
     requestStorePopupLayout();
-    const censusValues=needsCensus?await calculatePopupCensusForStore(marker.__row):{};
-    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-    storePopupCard.innerHTML=await popupCardContent(marker.__row,censusValues);
-    const closeBtn=storePopupCard.querySelector('.store-popup-close');
-    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
-    requestStorePopupLayout();
+    await refreshOpenPopupCard();
   }
 
   function positionStorePopup(marker){
@@ -1678,7 +1786,7 @@
     if(!Array.isArray(state.popupConfigDraft)) state.popupConfigDraft=(state.popupConfig||[]).map(normalizePopupField);
     el('subjectCount').textContent=state.subjects.length;
     el('popupCount').textContent=(state.popupConfig||[]).length;
-    el('popupConfigBtn').disabled=!state.headers.length;
+    el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
     el('distributionCount').textContent=state.distributionSubject?1:0;
     el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=2+state.selectedStoreColumns.length;
@@ -3059,6 +3167,12 @@
   }
   el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
   el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const column=state.headers[0]||'';state.popupConfigDraft.push({type:'column',column,formula:'',title:column,numberFormat:'auto',decimalPlaces:0});renderPopupConfig();});
+  el('popupTickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupTickerConfig();});
+  el('popupTickerAdd').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerDraft.push({formula:'',title:''});renderPopupTickerConfig();});
+  el('popupTickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupTickerConfig();});
+  document.addEventListener('change',e=>{if(e.target.matches('.popup-ticker-column-select')){const i=+e.target.dataset.index;const m=state.popupTickerDraft[i];m.formula=e.target.value;if(!m.title)m.title=e.target.value;renderPopupTickerConfig();}});
+  document.addEventListener('input',e=>{if(e.target.matches('.popup-ticker-title-input'))state.popupTickerDraft[+e.target.dataset.index].title=e.target.value;});
+  document.addEventListener('click',e=>{const b=e.target.closest('.popup-ticker-remove');if(!b)return;const i=+b.dataset.index;state.popupTickerDraft.splice(i,1);renderPopupTickerConfig();});
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
   el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
@@ -3125,6 +3239,7 @@
     state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
     if(!Array.isArray(state.popupConfig)||!state.popupConfig.length) loadPopupConfig(); state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     renderPopupHeaderConfig();bindPopupHeaderConfig();
+    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
     renderPopupConfig();
     el('popupDialog').showModal();
   }
@@ -3136,10 +3251,11 @@
     (state.popupConfigDraft||[]).forEach((raw,idx)=>{
       const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
       const row=document.createElement('div');row.className='metric-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=metricConfigHeaderHTML({kind:'popup',idx,title:field.title,extraControls:'<select class="popup-placeholder-select" data-index="'+idx+'" aria-label="Popup placeholder one"><option value="">Placeholder</option></select><select class="popup-placeholder-select" data-index="'+idx+'" aria-label="Popup placeholder two"><option value="">Placeholder</option></select>'})+metricConfigSettingsHTML({kind:'popup',idx,headers:cols,formula:field.formula,numberFormat:field.numberFormat,decimalPlaces:field.decimalPlaces,directSelected:popupDirectColumn(field)});
+      row.innerHTML=metricConfigHeaderHTML({kind:'popup',idx,title:field.title,extraControls:'<label class="popup-quartile-check"><input type="checkbox" class="popup-quartile-input" data-index="'+idx+'" '+(field.quartile?'checked':'')+'><span>Quartile</span></label>'})+metricConfigSettingsHTML({kind:'popup',idx,headers:cols,formula:field.formula,numberFormat:field.numberFormat,decimalPlaces:field.decimalPlaces,directSelected:popupDirectColumn(field)});
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
+    wrap.querySelectorAll('.popup-quartile-input').forEach(input=>input.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].quartile=!!e.target.checked;}));
     wrap.querySelectorAll('.popup-placeholder-select').forEach(select=>select.addEventListener('change',()=>{}));
     wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{
       const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;
@@ -3181,8 +3297,26 @@
     savePopupConfig();
     savePopupHeaderConfig();
     refreshConfigUI();
-    if(state.openPopupMarker){const marker=state.openPopupMarker;storePopupCard.innerHTML=await popupCardContent(marker.__row);if(state.openPopupMarker===marker){const closeBtn=storePopupCard.querySelector('.store-popup-close');closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});requestStorePopupLayout();}}
+    if(state.openPopupMarker){await refreshOpenPopupCard();}
     el('popupDialog').close();
+  }
+  function renderPopupTickerConfig(){
+    const wrap=el('popupTickerFieldList');if(!wrap)return;const cols=[...state.headers,...popupVirtualNames()];wrap.innerHTML='';
+    const items=state.popupTickerDraft||[];
+    if(!items.length){wrap.innerHTML='<div class="empty-message">Add a ticker column below.</div>';}
+    items.forEach((m,idx)=>{
+      const row=document.createElement('div');row.className='popup-ticker-config-row';row.dataset.index=idx;
+      row.innerHTML=`<label><span>Column</span><select class="popup-ticker-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${m.formula===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label><span>Title</span><input class="popup-ticker-title-input" data-index="${idx}" value="${esc(m.title||m.formula||'')}" placeholder="Column title"></label><button type="button" class="icon-btn popup-ticker-remove" data-index="${idx}" aria-label="Remove ticker column">×</button>`;
+      wrap.appendChild(row);
+    });
+  }
+  function openPopupTickerConfig(){
+    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
+    renderPopupTickerConfig();el('popupTickerDialog').showModal();
+  }
+  function applyPopupTickerConfig(){
+    const next=(state.popupTickerDraft||[]).filter(m=>String(m.formula||'').trim()).map(m=>({formula:String(m.formula).trim(),title:String(m.title||m.formula).trim()||String(m.formula).trim()}));
+    state.popupTickerMetrics=next;state.popupTickerIndex=0;savePopupTickerConfig();el('popupTickerDialog').close();startPopupTicker();if(state.openPopupMarker)refreshOpenPopupCard();
   }
   function resetPopupDefaults(){state.popupConfigDraft=popupDefaultFieldsFromSubjects();renderPopupConfig();}
 
