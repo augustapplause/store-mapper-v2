@@ -760,3 +760,58 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:760px){.store-popup-card{width:min(600px,calc(100% - 24px));}.store-popup-body{gap:9px;}.store-popup-quartile{flex-basis:140px;min-width:140px;}.popup-quartile-scale{margin-right:50px;}.popup-quartile-label{left:calc(50% + 54px);max-width:70px;}}
 /* v1.107 popup positioning and independent popup ticker speed controls */
 .store-popup-card{box-sizing:border-box;max-height:calc(100% - 24px);}
+
+/* Store Explorer v1.114 popup layout: pull quartile area left and keep it inside popup */
+.store-popup-body{
+  display:flex;
+  align-items:stretch;
+  gap:4px;
+  padding:10px 10px 8px;
+  background:#fff;
+  min-height:0;
+  overflow:hidden;
+}
+.store-popup-metrics-scroll{
+  flex:0 0 240px;
+  width:240px;
+  min-width:240px;
+  height:122px;
+  max-height:min(122px,calc(100% - 18px));
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.store-popup-quartile{
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  min-height:135px;
+  overflow:visible;
+  position:relative;
+}
+.popup-quartile-scale{
+  position:relative;
+  flex:0 0 48px;
+  width:48px;
+  height:135px;
+  margin:0 50px 0 6px;
+  border:2px solid #7d8994;
+  box-sizing:border-box;
+  background:#fff;
+}
+.popup-quartile-heading{
+  left:-12px;
+}
+.popup-quartile-label{
+  left:calc(50% + 54px);
+  max-width:90px;
+}
+@media (max-width:760px){
+  .store-popup-metrics-scroll{flex-basis:240px;min-width:240px;width:240px;}
+  .store-popup-quartile{flex:1 1 auto;min-width:0;}
+  .popup-quartile-scale{margin-right:46px;margin-left:4px;}
+  .popup-quartile-label{left:calc(50% + 50px);max-width:70px;}
+}
