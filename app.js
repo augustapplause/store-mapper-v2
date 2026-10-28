@@ -822,6 +822,8 @@
     storePopupCard.className='store-popup-card';
     storePopupCard.setAttribute('role','dialog');
     storePopupCard.setAttribute('aria-modal','false');
+    const stopPopupMapInteraction=e=>{e.stopPropagation();};
+    ['click','dblclick','mousedown','mouseup','pointerdown','pointerup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>storePopupCard.addEventListener(type,stopPopupMapInteraction,{passive:false}));
     storePopupCard.addEventListener('click',e=>e.stopPropagation());
     storePopupLayer.addEventListener('click',e=>{ if(e.target===storePopupLayer) closeStorePopup(); });
     storePopupLayer.appendChild(storePopupSvg);
@@ -1249,42 +1251,40 @@
 
   function candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius){
     const margin=12;
-    const popupClearance=12;
-    const baseGap=markerRadius+popupClearance;
-    const maxRadius=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h);
+    const gap=markerRadius+12;
+    const candidates=[
+      {name:'right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y},
+      {name:'left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y},
+      {name:'below',cx:markerPoint.x,cy:markerPoint.y+gap+h/2},
+      {name:'above',cx:markerPoint.x,cy:markerPoint.y-gap-h/2},
+      {name:'lower-right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y+gap+h/2},
+      {name:'lower-left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y+gap+h/2},
+      {name:'upper-right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y-gap-h/2},
+      {name:'upper-left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y-gap-h/2}
+    ];
+    for(const c of candidates){
+      const left=c.cx-w/2,top=c.cy-h/2,right=left+w,bottom=top+h;
+      if(left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
+        return {left,top,w,h};
+      }
+    }
     let best=null;
-    // Search radially for the closest valid rectangle. Each direction uses the
-    // exact support distance of the popup rectangle so it starts just outside
-    // the marker, then expands only when viewport clearance requires it.
     for(let i=0;i<360;i++){
-      const angle=(Math.PI*2*i)/360;
-      const ux=Math.cos(angle),uy=Math.sin(angle);
-      const halfW=w/2,halfH=h/2;
-      const support=Math.abs(ux)*halfW+Math.abs(uy)*halfH;
-      let centerDistance=baseGap+support;
-      let accepted=null;
-      while(centerDistance<=maxRadius){
-        const cx=markerPoint.x+ux*centerDistance;
-        const cy=markerPoint.y+uy*centerDistance;
-        const left=cx-halfW,top=cy-halfH;
-        const right=left+w,bottom=top+h;
-        const inside=left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin;
-        if(inside&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
-          const edgeX=clamp(markerPoint.x,left,right);
-          const edgeY=clamp(markerPoint.y,top,bottom);
-          const edgeDistance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
-          accepted={left,top,w,h,edgeDistance,centerDistance,angle};
+      const angle=(Math.PI*2*i)/360,ux=Math.cos(angle),uy=Math.sin(angle);
+      const support=Math.abs(ux)*(w/2)+Math.abs(uy)*(h/2);
+      let centerDistance=gap+support;
+      while(centerDistance<=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h)){
+        const cx=markerPoint.x+ux*centerDistance,cy=markerPoint.y+uy*centerDistance;
+        const left=cx-w/2,top=cy-h/2,right=left+w,bottom=top+h;
+        if(left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
+          const d=Math.hypot(cx-markerPoint.x,cy-markerPoint.y);
+          if(!best||d<best.d)best={left,top,w,h,d};
           break;
         }
         centerDistance+=4;
       }
-      if(accepted){
-        if(!best || accepted.edgeDistance<best.edgeDistance || (Math.abs(accepted.edgeDistance-best.edgeDistance)<0.01&&accepted.centerDistance<best.centerDistance)){
-          best=accepted;
-        }
-      }
     }
-    return best;
+    return best?{left:best.left,top:best.top,w:best.w,h:best.h}:null;
   }
 
   function leaderGeometry(markerPoint,popupRect,markerRadius){
