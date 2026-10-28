@@ -1356,22 +1356,48 @@
   function layoutStorePopup(marker){
     if(!marker||!storePopupLayer||!storePopupCard||!storePopupSvg)return;
     if(marker!==state.openPopupMarker)return;
-    const mapSize=map.getSize();
+    const container=map.getContainer();
+    const containerRect=container?.getBoundingClientRect?.();
+    const cssWidth=Number(container?.clientWidth||0);
+    const cssHeight=Number(container?.clientHeight||0);
+    const mapSize={
+      x:Math.max(1,Math.round(cssWidth || containerRect?.width || map.getSize().x)),
+      y:Math.max(1,Math.round(cssHeight || containerRect?.height || map.getSize().y))
+    };
+    const margin=12;
+    // Constrain the card before choosing a position. This guarantees that a
+    // valid placement can exist whenever the popup can physically fit in the
+    // visible map container. The metrics pane is the scrollable portion.
+    const maxW=Math.max(220,mapSize.x-margin*2);
+    const maxH=Math.max(160,mapSize.y-margin*2);
+    storePopupCard.style.maxWidth=`${maxW}px`;
+    storePopupCard.style.maxHeight=`${maxH}px`;
     const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
     const markerEl=marker.getElement?.()?.querySelector('.store-marker');
     const markerRect=markerEl?.getBoundingClientRect();
     const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
     const cardRect=storePopupCard.getBoundingClientRect();
-    const w=cardRect.width||350;
-    const h=cardRect.height||180;
+    const w=Math.min(cardRect.width||350,maxW);
+    const h=Math.min(cardRect.height||180,maxH);
     const candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
     if(!candidate){
-      // The popup remains visible inside the viewport even in pathological
-      // edge cases. Place it at the closest safe quadrant, never over the marker.
-      const margin=12;
-      const safeX=markerPoint.x<mapSize.x/2?mapSize.x-margin-w:margin;
-      const safeY=markerPoint.y<mapSize.y/2?mapSize.y-margin-h:margin;
-      candidate={left:clamp(safeX,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(safeY,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
+      // If the marker is so close to an edge that no non-overlapping placement
+      // exists, choose the closest in-bounds corner while preserving the
+      // marker exclusion as much as the available geometry permits. This is
+      // a last-resort case after the card has been size-constrained.
+      const corners=[
+        {left:margin,top:margin},
+        {left:mapSize.x-margin-w,top:margin},
+        {left:margin,top:mapSize.y-margin-h},
+        {left:mapSize.x-margin-w,top:mapSize.y-margin-h}
+      ];
+      corners.sort((a,b)=>{
+        const da=Math.hypot(markerPoint.x-(a.left+w/2),markerPoint.y-(a.top+h/2));
+        const db=Math.hypot(markerPoint.x-(b.left+w/2),markerPoint.y-(b.top+h/2));
+        return db-da;
+      });
+      const chosen=corners[0];
+      candidate={left:clamp(chosen.left,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(chosen.top,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
     }
     storePopupCard.style.left=`${candidate.left}px`;
     storePopupCard.style.top=`${candidate.top}px`;
