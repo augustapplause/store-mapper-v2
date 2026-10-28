@@ -1611,7 +1611,7 @@
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
       const navColor=(state.navigationResultKind==='store' && m.__row===state.navigationResultStoreRow) ? state.navigationResultStoreColor : null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navColor||''}`;
-      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor));}
+      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor,dist1,dist2));}
     });
   }
 
