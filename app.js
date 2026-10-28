@@ -1,4 +1,4 @@
-/* Store Explorer - v1.101
+/* Store Explorer - v1.102
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -1087,25 +1087,30 @@
     const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
     const quartileFields=popupFields.filter(f=>f.quartile);
     const tickerItems=state.popupTickerMetrics||[];
-    const tickerField=tickerItems.length?tickerItems[(state.popupTickerIndex||0)%tickerItems.length]:null;
-    const tickerValue=tickerField?popupTickerValue(tickerField,row,values):'';
-    const tickerHtml=tickerField?`<div class="store-popup-ticker" data-popup-ticker><span>${esc(popupTickerTitle(tickerField))}</span><strong>${esc(tickerValue)}</strong></div>`:'';
+    const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
+    const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div>${tickerHtml}<div class="store-popup-body"><div class="store-popup-metrics-scroll"><table>`;
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table></div>${quartileHtml}</div></div>`;
+    html+=`</table></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
-  const POPUP_TICKER_STORAGE_KEY='cse_popup_ticker_config_v101';
+  const POPUP_TICKER_STORAGE_KEY='cse_popup_ticker_config_v102';
+  function popupTickerDefaultHeaders(){
+    const headers=state.headers||[];
+    const findFirst=(patterns)=>headers.find(h=>{const n=norm(h);return patterns.some(p=>n===p||n.includes(p));});
+    const gross=findFirst(['gross square footage','gross sq ft','gross area sq ft','gross area','gross sqft','gross square feet','square footage']);
+    const location=findFirst(['location type']);
+    return [gross,location].filter(Boolean);
+  }
   function loadPopupTickerConfig(){
-    const fallback=[];
-    const defaults=['Total Sales','Store 4-Wall Profit (EBIT)','Total labour expense'].map(n=>state.headers.find(h=>norm(h)===norm(n))).filter(Boolean);
-    for(const h of defaults)fallback.push({formula:h,title:h});
+    const fallback=popupTickerDefaultHeaders().map(h=>({formula:h,title:h}));
     try{
       const raw=localStorage.getItem(POPUP_TICKER_STORAGE_KEY);
       const parsed=raw?JSON.parse(raw):null;
-      state.popupTickerMetrics=Array.isArray(parsed)&&parsed.length?parsed.filter(x=>String(x?.formula||'').trim()).map(x=>({formula:String(x.formula).trim(),title:String(x.title||x.formula).trim()})):fallback;
+      state.popupTickerMetrics=Array.isArray(parsed)?parsed.filter(x=>String(x?.formula||'').trim()).map(x=>({formula:String(x.formula).trim(),title:String(x.title||x.formula).trim()})):fallback;
+      if(!state.popupTickerMetrics.length)state.popupTickerMetrics=fallback;
     }catch(_){state.popupTickerMetrics=fallback;}
     state.popupTickerDraft=state.popupTickerMetrics.map(x=>({...x}));
   }
@@ -1173,14 +1178,17 @@
     return evaluatePopupFormula(field.formula,row,censusValues);
   }
   function renderPopupQuartileBar(row,fields){
-    if(!fields.length)return '';
-    const dots=fields.map((f,i)=>{const pct=state.popupQuartileValues?.[f.formula];if(!Number.isFinite(pct))return '';const top=(1-pct)*100;return `<span class="popup-quartile-dot qdot-${i%6}" style="top:${top.toFixed(3)}%" title="${esc(tickerMetricTitle(f))}"></span>`;}).join('');
+    const items=fields||[];
+    const dots=items.map((f,i)=>{const pct=state.popupQuartileValues?.[f.formula];if(!Number.isFinite(pct))return '';const top=(1-pct)*100;const label=tickerMetricTitle(f);return `<span class="popup-quartile-item" style="top:${top.toFixed(3)}%"><span class="popup-quartile-dot qdot-${i%6}" title="${esc(label)}"></span><span class="popup-quartile-leader" aria-hidden="true"></span><span class="popup-quartile-label">${esc(label)}</span></span>`;}).join('');
     return `<aside class="store-popup-quartile" aria-label="Store quartile position"><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
   }
   function startPopupTicker(){
     clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;
-    if(!state.popupTickerPlaying||state.popupTickerMetrics.length<2)return;
-    state.popupTickerTimer=setInterval(()=>{if(!state.openPopupMarker)return;state.popupTickerIndex=(state.popupTickerIndex+1)%state.popupTickerMetrics.length;refreshOpenPopupCard();},Math.max(1000,2000-Math.min(120,state.tickerSpeed)*8));
+    const track=storePopupCard?.querySelector?.('.store-popup-ticker-track');
+    if(!track)return;
+    const duration=Math.max(5,15-Math.min(120,Number(state.tickerSpeed)||70)*0.075);
+    track.style.animationDuration=`${duration.toFixed(2)}s`;
+    track.classList.toggle('paused',!state.popupTickerPlaying);
   }
   async function refreshOpenPopupCard(){
     const marker=state.openPopupMarker;if(!marker)return;
@@ -1199,7 +1207,12 @@
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
     closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
     const ticker=storePopupCard.querySelector('[data-popup-ticker]');
-    ticker?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;startPopupTicker();});
+    if(ticker){
+      ticker.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;ticker.classList.toggle('paused',!state.popupTickerPlaying);startPopupTicker();});
+      const scroll=storePopupCard.querySelector('.store-popup-metrics-scroll');
+      if(scroll && window.L?.DomEvent?.disableScrollPropagation)L.DomEvent.disableScrollPropagation(scroll);
+      scroll?.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
+    }
   }
   function hasPopupVirtualFields(){return popupItems().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));}
 
@@ -3168,11 +3181,18 @@
   el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
   el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const column=state.headers[0]||'';state.popupConfigDraft.push({type:'column',column,formula:'',title:column,numberFormat:'auto',decimalPlaces:0});renderPopupConfig();});
   el('popupTickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupTickerConfig();});
-  el('popupTickerAdd').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerDraft.push({formula:'',title:''});renderPopupTickerConfig();});
   el('popupTickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupTickerConfig();});
-  document.addEventListener('change',e=>{if(e.target.matches('.popup-ticker-column-select')){const i=+e.target.dataset.index;const m=state.popupTickerDraft[i];m.formula=e.target.value;if(!m.title)m.title=e.target.value;renderPopupTickerConfig();}});
-  document.addEventListener('input',e=>{if(e.target.matches('.popup-ticker-title-input'))state.popupTickerDraft[+e.target.dataset.index].title=e.target.value;});
-  document.addEventListener('click',e=>{const b=e.target.closest('.popup-ticker-remove');if(!b)return;const i=+b.dataset.index;state.popupTickerDraft.splice(i,1);renderPopupTickerConfig();});
+  document.addEventListener('change',e=>{
+    if(!e.target.matches('.popup-ticker-option-check'))return;
+    const formula=String(e.target.dataset.formula||'').trim();if(!formula)return;
+    const list=state.popupTickerDraft||[];
+    if(e.target.checked){
+      if(!list.some(m=>String(m.formula||'').trim()===formula))list.push({formula,title:formula});
+    }else{
+      state.popupTickerDraft=list.filter(m=>String(m.formula||'').trim()!==formula);
+    }
+    state.popupTickerDraft=list;
+  });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
   el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
@@ -3300,13 +3320,16 @@
     if(state.openPopupMarker){await refreshOpenPopupCard();}
     el('popupDialog').close();
   }
+  function popupTickerSelectedSet(){return new Set((state.popupTickerDraft||[]).map(m=>String(m.formula||'').trim()).filter(Boolean));}
   function renderPopupTickerConfig(){
-    const wrap=el('popupTickerFieldList');if(!wrap)return;const cols=[...state.headers,...popupVirtualNames()];wrap.innerHTML='';
-    const items=state.popupTickerDraft||[];
-    if(!items.length){wrap.innerHTML='<div class="empty-message">Add a ticker column below.</div>';}
-    items.forEach((m,idx)=>{
-      const row=document.createElement('div');row.className='popup-ticker-config-row';row.dataset.index=idx;
-      row.innerHTML=`<label><span>Column</span><select class="popup-ticker-column-select" data-index="${idx}"><option value="">Choose column</option>${cols.map(h=>`<option value="${esc(h)}" ${m.formula===h?'selected':''}>${esc(h)}</option>`).join('')}</select></label><label><span>Title</span><input class="popup-ticker-title-input" data-index="${idx}" value="${esc(m.title||m.formula||'')}" placeholder="Column title"></label><button type="button" class="icon-btn popup-ticker-remove" data-index="${idx}" aria-label="Remove ticker column">×</button>`;
+    const wrap=el('popupTickerFieldList');if(!wrap)return;
+    const cols=[...state.headers,...popupVirtualNames()];
+    const selected=popupTickerSelectedSet();
+    wrap.innerHTML='<div class="popup-ticker-config-head"><span>Column</span><span>Ticker</span></div>';
+    if(!cols.length){wrap.innerHTML+='<div class="empty-message">Load a financial workbook first.</div>';return;}
+    cols.forEach((col,idx)=>{
+      const row=document.createElement('label');row.className='popup-ticker-option-row';
+      row.innerHTML=`<span class="popup-ticker-option-title">${esc(col)}</span><input type="checkbox" class="popup-ticker-option-check" data-index="${idx}" data-formula="${esc(col)}" ${selected.has(col)?'checked':''} aria-label="Use ${esc(col)} in popup ticker">`;
       wrap.appendChild(row);
     });
   }

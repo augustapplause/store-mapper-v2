@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.101</title>
+  <title>Store Explorer v1.102</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.101.0" />
+      <link rel="stylesheet" href="styles.css?v=1.102.0" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.100</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.102</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCircleStatus" class="header-circle-status hidden" aria-label="Selection circle active"><span class="header-circle-icon" aria-hidden="true"></span><span id="headerCircleRadius">— km</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -264,11 +264,11 @@
   <dialog id="popupTickerDialog" class="ticker-dialog popup-config-dialog">
     <form method="dialog" id="popupTickerForm">
       <div class="dialog-header ticker-dialog-header">
-        <div><h2>Popup Ticker Columns</h2><p>Choose columns or Census virtual fields for the popup ticker. The ticker uses all columns, including text fields.</p></div>
+        <div><h2>Popup Ticker Columns</h2><p>Choose which workbook columns or Census virtual fields appear in the popup ticker.</p></div>
         <button value="cancel" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="ticker-config-main"><div id="popupTickerFieldList" class="popup-ticker-field-list"></div></div>
-      <div class="dialog-footer ticker-dialog-footer"><button id="popupTickerAdd" type="button" class="secondary">Add ticker column</button><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="popupTickerApply" type="button">Save ticker</button></div></div>
+      <div class="dialog-footer ticker-dialog-footer"><div></div><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="popupTickerApply" type="button">Save ticker</button></div></div>
     </form>
   </dialog>
 
@@ -336,7 +336,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
-  <script src="app.js?v=1.101.0"></script>
+  <script src="app.js?v=1.102.0"></script>
 
 
 </body>
