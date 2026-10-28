@@ -893,7 +893,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 }
 
 
-/* v1.119 deterministic popup geometry refinements */
+/* v1.120 deterministic popup geometry refinements */
 .store-popup-card{
   width:450px;
   height:256px;
@@ -910,4 +910,21 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-popup-ticker{height:34px;min-height:34px;max-height:34px;}
 @media (max-width:760px){
   .store-popup-card{width:min(450px,calc(100% - 24px));height:256px;}
+}
+
+/* v1.120 popup refinements */
+.store-popup-card{
+  height:248px;
+  grid-template-rows:53px 165px 30px;
+}
+.store-popup-card .store-popup{
+  grid-template-rows:53px 165px 30px;
+}
+.store-popup-card .store-popup-head{height:53px;}
+.store-popup-ticker{height:30px;min-height:30px;max-height:30px;}
+.popup-quartile-scale{width:38px;min-width:38px;max-width:38px;}
+.store-popup-metrics-scroll td:last-child{transform:translateX(-10px);}
+.popup-quartile-heading{left:18px;}
+@media (max-width:760px){
+  .popup-quartile-scale{width:38px;min-width:38px;max-width:38px;}
 }
