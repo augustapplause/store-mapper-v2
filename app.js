@@ -424,14 +424,20 @@
 
   async function geocodeAndRadius(query){
     if(!query.trim())return;
-    const token=++state.searchToken;setMapLoading(true);
+    const token=++state.searchToken;
     try{
       const qs=new URLSearchParams({SingleLine:query,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});
       const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});
       if(token!==state.searchToken)return;
       const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');
       const lat=c.location.y,lng=c.location.x;
-      const provinceCode=provinceCodeFromAddress(query,c)||await queryProvinceAt(lat,lng);
+      let provinceCode=provinceCodeFromAddress(query,c);
+      if(!provinceCode){
+        if(!state.headerLookupReady) await loadHeaderCsdLookup();
+        const csd=getCsdAtPoint(lat,lng);
+        provinceCode=csd ? provinceCodeFromCsdFeature(csd) : null;
+      }
+      if(!provinceCode) throw new Error('Could not determine province for this address.');
       closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
       state.navigationDaSuppressed=true;
       state.storeJumpTarget=null;
@@ -456,7 +462,6 @@
       fitMapProgrammatically(targetBounds,{padding:[25,25]});
       setTimeout(finish,900);
     }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
-    finally{if(token===state.searchToken)setMapLoading(false);}
   }
 
   function resetCanada(){
