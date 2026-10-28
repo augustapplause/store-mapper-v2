@@ -757,3 +757,5 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-ticker-option-check{justify-self:center;width:16px;height:16px;}
 .popup-ticker-field-list{display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto;padding-right:2px;}
 @media (max-width:760px){.store-popup-card{width:min(600px,calc(100% - 24px));}.store-popup-body{gap:9px;}.store-popup-quartile{flex-basis:156px;min-width:156px;}.popup-quartile-scale{margin-right:84px;}.popup-quartile-label{left:calc(50% + 54px);max-width:70px;}}
+/* v1.107 popup positioning and independent popup ticker speed controls */
+.store-popup-card{box-sizing:border-box;max-height:calc(100% - 24px);}

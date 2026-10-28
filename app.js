@@ -1294,40 +1294,42 @@
 
   function candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius){
     const margin=12;
-    const gap=markerRadius+12;
-    const candidates=[
-      {name:'right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y},
-      {name:'left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y},
-      {name:'below',cx:markerPoint.x,cy:markerPoint.y+gap+h/2},
-      {name:'above',cx:markerPoint.x,cy:markerPoint.y-gap-h/2},
-      {name:'lower-right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y+gap+h/2},
-      {name:'lower-left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y+gap+h/2},
-      {name:'upper-right',cx:markerPoint.x+gap+w/2,cy:markerPoint.y-gap-h/2},
-      {name:'upper-left',cx:markerPoint.x-gap-w/2,cy:markerPoint.y-gap-h/2}
-    ];
-    for(const c of candidates){
-      const left=c.cx-w/2,top=c.cy-h/2,right=left+w,bottom=top+h;
-      if(left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
-        return {left,top,w,h};
-      }
-    }
+    const popupClearance=12;
+    const baseGap=markerRadius+popupClearance;
+    const maxRadius=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h);
     let best=null;
+    // Search radially for the closest valid rectangle. Each direction uses the
+    // exact support distance of the popup rectangle so it starts just outside
+    // the marker, then expands only when viewport clearance requires it.
     for(let i=0;i<360;i++){
-      const angle=(Math.PI*2*i)/360,ux=Math.cos(angle),uy=Math.sin(angle);
-      const support=Math.abs(ux)*(w/2)+Math.abs(uy)*(h/2);
-      let centerDistance=gap+support;
-      while(centerDistance<=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h)){
-        const cx=markerPoint.x+ux*centerDistance,cy=markerPoint.y+uy*centerDistance;
-        const left=cx-w/2,top=cy-h/2,right=left+w,bottom=top+h;
-        if(left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
-          const d=Math.hypot(cx-markerPoint.x,cy-markerPoint.y);
-          if(!best||d<best.d)best={left,top,w,h,d};
+      const angle=(Math.PI*2*i)/360;
+      const ux=Math.cos(angle),uy=Math.sin(angle);
+      const halfW=w/2,halfH=h/2;
+      const support=Math.abs(ux)*halfW+Math.abs(uy)*halfH;
+      let centerDistance=baseGap+support;
+      let accepted=null;
+      while(centerDistance<=maxRadius){
+        const cx=markerPoint.x+ux*centerDistance;
+        const cy=markerPoint.y+uy*centerDistance;
+        const left=cx-halfW,top=cy-halfH;
+        const right=left+w,bottom=top+h;
+        const inside=left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin;
+        if(inside&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
+          const edgeX=clamp(markerPoint.x,left,right);
+          const edgeY=clamp(markerPoint.y,top,bottom);
+          const edgeDistance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
+          accepted={left,top,w,h,edgeDistance,centerDistance,angle};
           break;
         }
         centerDistance+=4;
       }
+      if(accepted){
+        if(!best || accepted.edgeDistance<best.edgeDistance || (Math.abs(accepted.edgeDistance-best.edgeDistance)<0.01&&accepted.centerDistance<best.centerDistance)){
+          best=accepted;
+        }
+      }
     }
-    return best?{left:best.left,top:best.top,w:best.w,h:best.h}:null;
+    return best;
   }
 
   function leaderGeometry(markerPoint,popupRect,markerRadius){
@@ -1371,11 +1373,8 @@
       const safeY=markerPoint.y<mapSize.y/2?mapSize.y-margin-h:margin;
       candidate={left:clamp(safeX,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(safeY,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
     }
-    const margin=12;
-    const safeLeft=clamp(candidate.left,margin,Math.max(margin,mapSize.x-w-margin));
-    const safeTop=clamp(candidate.top,margin,Math.max(margin,mapSize.y-h-margin));
-    storePopupCard.style.left=`${safeLeft}px`;
-    storePopupCard.style.top=`${safeTop}px`;
+    storePopupCard.style.left=`${candidate.left}px`;
+    storePopupCard.style.top=`${candidate.top}px`;
     const leader=leaderGeometry(markerPoint,candidate,markerRadius);
     storePopupSvg.setAttribute('width',String(mapSize.x));
     storePopupSvg.setAttribute('height',String(mapSize.y));
