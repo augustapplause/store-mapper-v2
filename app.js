@@ -379,7 +379,7 @@
 
   async function loadProvinces() {
     // Optional visual layer only. Census/DA selection never depends on this remote source.
-    setMapLoading(true);
+    // Do not block the main map with the Loading geography overlay.
     try {
       state.provinceGeo = await arcgisGeoJSON(CONFIG.provinceLayer);
       if (state.provinceLayer) map.removeLayer(state.provinceLayer);
@@ -395,7 +395,6 @@
     } catch(err) {
       el('geoStatus').textContent=`Province visual boundaries unavailable: ${err.message}`;
     } finally {
-      setMapLoading(false);
       setTimeout(()=>{
         map.invalidateSize(false);
       },100);
@@ -809,7 +808,28 @@
   let storePopupFrame = null;
   let storePopupResizeObserver = null;
   let storePopupLayoutQueued = false;
+  let storePopupInteraction = {active:false, mapDragWasEnabled:false, pointerId:null};
 
+  function releaseStorePopupPointer(){
+    if(!storePopupInteraction.active)return;
+    const wasEnabled=storePopupInteraction.mapDragWasEnabled;
+    storePopupInteraction.active=false;
+    storePopupInteraction.pointerId=null;
+    if(wasEnabled && map?.dragging && !map.dragging.enabled()) map.dragging.enable();
+  }
+  function beginStorePopupPointer(e){
+    if(!storePopupCard || (e?.pointerType==='mouse' && e?.button!==0))return;
+    storePopupInteraction.active=true;
+    storePopupInteraction.mapDragWasEnabled=!!(map?.dragging?.enabled?.() ?? false);
+    storePopupInteraction.pointerId=Number.isFinite(e?.pointerId)?e.pointerId:null;
+    if(storePopupInteraction.mapDragWasEnabled && map?.dragging?.enabled?.()) map.dragging.disable();
+    try{ if(storePopupInteraction.pointerId!==null && storePopupCard.setPointerCapture) storePopupCard.setPointerCapture(storePopupInteraction.pointerId); }catch(_){}
+    e.stopPropagation();
+  }
+  function handleStorePopupPointerRelease(e){
+    if(storePopupInteraction.pointerId!==null && Number.isFinite(e?.pointerId) && e.pointerId!==storePopupInteraction.pointerId)return;
+    releaseStorePopupPointer();
+  }
   function ensureStorePopupOverlay(){
     if(storePopupLayer && storePopupCard && storePopupSvg) return;
     const container=map.getContainer();
@@ -824,8 +844,15 @@
     storePopupCard.setAttribute('role','dialog');
     storePopupCard.setAttribute('aria-modal','false');
     const stopPopupMapInteraction=e=>{e.stopPropagation();};
-    ['click','dblclick','mousedown','mouseup','pointerdown','pointerup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>storePopupCard.addEventListener(type,stopPopupMapInteraction,{passive:false}));
+    ['click','dblclick','mousedown','mouseup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>storePopupCard.addEventListener(type,stopPopupMapInteraction,{passive:false}));
+    storePopupCard.addEventListener('pointerdown',beginStorePopupPointer,{passive:false});
+    storePopupCard.addEventListener('pointerup',handleStorePopupPointerRelease,{passive:false});
+    storePopupCard.addEventListener('pointercancel',handleStorePopupPointerRelease,{passive:false});
+    storePopupCard.addEventListener('lostpointercapture',handleStorePopupPointerRelease,{passive:false});
     storePopupCard.addEventListener('click',e=>e.stopPropagation());
+    window.addEventListener('pointerup',handleStorePopupPointerRelease,{passive:true});
+    window.addEventListener('pointercancel',handleStorePopupPointerRelease,{passive:true});
+    window.addEventListener('blur',releaseStorePopupPointer,{passive:true});
     storePopupLayer.addEventListener('click',e=>{ if(e.target===storePopupLayer) closeStorePopup(); });
     storePopupLayer.appendChild(storePopupSvg);
     storePopupLayer.appendChild(storePopupCard);
@@ -1187,9 +1214,9 @@
   function renderPopupQuartileBar(row,fields){
     const items=(fields||[]).map((f,i)=>{
       const pct=state.popupQuartileValues?.[f.formula];
-      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*180:null};
+      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*150:null};
     }).filter(x=>x.pct!==null);
-    const minGap=18, minY=10, maxY=170;
+    const minGap=16, minY=8, maxY=142;
     const sorted=[...items].sort((a,b)=>a.actualY-b.actualY);
     let prev=-Infinity;
     for(const item of sorted){
@@ -1208,14 +1235,14 @@
     const dots=(items.map(item=>{
       const x=byIndex.get(item.index);
       const label=tickerMetricTitle(item.field);
-      const dx=58-29;
+      const dx=54-24;
       const dy=x.labelY-x.actualY;
       const width=Math.sqrt(dx*dx+dy*dy);
       const angle=Math.atan2(dy,dx)*180/Math.PI;
       const labelOffset=x.labelY-x.actualY;
       return `<span class="popup-quartile-item" style="top:${item.actualY.toFixed(3)}px;--label-offset:${labelOffset.toFixed(2)}px;--leader-width:${width.toFixed(2)}px;--leader-angle:${angle.toFixed(2)}deg"><span class="popup-quartile-dot qdot-${item.index%6}" title="${esc(label)}"></span><span class="popup-quartile-leader" aria-hidden="true"></span><span class="popup-quartile-label">${esc(label)}</span></span>`;
     }).join(''));
-    return `<aside class="store-popup-quartile" aria-label="Store quartile position"><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
+    return `<aside class="store-popup-quartile" aria-label="Store quartile position"><span class="popup-quartile-heading">Quartile</span><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
   }
   function startPopupTicker(){
     clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;
@@ -1261,6 +1288,7 @@
   function hasPopupVirtualFields(){return popupItems().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));}
 
   function closeStorePopup(){
+    releaseStorePopupPointer();
     state.popupRenderToken++;
     if(!storePopupLayer)return;
     if(storePopupFrame)cancelAnimationFrame(storePopupFrame);

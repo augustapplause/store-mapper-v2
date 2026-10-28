@@ -722,23 +722,24 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 /* Store Explorer v1.106 popup layout refinement */
 .store-popup-card{width:490px;max-width:calc(100% - 24px);}
 .store-popup-body{display:flex;align-items:stretch;gap:10px;padding:10px 12px 8px;background:#fff;min-height:0;overflow:hidden;}
-.store-popup-metrics-scroll{flex:1 1 auto;min-width:0;height:168px;max-height:min(168px,calc(100% - 18px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.store-popup-metrics-scroll{flex:1 1 auto;min-width:0;height:122px;max-height:min(122px,calc(100% - 18px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;}
 .store-popup-metrics-scroll table{width:222px;min-width:222px;max-width:none;margin:0;border-collapse:collapse;table-layout:fixed;}
-.store-popup-metrics-scroll tr{display:grid;grid-template-columns:120px 90px;column-gap:12px;width:222px;min-width:222px;} .store-popup-metrics-scroll td{display:block;padding:3px 0;border-bottom:1px solid #eee;font-size:11px;line-height:20px;white-space:nowrap;min-width:0;}
+.store-popup-metrics-scroll tr{display:grid;grid-template-columns:120px 90px;column-gap:12px;width:222px;min-width:222px;} .store-popup-metrics-scroll td{display:block;padding:1px 0;border-bottom:1px solid #eee;font-size:11px;line-height:19px;white-space:nowrap;min-width:0;}
 .store-popup-metrics-scroll td:first-child{overflow:hidden;text-overflow:ellipsis;padding-right:0;width:120px;}
 .store-popup-metrics-scroll td:last-child{text-align:right;font-weight:700;padding-left:0;overflow:hidden;text-overflow:ellipsis;width:90px;}
-.store-popup-quartile{flex:0 0 150px;min-width:150px;display:flex;align-items:center;justify-content:center;min-height:180px;overflow:hidden;}
-.popup-quartile-scale{position:relative;flex:0 0 48px;width:48px;height:180px;margin:0 76px 0 0;border:2px solid #7d8994;box-sizing:border-box;background:#fff;}
+.store-popup-quartile{flex:0 0 150px;min-width:150px;display:flex;align-items:center;justify-content:center;min-height:150px;overflow:hidden;}
+.popup-quartile-scale{position:relative;flex:0 0 48px;width:48px;height:150px;margin:0 76px 0 0;border:2px solid #7d8994;box-sizing:border-box;background:#fff;}
 .popup-quartile-scale .qline{position:absolute;left:0;right:0;border-top:2px solid #9ea8b1;}
 .popup-quartile-scale .q100{top:0;border-top-color:#7d8994;}
 .popup-quartile-scale .q75{top:25%;}
 .popup-quartile-scale .q50{top:50%;}
 .popup-quartile-scale .q25{top:75%;}
 .popup-quartile-scale .q0{top:100%;border-top-color:#7d8994;}
-.popup-quartile-scale .q100 b{position:absolute;left:50%;top:-18px;transform:translateX(-50%);font-size:9px;color:#5b6570;font-weight:700;white-space:nowrap;}
+.popup-quartile-scale .q100 b{position:absolute;left:50%;top:-17px;transform:translateX(-50%);font-size:9px;color:#5b6570;font-weight:700;white-space:nowrap;}
 .popup-quartile-item{position:absolute;left:0;right:0;height:1px;pointer-events:none;}
 .popup-quartile-dot{position:absolute;left:50%;top:0;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);z-index:2;}
 .popup-quartile-leader{position:absolute;left:calc(50% + 5px);top:0;width:var(--leader-width,48px);border-top:2px solid #8b959f;transform:translateY(-50%) rotate(var(--leader-angle,0deg));transform-origin:left center;}
+.popup-quartile-heading{position:absolute;left:-24px;top:50%;transform:translate(-50%,-50%) rotate(-90deg);font-size:10px;line-height:1;font-weight:700;color:#4b5563;white-space:nowrap;}
 .popup-quartile-label{position:absolute;left:calc(50% + 58px);top:var(--label-offset,0px);transform:translateY(-50%);font-size:10px;line-height:1.1;font-weight:700;color:#4b5563;white-space:nowrap;max-width:78px;overflow:hidden;text-overflow:ellipsis;}
 .popup-quartile-dot.qdot-0{background:#3b5ccc}.popup-quartile-dot.qdot-1{background:#d34c4c}.popup-quartile-dot.qdot-2{background:#00897b}.popup-quartile-dot.qdot-3{background:#8e5aa7}.popup-quartile-dot.qdot-4{background:#c98600}.popup-quartile-dot.qdot-5{background:#546e7a;}
 .store-popup-ticker{width:100%;box-sizing:border-box;background:#a81f24;color:#fff;font-weight:600;font-size:12px;line-height:18px;padding:8px 12px;cursor:pointer;user-select:none;overflow:hidden;}
