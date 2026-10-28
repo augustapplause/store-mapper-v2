@@ -828,7 +828,6 @@
     storePopupInteraction.mapDragWasEnabled=!!(map?.dragging?.enabled?.() ?? false);
     storePopupInteraction.pointerId=Number.isFinite(e?.pointerId)?e.pointerId:null;
     if(storePopupInteraction.mapDragWasEnabled && map?.dragging?.enabled?.()) map.dragging.disable();
-    try{ if(storePopupInteraction.pointerId!==null && storePopupCard.setPointerCapture) storePopupCard.setPointerCapture(storePopupInteraction.pointerId); }catch(_){}
     e.stopPropagation();
   }
   function handleStorePopupPointerRelease(e){
