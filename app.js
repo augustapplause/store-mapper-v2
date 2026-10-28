@@ -807,6 +807,7 @@
   let storePopupCard = null;
   let storePopupSvg = null;
   let storePopupFrame = null;
+  let storePopupResizeObserver = null;
   let storePopupLayoutQueued = false;
 
   function ensureStorePopupOverlay(){
@@ -829,6 +830,10 @@
     storePopupLayer.appendChild(storePopupSvg);
     storePopupLayer.appendChild(storePopupCard);
     container.appendChild(storePopupLayer);
+    if(typeof ResizeObserver==='function'){
+      storePopupResizeObserver=new ResizeObserver(()=>requestStorePopupLayout());
+      storePopupResizeObserver.observe(storePopupCard);
+    }
   }
 
   const POPUP_HEADER_STORAGE_KEY='cse_popup_header_config_v176';
@@ -1328,8 +1333,11 @@
       const safeY=markerPoint.y<mapSize.y/2?mapSize.y-margin-h:margin;
       candidate={left:clamp(safeX,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(safeY,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
     }
-    storePopupCard.style.left=`${candidate.left}px`;
-    storePopupCard.style.top=`${candidate.top}px`;
+    const margin=12;
+    const safeLeft=clamp(candidate.left,margin,Math.max(margin,mapSize.x-w-margin));
+    const safeTop=clamp(candidate.top,margin,Math.max(margin,mapSize.y-h-margin));
+    storePopupCard.style.left=`${safeLeft}px`;
+    storePopupCard.style.top=`${safeTop}px`;
     const leader=leaderGeometry(markerPoint,candidate,markerRadius);
     storePopupSvg.setAttribute('width',String(mapSize.x));
     storePopupSvg.setAttribute('height',String(mapSize.y));
