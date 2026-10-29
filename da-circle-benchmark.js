@@ -237,32 +237,122 @@
     return pairs;
   }
 
-  function findEdgePairs(asset, count, radiusKm, seed, windowPctPoints) {
+  function bboxMeters(record, scale, centerLatDeg) {
+    const b=bboxRecord(record,scale);
+    const latScale=111320;
+    const lonScale=111320*Math.max(0.15,Math.cos(degToRad(centerLatDeg)));
+    return {
+      width:(b[2]-b[0])*lonScale,
+      height:(b[3]-b[1])*latScale,
+      bbox:b
+    };
+  }
+
+  function offsetLngLat(lng,lat,eastMeters,northMeters){
+    const latRad=degToRad(lat);
+    const lonMetersPerDeg=111320*Math.max(0.15,Math.cos(latRad));
+    return {
+      lng:lng + eastMeters/lonMetersPerDeg,
+      lat:lat + northMeters/111320
+    };
+  }
+
+  function turfOverlapPctFromGeom(geom, daArea, pair) {
+    const daFeature={type:'Feature',properties:{},geometry:geom};
+    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm);
+    const inter=turf.intersect(turf.featureCollection([daFeature,circle]));
+    if(!inter) return 0;
+    const area=turf.area(inter);
+    return daArea>0 ? area/daArea*100 : 0;
+  }
+
+  function findCrossingOnRay(geom, daArea, start, angleRad, radiusKm, targetPct, maxDistanceMeters) {
+    const radiusMeters=radiusKm*1000;
+    const dirX=Math.cos(angleRad), dirY=Math.sin(angleRad);
+    let lo=0;
+    let hi=maxDistanceMeters;
+    const startPct=turfOverlapPctFromGeom(geom,daArea,{lng:start.lng,lat:start.lat,radiusKm});
+    if(startPct < targetPct) return null;
+
+    let endPoint=offsetLngLat(start.lng,start.lat,dirX*hi,dirY*hi);
+    let endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm});
+    let expand=0;
+    while(endPct >= targetPct && expand<8){
+      hi*=2;
+      endPoint=offsetLngLat(start.lng,start.lat,dirX*hi,dirY*hi);
+      endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm});
+      expand++;
+    }
+    if(endPct >= targetPct) return null;
+
+    for(let i=0;i<28;i++){
+      const mid=(lo+hi)/2;
+      const pt=offsetLngLat(start.lng,start.lat,dirX*mid,dirY*mid);
+      const pct=turfOverlapPctFromGeom(geom,daArea,{lng:pt.lng,lat:pt.lat,radiusKm});
+      if(pct>=targetPct) lo=mid;
+      else hi=mid;
+    }
+    const dist=(lo+hi)/2;
+    const pt=offsetLngLat(start.lng,start.lat,dirX*dist,dirY*dist);
+    const pct=turfOverlapPctFromGeom(geom,daArea,{lng:pt.lng,lat:pt.lat,radiusKm});
+    return {pair:{lng:pt.lng,lat:pt.lat,radiusKm},pct,distanceMeters:dist};
+  }
+
+  async function findEdgePairs(asset, count, radiusKm, seed, windowPctPoints) {
     const rng=makeRng(seed);
     const scale=asset.coordinate_scale||1e7;
     const n=asset.feature_count;
     const pairs=[];
     const screenedResults=[];
-    const targetMin=15-windowPctPoints;
-    const targetMax=15+windowPctPoints;
-    const maxAttempts=Math.max(count*250, 25000);
+    const target=15;
+    const targetMin=target-windowPctPoints;
+    const targetMax=target+windowPctPoints;
     let attempts=0;
     let exactTests=0;
+    const maxAttempts=Math.max(count*8, 5000);
+
     while(pairs.length<count && attempts<maxAttempts){
       attempts++;
       const idx=Math.floor(rng()*n);
       const rec=asset.geometry_records[idx];
       if(!rec?.b) continue;
-      const b=bboxRecord(rec,scale);
-      const lon=(b[0]+b[2])/2 + (rng()-0.5)*(b[2]-b[0])*2.5;
-      const lat=(b[1]+b[3])/2 + (rng()-0.5)*(b[3]-b[1])*2.5;
-      if(!Number.isFinite(lon)||!Number.isFinite(lat)) continue;
-      const pair={idx,lng:lon,lat,radiusKm};
-      const r=exactPair(asset,pair,'turf');
-      if(r.stage==='exact') exactTests++;
-      if(r.stage==='exact' && r.pct>=targetMin && r.pct<=targetMax){
-        pairs.push(pair);
-        screenedResults.push(r);
+      const scaleValue=asset.coordinate_scale||1e7;
+      const geom=decodeGeometry(rec,scaleValue);
+      const daFeature={type:'Feature',properties:{},geometry:geom};
+      const daArea=turf.area(daFeature);
+      if(!(daArea>0)) continue;
+
+      const start=turf.pointOnFeature(daFeature).geometry.coordinates;
+      if(!Array.isArray(start)||start.length<2) continue;
+      const startPt={lng:Number(start[0]),lat:Number(start[1])};
+      if(!Number.isFinite(startPt.lng)||!Number.isFinite(startPt.lat)) continue;
+
+      const bm=bboxMeters(rec,scaleValue,startPt.lat);
+      const maxDistance=Math.max(10000,Math.hypot(bm.width,bm.height)+radiusKm*2000);
+      let found=null;
+
+      // Try several outward rays.  Starting from an interior point means the
+      // overlap is typically above 15%; moving outward forces a deliberate
+      // crossing of the decision boundary.
+      const rays=[
+        rng()*Math.PI*2, rng()*Math.PI*2, rng()*Math.PI*2, rng()*Math.PI*2,
+        0, Math.PI/2, Math.PI, 3*Math.PI/2
+      ];
+      for(const angle of rays){
+        const crossing=findCrossingOnRay(geom,daArea,startPt,angle,radiusKm,target,maxDistance);
+        exactTests += 30;
+        if(crossing && crossing.pct>=targetMin && crossing.pct<=targetMax){
+          found=crossing;
+          break;
+        }
+      }
+      if(!found) continue;
+
+      pairs.push({idx,lng:found.pair.lng,lat:found.pair.lat,radiusKm});
+      screenedResults.push({stage:'exact',pct:found.pct});
+      if(pairs.length===1 || pairs.length%10===0){
+        els.status.textContent=`Constructing 15% edge cases: ${pairs.length.toLocaleString()} / ${count.toLocaleString()} (${attempts.toLocaleString()} DAs tried)…`;
+        await new Promise(r=>setTimeout(r,0));
       }
     }
     return {pairs, screenedResults, attempts, exactTests, targetMin, targetMax};
@@ -321,7 +411,7 @@
       let edgeMeta=null;
       if(mode==='edge15'){
         els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Searching for ${count.toLocaleString()} pairs within ±${edgeWindow} percentage points of 15%…`;
-        edgeMeta=findEdgePairs(asset,count,radiusKm,seed,edgeWindow);
+        edgeMeta=await findEdgePairs(asset,count,radiusKm,seed,edgeWindow);
         pairs=edgeMeta.pairs;
         if(pairs.length<count){
           throw new Error(`Only found ${pairs.length.toLocaleString()} edge-case pairs after ${edgeMeta.attempts.toLocaleString()} samples. Try a wider edge window or fewer pairs.`);
