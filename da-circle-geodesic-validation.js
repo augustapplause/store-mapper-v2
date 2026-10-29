@@ -1,7 +1,6 @@
 (() => {
   'use strict';
 
-  const ASSET = 'ON_da_spatial_asset_v1.json';
   const R = 6371008.8;
   const cases = [
     {id:'#549', index:10800, lng:-79.59694983, lat:43.55434149, radiusKm:2},
@@ -152,32 +151,34 @@
     '#774': {ratio:13.094061127809423, area:30488.510547101498, intersection:3992.184209627283}
   };
 
+  const embedded = {
+    coordinate_scale: 10000000,
+    geometry_records: {"10800":{"b":[-796013006,435719940,-796011376,435721831],"g":"o7mR9wXM2cSfA8QLwR27GaIU+A2gCQ==","r":[4],"p":[1],"t":0},"11045":{"b":[-802506220,435471862,-802430838,435524357],"g":"6/2g/QXo3aafA/l/+0XnyAKef4nRBdxi0F2k0gSUqQbbvQT86gGrUIwomWA=","r":[8],"p":[1],"t":0},"6459":{"b":[-795161787,436502606,-795089343,436580372],"g":"oeen9gXOk62gA+KTAsONBIbRA/vpAbqbAbf1Ar+QArwb3bMC9UDXpwSKvwnU6wHXLA==","r":[8],"p":[1],"t":0},"1193":{"b":[-758014115,453468605,-757971066,453514220],"g":"3+bv0gW0vb+wA+qEApuEBPmXAp0y54QB1NMB7z+dEfvDAZzBAqSyAYrFAcDpAaGSAQ==","r":[8],"p":[1],"t":0},"8137":{"b":[-793090753,436715103,-793059480,436744689],"g":"naqq9AWSob6gA82tAdEnlZMB5tMBopoCvPoBnnK5SZBcj+8B88QB1yiIHa1F","r":[8],"p":[1],"t":0},"1573":{"b":[-757006930,454158039,-756975416,454179108],"g":"75z00QWEp5CxA6/PAtOLAYGdAfa+Aa7NAqKKAYSfAcO9AQ==","r":[5],"p":[1],"t":0}}
+  };
+
   async function run() {
     els.run.disabled=true;
-    els.status.textContent='Loading Ontario spatial asset…';
+    els.status.textContent='Validation data ready — decoding 6 difficult DA geometries…';
+    await new Promise(r=>setTimeout(r,0));
     const t0=performance.now();
-    const res=await fetch(ASSET,{cache:'no-store'});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const asset=await res.json();
-    const loadMs=performance.now()-t0;
-    const scale=asset.coordinate_scale||1e7;
-
+    const scale=embedded.coordinate_scale||1e7;
     const rows=[];
     for(const c of cases) {
-      const geom=decodeGeometry(asset.geometry_records[c.index],scale);
+      els.status.textContent=`Case ${c.id}: decoding geometry and computing custom true-circle area…`;
+      await new Promise(r=>setTimeout(r,0));
+      const geom=decodeGeometry(embedded.geometry_records[String(c.index)],scale);
       const custom=customAreaAndRatio(geom,c.lng,c.lat,c.radiusKm*1000);
       const ref=reference[c.id];
       rows.push({c, custom, ref, diff:custom.pct-ref.ratio, decisionCustom:custom.pct>=15, decisionRef:ref.ratio>=15});
     }
-
+    const elapsed=performance.now()-t0;
     const abs=rows.map(r=>Math.abs(r.diff));
     const mean=abs.reduce((a,b)=>a+b,0)/abs.length;
     const max=Math.max(...abs);
     const mismatches=rows.filter(r=>r.decisionCustom!==r.decisionRef).length;
-
-    els.summary.innerHTML=`<div class="summary-grid"><div><b>Reference</b><span>WGS84 geodesic / LAEA / GeographicLib</span></div><div><b>Cases</b><span>${rows.length}</span></div><div><b>Mean abs error</b><span>${mean.toFixed(6)} pp</span></div><div><b>Max abs error</b><span>${max.toFixed(6)} pp</span></div><div><b>15% mismatches</b><span>${mismatches}</span></div><div><b>Asset load</b><span>${loadMs.toFixed(1)} ms</span></div></div>`;
+    els.summary.innerHTML=`<div class="summary-grid"><div><b>Reference</b><span>WGS84 geodesic / LAEA / GeographicLib</span></div><div><b>Cases</b><span>${rows.length}</span></div><div><b>Mean abs error</b><span>${mean.toFixed(6)} pp</span></div><div><b>Max abs error</b><span>${max.toFixed(6)} pp</span></div><div><b>15% mismatches</b><span>${mismatches}</span></div><div><b>Custom compute</b><span>${elapsed.toFixed(1)} ms</span></div></div>`;
     els.tbody.innerHTML=rows.map(r=>`<tr><td>${r.c.id}</td><td>${r.c.index}</td><td>${r.ref.ratio.toFixed(6)}%</td><td>${r.custom.pct.toFixed(6)}%</td><td>${r.diff.toFixed(6)} pp</td><td class="${r.decisionCustom===r.decisionRef?'ok':'bad'}">${r.decisionRef?'YES':'NO'} / ${r.decisionCustom?'YES':'NO'}</td></tr>`).join('');
-    els.status.textContent='Validation complete.';
+    els.status.textContent='Validation complete — no provincial asset download required.';
     els.run.disabled=false;
   }
 
