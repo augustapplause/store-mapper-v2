@@ -11,7 +11,9 @@
 
   const els = {
     province: document.getElementById('province'),
+    mode: document.getElementById('mode'),
     pairs: document.getElementById('pairs'),
+    edgeWindow: document.getElementById('edgeWindow'),
     radius: document.getElementById('radius'),
     seed: document.getElementById('seed'),
     run: document.getElementById('run'),
@@ -235,6 +237,37 @@
     return pairs;
   }
 
+  function findEdgePairs(asset, count, radiusKm, seed, windowPctPoints) {
+    const rng=makeRng(seed);
+    const scale=asset.coordinate_scale||1e7;
+    const n=asset.feature_count;
+    const pairs=[];
+    const screenedResults=[];
+    const targetMin=15-windowPctPoints;
+    const targetMax=15+windowPctPoints;
+    const maxAttempts=Math.max(count*250, 25000);
+    let attempts=0;
+    let exactTests=0;
+    while(pairs.length<count && attempts<maxAttempts){
+      attempts++;
+      const idx=Math.floor(rng()*n);
+      const rec=asset.geometry_records[idx];
+      if(!rec?.b) continue;
+      const b=bboxRecord(rec,scale);
+      const lon=(b[0]+b[2])/2 + (rng()-0.5)*(b[2]-b[0])*2.5;
+      const lat=(b[1]+b[3])/2 + (rng()-0.5)*(b[3]-b[1])*2.5;
+      if(!Number.isFinite(lon)||!Number.isFinite(lat)) continue;
+      const pair={idx,lng:lon,lat,radiusKm};
+      const r=exactPair(asset,pair,'turf');
+      if(r.stage==='exact') exactTests++;
+      if(r.stage==='exact' && r.pct>=targetMin && r.pct<=targetMax){
+        pairs.push(pair);
+        screenedResults.push(r);
+      }
+    }
+    return {pairs, screenedResults, attempts, exactTests, targetMin, targetMax};
+  }
+
   function pctCell(v) { return `${(v*100).toFixed(4)}%`; }
 
   async function loadAsset(code){
@@ -277,14 +310,27 @@
     try{
       if(typeof turf==='undefined') throw new Error('Turf failed to load.');
       const code=els.province.value;
+      const mode=els.mode.value;
       const count=Number(els.pairs.value);
       const radiusKm=Number(els.radius.value);
+      const edgeWindow=Number(els.edgeWindow.value);
       const seed=Number(els.seed.value)||12345;
       els.status.textContent=`Loading ${code} asset…`;
       const asset=await loadAsset(code);
-      els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Generating ${count.toLocaleString()} sample pairs…`;
-      const pairs=samplePairs(asset,count,radiusKm,seed);
-      if(pairs.length<count) throw new Error(`Only generated ${pairs.length} pairs.`);
+      let pairs=[];
+      let edgeMeta=null;
+      if(mode==='edge15'){
+        els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Searching for ${count.toLocaleString()} pairs within ±${edgeWindow} percentage points of 15%…`;
+        edgeMeta=findEdgePairs(asset,count,radiusKm,seed,edgeWindow);
+        pairs=edgeMeta.pairs;
+        if(pairs.length<count){
+          throw new Error(`Only found ${pairs.length.toLocaleString()} edge-case pairs after ${edgeMeta.attempts.toLocaleString()} samples. Try a wider edge window or fewer pairs.`);
+        }
+      } else {
+        els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Generating ${count.toLocaleString()} sample pairs…`;
+        pairs=samplePairs(asset,count,radiusKm,seed);
+        if(pairs.length<count) throw new Error(`Only generated ${pairs.length} pairs.`);
+      }
       await new Promise(r=>setTimeout(r,0));
 
       const stages={turf:{bboxReject:0,bboxInside:0,exact:0},custom:{bboxReject:0,bboxInside:0,exact:0}};
@@ -319,7 +365,9 @@
 
       const rows=[
         ['Asset load',`${asset.__loadMs.toFixed(1)} ms`,`${asset.feature_count.toLocaleString()} DAs`],
+        ['Mode',mode==='edge15'?'15% edge cases':'Random',mode==='edge15'?`target ${edgeMeta.targetMin.toFixed(2)}%–${edgeMeta.targetMax.toFixed(2)}%`:`seed ${seed}`],
         ['Sample pairs',pairs.length.toLocaleString(),`${radiusKm} km radius`],
+        ...(edgeMeta ? [['Edge-case search',`${edgeMeta.attempts.toLocaleString()} samples`,`exact ${edgeMeta.exactTests.toLocaleString()}`]] : []),
         ['Turf total',`${turfMs.toFixed(1)} ms`,`exact ${stages.turf.exact.toLocaleString()}`],
         ['Custom total',`${customMs.toFixed(1)} ms`,`exact ${stages.custom.exact.toLocaleString()}`],
         ['Speedup',customMs>0?(turfMs/customMs).toFixed(2)+'×':'—',customMs<turfMs?'custom faster':'custom slower'],
@@ -327,7 +375,17 @@
         ['Max abs overlap error',`${maxDiff.toFixed(4)} percentage points`,'Turf vs custom'],
         ['15% selection mismatches',mismatches.toLocaleString(),mismatches===0?'exactly matched':'needs investigation']
       ];
-      els.results.innerHTML=`<table><thead><tr><th>Metric</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td class="${r[0].includes('mismatch')&&mismatches===0?'good':''}">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
+      let html=`<table><thead><tr><th>Metric</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td class="${r[0].includes('mismatch')&&mismatches===0?'good':''}">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
+      if(mismatches>0){
+        const mismatchRows=[];
+        for(let i=0;i<pairs.length;i++){
+          const a=turfResults[i].pct, b=customResults[i].pct;
+          if((a>=15)!==(b>=15)) mismatchRows.push({i,a,b,diff:Math.abs(a-b),pair:pairs[i]});
+        }
+        mismatchRows.sort((x,y)=>y.diff-x.diff);
+        html+=`<table><thead><tr><th>Mismatch pair</th><th>Turf overlap</th><th>Custom overlap</th><th>Abs error</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.i+1}</td><td>${m.a.toFixed(6)}%</td><td>${m.b.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td></tr>`).join('')}</tbody></table>`;
+      }
+      els.results.innerHTML=html;
       els.status.textContent='Benchmark complete.';
     }catch(err){
       console.error(err);
