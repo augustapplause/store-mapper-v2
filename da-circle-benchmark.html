@@ -20,6 +20,12 @@
     .warn { font-weight:700; }
     .note { margin-top:12px; padding:10px 12px; border-left:4px solid #aaa; background:#f5f5f5; font-size:12px; }
     code { font-family:Consolas,monospace; }
+    .diagnostic { margin-top:14px; padding:12px; border:1px solid #bbb; border-radius:6px; background:#fafafa; }
+    .diagnostic h3 { margin:0 0 10px; font-size:15px; }
+    .diag-grid { display:grid; grid-template-columns: 1fr 1.5fr; gap:14px; align-items:start; }
+    .diag-grid table { margin-top:0; }
+    .diag-svg { width:100%; height:auto; border:1px solid #ddd; background:#fff; }
+    @media (max-width:900px){ .diag-grid{grid-template-columns:1fr;} }
   </style>
 </head>
 <body>

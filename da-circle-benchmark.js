@@ -394,6 +394,65 @@
     return {area,pct:daArea>0?area/daArea*100:0,stage:'exact'};
   }
 
+
+  function geometryVertexCount(geom){
+    if(!geom) return 0;
+    if(geom.type==='Polygon') return geom.coordinates.reduce((n,r)=>n+Math.max(0,(r?.length||0)-1),0);
+    if(geom.type==='MultiPolygon') return geom.coordinates.reduce((n,p)=>n+p.reduce((m,r)=>m+Math.max(0,(r?.length||0)-1),0),0);
+    return 0;
+  }
+
+  function localProject(lng, lat, cx, cy){
+    const R=6371008.8, lat0=degToRad(cy);
+    return [degToRad(lng-cx)*R*Math.cos(lat0), degToRad(lat-cy)*R];
+  }
+
+  function diagnosticSvg(geom, pair, width=700, height=430){
+    const pts=[];
+    function addRing(ring){ for(const pt of ring) pts.push(localProject(pt[0],pt[1],pair.lng,pair.lat)); }
+    if(geom.type==='Polygon') geom.coordinates.forEach(addRing);
+    else if(geom.type==='MultiPolygon') geom.coordinates.forEach(poly=>poly.forEach(addRing));
+    const r=pair.radiusKm*1000;
+    pts.push([-r,-r],[r,r]);
+    let minX=Math.min(...pts.map(p=>p[0])), maxX=Math.max(...pts.map(p=>p[0]));
+    let minY=Math.min(...pts.map(p=>p[1])), maxY=Math.max(...pts.map(p=>p[1]));
+    const pad=Math.max(50, r*0.15); minX-=pad; maxX+=pad; minY-=pad; maxY+=pad;
+    const sx=x=>40+(x-minX)/(maxX-minX)*(width-70);
+    const sy=y=>height-30-(y-minY)/(maxY-minY)*(height-60);
+    const pathForRing=ring=>ring.map((pt,i)=>{ const [x,y]=localProject(pt[0],pt[1],pair.lng,pair.lat); return `${i?'L':'M'} ${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`; }).join(' ')+' Z';
+    let paths='';
+    if(geom.type==='Polygon') paths=geom.coordinates.map(pathForRing).join(' ');
+    else paths=geom.coordinates.map(poly=>poly.map(pathForRing).join(' ')).join(' ');
+    const cx=sx(0), cy=sy(0), rx=Math.abs(sx(r)-sx(0)), ry=Math.abs(sy(r)-sy(0));
+    return `<svg viewBox="0 0 ${width} ${height}" class="diag-svg" role="img" aria-label="Mismatch geometry diagnostic"><rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/><path d="${paths}" fill="#b9d8e4" fill-opacity="0.55" stroke="#244a5c" stroke-width="1.4" fill-rule="evenodd"/><ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="none" stroke="#c62828" stroke-width="2"/><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="#c62828"/><text x="12" y="20" font-size="12" fill="#333">Red = 2 km circle · blue = DA polygon</text></svg>`;
+  }
+
+  function buildMismatchDetails(asset, mismatch, turfResult, customResult){
+    const scale=asset.coordinate_scale||1e7;
+    const rec=asset.geometry_records[mismatch.pair.idx];
+    const geom=decodeGeometry(rec,scale);
+    const b=bboxRecord(rec,scale);
+    const daFeature={type:'Feature',properties:{},geometry:geom};
+    const daArea=turf.area(daFeature);
+    const turfArea=turfResult.area;
+    const customArea=customResult.area;
+    const vertexCount=geometryVertexCount(geom);
+    const circleArea=Math.PI*Math.pow(mismatch.pair.radiusKm*1000,2);
+    return `<section class="diagnostic"><h3>Mismatch diagnostic — pair #${mismatch.index+1}</h3><div class="diag-grid"><div><table><tbody>
+      <tr><th>DA index</th><td>${mismatch.pair.idx}</td></tr>
+      <tr><th>Geometry type</th><td>${geom.type}</td></tr>
+      <tr><th>Vertex count</th><td>${vertexCount.toLocaleString()}</td></tr>
+      <tr><th>Circle centre</th><td>${mismatch.pair.lng.toFixed(8)}, ${mismatch.pair.lat.toFixed(8)}</td></tr>
+      <tr><th>Radius</th><td>${mismatch.pair.radiusKm.toFixed(3)} km</td></tr>
+      <tr><th>DA bbox</th><td>[${b.map(v=>v.toFixed(8)).join(', ')}]</td></tr>
+      <tr><th>DA area</th><td>${daArea.toFixed(3)} m²</td></tr>
+      <tr><th>Circle area</th><td>${circleArea.toFixed(3)} m²</td></tr>
+      <tr><th>Turf intersection area</th><td>${Number(turfArea).toFixed(3)} m²</td></tr>
+      <tr><th>Custom intersection area</th><td>${Number(customArea).toFixed(3)} m²</td></tr>
+      <tr><th>Area difference</th><td>${(Number(customArea)-Number(turfArea)).toFixed(3)} m²</td></tr>
+    </tbody></table></div><div class="diag-visual">${diagnosticSvg(geom,mismatch.pair)}</div></div></section>`;
+  }
+
   async function run(){
     els.run.disabled=true;
     els.results.innerHTML='';
@@ -470,10 +529,13 @@
         const mismatchRows=[];
         for(let i=0;i<pairs.length;i++){
           const a=turfResults[i].pct, b=customResults[i].pct;
-          if((a>=15)!==(b>=15)) mismatchRows.push({i,a,b,diff:Math.abs(a-b),pair:pairs[i]});
+          if((a>=15)!==(b>=15)) mismatchRows.push({index:i,a,b,diff:Math.abs(a-b),pair:pairs[i]});
         }
         mismatchRows.sort((x,y)=>y.diff-x.diff);
-        html+=`<table><thead><tr><th>Mismatch pair</th><th>Turf overlap</th><th>Custom overlap</th><th>Abs error</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.i+1}</td><td>${m.a.toFixed(6)}%</td><td>${m.b.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td></tr>`).join('')}</tbody></table>`;
+        html+=`<table><thead><tr><th>Mismatch pair</th><th>Turf overlap</th><th>Custom overlap</th><th>Abs error</th><th>Decision</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.index+1}</td><td>${m.a.toFixed(6)}%</td><td>${m.b.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td><td>${m.a>=15?'Turf YES':'Turf NO'} / ${m.b>=15?'Custom YES':'Custom NO'}</td></tr>`).join('')}</tbody></table>`;
+        for(const m of mismatchRows.slice(0,5)){
+          html += buildMismatchDetails(asset,m,turfResults[m.index],customResults[m.index]);
+        }
       }
       els.results.innerHTML=html;
       els.status.textContent='Benchmark complete.';
