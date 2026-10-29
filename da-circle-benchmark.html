@@ -30,16 +30,16 @@
 </head>
 <body>
   <h1>Store Explorer DA / Circle Geometry Benchmark</h1>
-  <p>Benchmarks Turf at multiple circle resolutions against a specialized polygon/circle clipping-area routine using the same provincial spatial assets. Edge-case mode deliberately constructs circle positions near the 15% decision boundary so the resolutions can be compared directly.</p>
+  <p>Validates a specialized true-circle polygon clipping-area routine against increasingly high-resolution geodesic circle references using the same provincial spatial assets. The highest reference uses 16,384 segments to test convergence, while the custom method operates against the mathematical circle directly.</p>
   <div class="controls">
     <label>Province
       <select id="province"></select>
     </label>
     <label>Mode
-      <select id="mode"><option value="random" selected>Random</option><option value="edge15">15% edge cases</option></select>
+      <select id="mode"><option value="edge15" selected>15% edge cases</option><option value="random">Random</option></select>
     </label>
     <label>Pairs
-      <select id="pairs"><option>250</option><option selected>1000</option><option>2500</option><option>5000</option></select>
+      <select id="pairs"><option selected>25</option><option>50</option><option>100</option><option>250</option><option>500</option></select>
     </label>
     <label>Edge window (pp)
       <select id="edgeWindow"><option>0.10</option><option>0.25</option><option selected>0.50</option><option>1.00</option><option>2.00</option></select>
@@ -48,7 +48,7 @@
       <select id="radius"><option>1</option><option selected>2</option><option>3</option></select>
     </label>
     <label>Edge-case reference
-      <select id="referenceSteps"><option>96</option><option>256</option><option>512</option><option selected>1024</option></select>
+      <select id="referenceSteps"><option>2048</option><option>4096</option><option>8192</option><option selected>16384</option></select>
     </label>
     <label>Seed
       <input id="seed" value="12345" inputmode="numeric" style="width:110px">
@@ -58,7 +58,7 @@
   <div id="status">Loading Turf…</div>
   <div id="results"></div>
   <div class="note">
-    The custom routine uses a local tangent-plane approximation around each circle center. Turf is benchmarked at 96, 256, 512, and 1024 polygon steps, so the effect of circle approximation resolution can be measured directly. Edge-case search uses the selected reference resolution. Mismatch diagnostics compare the 1024-step Turf intersection polygon with the custom clipping boundary.
+    The custom routine uses a local tangent-plane true-circle model. The reference uses a high-resolution geodesic circle approximation (up to 16,384 segments) and geodesic area calculation. The purpose is validation of convergence and geometry fidelity, not adoption of Turf as the definition of a 1 km / 2 km circle.
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
   <script src="da-circle-benchmark.js"></script>

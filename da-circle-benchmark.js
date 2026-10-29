@@ -310,7 +310,7 @@
     const targetMax=target+windowPctPoints;
     let attempts=0;
     let exactTests=0;
-    const maxAttempts=Math.max(count*8, 5000);
+    const maxAttempts=Math.max(count*10, 3000);
 
     while(pairs.length<count && attempts<maxAttempts){
       attempts++;
@@ -536,9 +536,9 @@
       const count=Number(els.pairs.value);
       const radiusKm=Number(els.radius.value);
       const edgeWindow=Number(els.edgeWindow.value);
-      const referenceSteps=Number(els.referenceSteps.value)||1024;
+      const referenceSteps=Number(els.referenceSteps.value)||16384;
       const seed=Number(els.seed.value)||12345;
-      const turfResolutions=[96,256,512,1024];
+      const turfResolutions=[2048,4096,8192,16384];
       els.status.textContent=`Loading ${code} asset…`;
       const asset=await loadAsset(code);
       let pairs=[];
@@ -548,7 +548,7 @@
         edgeMeta=await findEdgePairs(asset,count,radiusKm,seed,edgeWindow,referenceSteps);
         pairs=edgeMeta.pairs;
         if(pairs.length<count){
-          throw new Error(`Only found ${pairs.length.toLocaleString()} edge-case pairs after ${edgeMeta.attempts.toLocaleString()} samples. Try a wider edge window or fewer pairs.`);
+          throw new Error(`Only found ${pairs.length.toLocaleString()} high-fidelity edge cases after ${edgeMeta.attempts.toLocaleString()} samples. Try a wider edge window or fewer pairs.`);
         }
       } else {
         els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Generating ${count.toLocaleString()} sample pairs…`;
@@ -604,7 +604,7 @@
 
       const rows=[
         ['Asset load',`${asset.__loadMs.toFixed(1)} ms`,`${asset.feature_count.toLocaleString()} DAs`],
-        ['Mode',mode==='edge15'?'15% edge cases':'Random',mode==='edge15'?`target ${edgeMeta.targetMin.toFixed(2)}%–${edgeMeta.targetMax.toFixed(2)}%; edge reference ${referenceSteps} steps`:`seed ${seed}`],
+        ['Mode',mode==='edge15'?'15% edge cases':'Random',mode==='edge15'?`target ${edgeMeta.targetMin.toFixed(2)}%–${edgeMeta.targetMax.toFixed(2)}%; search reference ${referenceSteps} steps`:`seed ${seed}`],
         ['Sample pairs',pairs.length.toLocaleString(),`${radiusKm} km radius`],
         ...(edgeMeta ? [['Edge-case search',`${edgeMeta.attempts.toLocaleString()} samples`,`exact ${edgeMeta.exactTests.toLocaleString()}; reference ${referenceSteps} steps`]] : []),
         ...turfResolutions.map(steps=>[`Turf ${steps}-step total`,`${turfRuns[steps].ms.toFixed(1)} ms`,`exact ${turfRuns[steps].stages.exact.toLocaleString()}; vs custom ${summaryByResolution[steps].speedup.toFixed(2)}×`]),
@@ -612,12 +612,12 @@
       ];
       let html=`<table><thead><tr><th>Metric</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
 
-      html+=`<h2 style="font-size:16px;margin:18px 0 6px">Custom vs Turf by circle resolution</h2>`;
+      html+=`<h2 style="font-size:16px;margin:18px 0 6px">Custom vs high-resolution geodesic reference</h2>`;
       html+=`<table><thead><tr><th>Turf steps</th><th>Mean abs error (pp)</th><th>Max abs error (pp)</th><th>15% mismatches</th><th>Custom speedup</th></tr></thead><tbody>${turfResolutions.map(steps=>{const x=summaryByResolution[steps]; return `<tr><td>${steps}</td><td>${x.meanDiff.toFixed(4)}</td><td>${x.maxDiff.toFixed(4)}</td><td>${x.mismatches}</td><td>${x.speedup.toFixed(2)}×</td></tr>`;}).join('')}</tbody></table>`;
 
       if(mismatchRows.length>0){
         html+=`<h2 style="font-size:16px;margin:18px 0 6px">Mismatches vs ${referenceSteps}-step Turf</h2>`;
-        html+=`<table><thead><tr><th>Mismatch pair</th><th>96</th><th>256</th><th>512</th><th>1024</th><th>Custom</th><th>Ref abs error</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.index+1}</td>${turfResolutions.map(s=>`<td>${turfRuns[s].results[m.index].pct.toFixed(6)}%</td>`).join('')}<td>${customRun.results[m.index].pct.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td></tr>`).join('')}</tbody></table>`;
+        html+=`<table><thead><tr><th>Mismatch pair</th>${turfResolutions.map(s=>`<th>${s}</th>`).join('')}<th>Custom</th><th>Ref abs error</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.index+1}</td>${turfResolutions.map(s=>`<td>${turfRuns[s].results[m.index].pct.toFixed(6)}%</td>`).join('')}<td>${customRun.results[m.index].pct.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td></tr>`).join('')}</tbody></table>`;
         for(const m of mismatchRows.slice(0,5)){
           html += buildMismatchDetails(asset,m,refResults[m.index],customRun.results[m.index],referenceSteps);
         }
