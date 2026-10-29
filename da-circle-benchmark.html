@@ -55,9 +55,9 @@
   <div id="status">Loading Turf…</div>
   <div id="results"></div>
   <div class="note">
-    The custom routine uses a local tangent-plane approximation around each circle center, while Turf uses its geodesic area calculation. This benchmark therefore measures speed and practical selection equivalence; small area differences are expected. A production decision should require low selection mismatches and acceptably small overlap-percent error.
+    The custom routine uses a local tangent-plane approximation around each circle center, while Turf uses its geodesic area calculation. This benchmark therefore measures speed and practical selection equivalence; small area differences are expected. Mismatch diagnostics overlay the Turf intersection polygon and the custom clipping boundary so edge-case geometry can be inspected directly.
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
-  <script src="da-circle-benchmark.js"></script>
+  <script src="da-circle-benchmark-v5.js"></script>
 </body>
 </html>

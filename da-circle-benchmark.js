@@ -407,7 +407,52 @@
     return [degToRad(lng-cx)*R*Math.cos(lat0), degToRad(lat-cy)*R];
   }
 
-  function diagnosticSvg(geom, pair, width=700, height=430){
+
+  function customBoundaryPiecesForRing(ring, cx, cy, r, centerLatRad) {
+    const lonScale=Math.PI/180 * 6371008.8 * Math.cos(centerLatRad);
+    const latScale=Math.PI/180 * 6371008.8;
+    const pieces=[];
+    for(let i=0;i<ring.length;i++){
+      const a=ring[i], b=ring[(i+1)%ring.length];
+      const ax=(a[0]-cx)*lonScale, ay=(a[1]-cy)*latScale;
+      const bx=(b[0]-cx)*lonScale, by=(b[1]-cy)*latScale;
+      const ts=[0,...segmentCircleTs(ax,ay,bx,by,r),1];
+      for(let j=0;j<ts.length-1;j++){
+        const t0=ts[j], t1=ts[j+1];
+        const x0=ax+(bx-ax)*t0, y0=ay+(by-ay)*t0;
+        const x1=ax+(bx-ax)*t1, y1=ay+(by-ay)*t1;
+        const mx=(x0+x1)/2, my=(y0+y1)/2;
+        if(mx*mx+my*my <= r*r){
+          pieces.push({type:'line', x0,y0,x1,y1});
+        } else {
+          const a0=Math.atan2(y0,x0), a1=Math.atan2(y1,x1);
+          let da=a1-a0;
+          while(da>Math.PI) da-=2*Math.PI;
+          while(da<-Math.PI) da+=2*Math.PI;
+          pieces.push({type:'arc', x0,y0,x1,y1,a0,da});
+        }
+      }
+    }
+    return pieces;
+  }
+
+  function customBoundaryPieces(geom, pair) {
+    const r=pair.radiusKm*1000;
+    const centerLatRad=degToRad(pair.lat);
+    const rings=[];
+    if(geom.type==='Polygon') rings.push(...geom.coordinates);
+    else if(geom.type==='MultiPolygon') for(const poly of geom.coordinates) rings.push(...poly);
+    return rings.flatMap(ring=>customBoundaryPiecesForRing(ring,pair.lng,pair.lat,r,centerLatRad));
+  }
+
+  function turfIntersectionGeometry(geom, pair){
+    const daFeature={type:'Feature',properties:{},geometry:geom};
+    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm);
+    const inter=turf.intersect(turf.featureCollection([daFeature,circle]));
+    return inter?.geometry||null;
+  }
+
+  function diagnosticSvg(geom, pair, turfGeom, width=760, height=470){
     const pts=[];
     function addRing(ring){ for(const pt of ring) pts.push(localProject(pt[0],pt[1],pair.lng,pair.lat)); }
     if(geom.type==='Polygon') geom.coordinates.forEach(addRing);
@@ -417,14 +462,40 @@
     let minX=Math.min(...pts.map(p=>p[0])), maxX=Math.max(...pts.map(p=>p[0]));
     let minY=Math.min(...pts.map(p=>p[1])), maxY=Math.max(...pts.map(p=>p[1]));
     const pad=Math.max(50, r*0.15); minX-=pad; maxX+=pad; minY-=pad; maxY+=pad;
-    const sx=x=>40+(x-minX)/(maxX-minX)*(width-70);
-    const sy=y=>height-30-(y-minY)/(maxY-minY)*(height-60);
+    const sx=x=>55+(x-minX)/(maxX-minX)*(width-80);
+    const sy=y=>height-35-(y-minY)/(maxY-minY)*(height-70);
     const pathForRing=ring=>ring.map((pt,i)=>{ const [x,y]=localProject(pt[0],pt[1],pair.lng,pair.lat); return `${i?'L':'M'} ${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`; }).join(' ')+' Z';
-    let paths='';
-    if(geom.type==='Polygon') paths=geom.coordinates.map(pathForRing).join(' ');
-    else paths=geom.coordinates.map(poly=>poly.map(pathForRing).join(' ')).join(' ');
+    let daPaths='';
+    if(geom.type==='Polygon') daPaths=geom.coordinates.map(pathForRing).join(' ');
+    else daPaths=geom.coordinates.map(poly=>poly.map(pathForRing).join(' ')).join(' ');
     const cx=sx(0), cy=sy(0), rx=Math.abs(sx(r)-sx(0)), ry=Math.abs(sy(r)-sy(0));
-    return `<svg viewBox="0 0 ${width} ${height}" class="diag-svg" role="img" aria-label="Mismatch geometry diagnostic"><rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/><path d="${paths}" fill="#b9d8e4" fill-opacity="0.55" stroke="#244a5c" stroke-width="1.4" fill-rule="evenodd"/><ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="none" stroke="#c62828" stroke-width="2"/><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="#c62828"/><text x="12" y="20" font-size="12" fill="#333">Red = 2 km circle · blue = DA polygon</text></svg>`;
+
+    const customPieces=customBoundaryPieces(geom,pair);
+    let customPath='';
+    for(const piece of customPieces){
+      const x0=sx(piece.x0), y0=sy(piece.y0), x1=sx(piece.x1), y1=sy(piece.y1);
+      if(piece.type==='line'){
+        customPath += `M ${x0.toFixed(1)} ${y0.toFixed(1)} L ${x1.toFixed(1)} ${y1.toFixed(1)} `;
+      } else {
+        const steps=Math.max(4,Math.ceil(Math.abs(piece.da)*r/250));
+        let px=piece.x0, py=piece.y0;
+        customPath += `M ${sx(px).toFixed(1)} ${sy(py).toFixed(1)} `;
+        for(let k=1;k<=steps;k++){
+          const a=piece.a0+piece.da*(k/steps);
+          const xx=r*Math.cos(a), yy=r*Math.sin(a);
+          customPath += `L ${sx(xx).toFixed(1)} ${sy(yy).toFixed(1)} `;
+        }
+      }
+    }
+
+    function turfGeomPaths(g){
+      if(!g) return '';
+      if(g.type==='Polygon') return g.coordinates.map(pathForRing).join(' ');
+      if(g.type==='MultiPolygon') return g.coordinates.map(poly=>poly.map(pathForRing).join(' ')).join(' ');
+      return '';
+    }
+    const turfPath=turfGeomPaths(turfGeom);
+    return `<svg viewBox="0 0 ${width} ${height}" class="diag-svg" role="img" aria-label="Mismatch geometry diagnostic"><rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/><path d="${daPaths}" fill="#b9d8e4" fill-opacity="0.30" stroke="#244a5c" stroke-width="1.4" fill-rule="evenodd"/><ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="none" stroke="#c62828" stroke-width="2"/><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="#c62828"/><path d="${turfPath}" fill="#ff9800" fill-opacity="0.35" stroke="#d35400" stroke-width="2.4" fill-rule="evenodd"/><path d="${customPath}" fill="none" stroke="#1565c0" stroke-width="2.2" stroke-dasharray="6 4"/><text x="12" y="20" font-size="12" fill="#333">DA = pale blue · circle = red · Turf overlap = orange · custom boundary = dashed blue</text></svg>`;
   }
 
   function buildMismatchDetails(asset, mismatch, turfResult, customResult){
@@ -436,6 +507,7 @@
     const daArea=turf.area(daFeature);
     const turfArea=turfResult.area;
     const customArea=customResult.area;
+    const turfGeom=turfIntersectionGeometry(geom,mismatch.pair);
     const vertexCount=geometryVertexCount(geom);
     const circleArea=Math.PI*Math.pow(mismatch.pair.radiusKm*1000,2);
     return `<section class="diagnostic"><h3>Mismatch diagnostic — pair #${mismatch.index+1}</h3><div class="diag-grid"><div><table><tbody>
@@ -450,7 +522,7 @@
       <tr><th>Turf intersection area</th><td>${Number(turfArea).toFixed(3)} m²</td></tr>
       <tr><th>Custom intersection area</th><td>${Number(customArea).toFixed(3)} m²</td></tr>
       <tr><th>Area difference</th><td>${(Number(customArea)-Number(turfArea)).toFixed(3)} m²</td></tr>
-    </tbody></table></div><div class="diag-visual">${diagnosticSvg(geom,mismatch.pair)}</div></div></section>`;
+    </tbody></table></div><div class="diag-visual">${diagnosticSvg(geom,mismatch.pair,turfGeom)}</div></div></section>`;
   }
 
   async function run(){
