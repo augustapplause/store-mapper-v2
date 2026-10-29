@@ -15,6 +15,7 @@
     pairs: document.getElementById('pairs'),
     edgeWindow: document.getElementById('edgeWindow'),
     radius: document.getElementById('radius'),
+    referenceSteps: document.getElementById('referenceSteps'),
     seed: document.getElementById('seed'),
     run: document.getElementById('run'),
     status: document.getElementById('status'),
@@ -203,12 +204,12 @@
     return Math.max(0,total);
   }
 
-  function localCircleFeature(lng, lat, radiusKm) {
-    return turf.circle([lng,lat], radiusKm, {units:'kilometers', steps:96});
+  function localCircleFeature(lng, lat, radiusKm, steps=96) {
+    return turf.circle([lng,lat], radiusKm, {units:'kilometers', steps});
   }
 
-  function circleBBox(lng, lat, radiusKm) {
-    const circle=localCircleFeature(lng,lat,radiusKm);
+  function circleBBox(lng, lat, radiusKm, steps=96) {
+    const circle=localCircleFeature(lng,lat,radiusKm,steps);
     return turf.bbox(circle);
   }
 
@@ -257,30 +258,30 @@
     };
   }
 
-  function turfOverlapPctFromGeom(geom, daArea, pair) {
+  function turfOverlapPctFromGeom(geom, daArea, pair, turfSteps=96) {
     const daFeature={type:'Feature',properties:{},geometry:geom};
-    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm);
+    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm,turfSteps);
     const inter=turf.intersect(turf.featureCollection([daFeature,circle]));
     if(!inter) return 0;
     const area=turf.area(inter);
     return daArea>0 ? area/daArea*100 : 0;
   }
 
-  function findCrossingOnRay(geom, daArea, start, angleRad, radiusKm, targetPct, maxDistanceMeters) {
+  function findCrossingOnRay(geom, daArea, start, angleRad, radiusKm, targetPct, maxDistanceMeters, turfSteps=96) {
     const radiusMeters=radiusKm*1000;
     const dirX=Math.cos(angleRad), dirY=Math.sin(angleRad);
     let lo=0;
     let hi=maxDistanceMeters;
-    const startPct=turfOverlapPctFromGeom(geom,daArea,{lng:start.lng,lat:start.lat,radiusKm});
+    const startPct=turfOverlapPctFromGeom(geom,daArea,{lng:start.lng,lat:start.lat,radiusKm},turfSteps);
     if(startPct < targetPct) return null;
 
     let endPoint=offsetLngLat(start.lng,start.lat,dirX*hi,dirY*hi);
-    let endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm});
+    let endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm},turfSteps);
     let expand=0;
     while(endPct >= targetPct && expand<8){
       hi*=2;
       endPoint=offsetLngLat(start.lng,start.lat,dirX*hi,dirY*hi);
-      endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm});
+      endPct=turfOverlapPctFromGeom(geom,daArea,{lng:endPoint.lng,lat:endPoint.lat,radiusKm},turfSteps);
       expand++;
     }
     if(endPct >= targetPct) return null;
@@ -288,7 +289,7 @@
     for(let i=0;i<28;i++){
       const mid=(lo+hi)/2;
       const pt=offsetLngLat(start.lng,start.lat,dirX*mid,dirY*mid);
-      const pct=turfOverlapPctFromGeom(geom,daArea,{lng:pt.lng,lat:pt.lat,radiusKm});
+      const pct=turfOverlapPctFromGeom(geom,daArea,{lng:pt.lng,lat:pt.lat,radiusKm},turfSteps);
       if(pct>=targetPct) lo=mid;
       else hi=mid;
     }
@@ -298,7 +299,7 @@
     return {pair:{lng:pt.lng,lat:pt.lat,radiusKm},pct,distanceMeters:dist};
   }
 
-  async function findEdgePairs(asset, count, radiusKm, seed, windowPctPoints) {
+  async function findEdgePairs(asset, count, radiusKm, seed, windowPctPoints, turfSteps=96) {
     const rng=makeRng(seed);
     const scale=asset.coordinate_scale||1e7;
     const n=asset.feature_count;
@@ -339,7 +340,7 @@
         0, Math.PI/2, Math.PI, 3*Math.PI/2
       ];
       for(const angle of rays){
-        const crossing=findCrossingOnRay(geom,daArea,startPt,angle,radiusKm,target,maxDistance);
+        const crossing=findCrossingOnRay(geom,daArea,startPt,angle,radiusKm,target,maxDistance,turfSteps);
         exactTests += 30;
         if(crossing && crossing.pct>=targetMin && crossing.pct<=targetMax){
           found=crossing;
@@ -369,11 +370,11 @@
     return asset;
   }
 
-  function exactPair(asset, pair, method) {
+  function exactPair(asset, pair, method, turfSteps=96) {
     const scale=asset.coordinate_scale||1e7;
     const rec=asset.geometry_records[pair.idx];
     const b=bboxRecord(rec,scale);
-    const cb=circleBBox(pair.lng,pair.lat,pair.radiusKm);
+    const cb=circleBBox(pair.lng,pair.lat,pair.radiusKm,turfSteps);
     if(b[2]<cb[0]||b[0]>cb[2]||b[3]<cb[1]||b[1]>cb[3]) return {area:0,pct:0,stage:'bbox-reject'};
     const corners=[[b[0],b[1]],[b[0],b[3]],[b[2],b[1]],[b[2],b[3]]];
     const bboxInside=corners.every(([lng,lat])=>turf.distance([pair.lng,pair.lat],[lng,lat],{units:'kilometers'}) <= pair.radiusKm + 1e-7);
@@ -381,7 +382,7 @@
     const geom=decodeGeometry(rec,scale);
     const daFeature={type:'Feature',properties:{},geometry:geom};
     if(method==='turf'){
-      const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm);
+      const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm,turfSteps);
       const inter=turf.intersect(turf.featureCollection([daFeature,circle]));
       if(!inter) return {area:0,pct:0,stage:'exact'};
       const area=turf.area(inter);
@@ -445,9 +446,9 @@
     return rings.flatMap(ring=>customBoundaryPiecesForRing(ring,pair.lng,pair.lat,r,centerLatRad));
   }
 
-  function turfIntersectionGeometry(geom, pair){
+  function turfIntersectionGeometry(geom, pair, turfSteps=1024){
     const daFeature={type:'Feature',properties:{},geometry:geom};
-    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm);
+    const circle=localCircleFeature(pair.lng,pair.lat,pair.radiusKm,turfSteps);
     const inter=turf.intersect(turf.featureCollection([daFeature,circle]));
     return inter?.geometry||null;
   }
@@ -498,7 +499,7 @@
     return `<svg viewBox="0 0 ${width} ${height}" class="diag-svg" role="img" aria-label="Mismatch geometry diagnostic"><rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/><path d="${daPaths}" fill="#b9d8e4" fill-opacity="0.30" stroke="#244a5c" stroke-width="1.4" fill-rule="evenodd"/><ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="none" stroke="#c62828" stroke-width="2"/><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="#c62828"/><path d="${turfPath}" fill="#ff9800" fill-opacity="0.35" stroke="#d35400" stroke-width="2.4" fill-rule="evenodd"/><path d="${customPath}" fill="none" stroke="#1565c0" stroke-width="2.2" stroke-dasharray="6 4"/><text x="12" y="20" font-size="12" fill="#333">DA = pale blue · circle = red · Turf overlap = orange · custom boundary = dashed blue</text></svg>`;
   }
 
-  function buildMismatchDetails(asset, mismatch, turfResult, customResult){
+  function buildMismatchDetails(asset, mismatch, turfResult, customResult, referenceSteps=1024){
     const scale=asset.coordinate_scale||1e7;
     const rec=asset.geometry_records[mismatch.pair.idx];
     const geom=decodeGeometry(rec,scale);
@@ -507,7 +508,7 @@
     const daArea=turf.area(daFeature);
     const turfArea=turfResult.area;
     const customArea=customResult.area;
-    const turfGeom=turfIntersectionGeometry(geom,mismatch.pair);
+    const turfGeom=turfIntersectionGeometry(geom,mismatch.pair,referenceSteps);
     const vertexCount=geometryVertexCount(geom);
     const circleArea=Math.PI*Math.pow(mismatch.pair.radiusKm*1000,2);
     return `<section class="diagnostic"><h3>Mismatch diagnostic — pair #${mismatch.index+1}</h3><div class="diag-grid"><div><table><tbody>
@@ -535,14 +536,16 @@
       const count=Number(els.pairs.value);
       const radiusKm=Number(els.radius.value);
       const edgeWindow=Number(els.edgeWindow.value);
+      const referenceSteps=Number(els.referenceSteps.value)||1024;
       const seed=Number(els.seed.value)||12345;
+      const turfResolutions=[96,256,512,1024];
       els.status.textContent=`Loading ${code} asset…`;
       const asset=await loadAsset(code);
       let pairs=[];
       let edgeMeta=null;
       if(mode==='edge15'){
-        els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Searching for ${count.toLocaleString()} pairs within ±${edgeWindow} percentage points of 15%…`;
-        edgeMeta=await findEdgePairs(asset,count,radiusKm,seed,edgeWindow);
+        els.status.textContent=`Loaded ${asset.feature_count.toLocaleString()} DAs in ${asset.__loadMs.toFixed(1)} ms. Searching for ${count.toLocaleString()} pairs near 15% using ${referenceSteps}-step Turf…`;
+        edgeMeta=await findEdgePairs(asset,count,radiusKm,seed,edgeWindow,referenceSteps);
         pairs=edgeMeta.pairs;
         if(pairs.length<count){
           throw new Error(`Only found ${pairs.length.toLocaleString()} edge-case pairs after ${edgeMeta.attempts.toLocaleString()} samples. Try a wider edge window or fewer pairs.`);
@@ -554,67 +557,78 @@
       }
       await new Promise(r=>setTimeout(r,0));
 
-      const stages={turf:{bboxReject:0,bboxInside:0,exact:0},custom:{bboxReject:0,bboxInside:0,exact:0}};
-      const diffs=[];
-      let mismatches=0;
+      const turfRuns={};
+      for(const steps of turfResolutions) turfRuns[steps]={results:new Array(pairs.length), stages:{bboxReject:0,bboxInside:0,exact:0}, ms:0};
+      const customRun={results:new Array(pairs.length), stages:{bboxReject:0,bboxInside:0,exact:0}, ms:0};
 
-      const t0=performance.now();
-      const turfResults=new Array(pairs.length);
-      for(let i=0;i<pairs.length;i++){
-        const r=exactPair(asset,pairs[i],'turf');
-        turfResults[i]=r;
-        stages.turf[r.stage]++;
+      for(const steps of turfResolutions){
+        els.status.textContent=`Running Turf ${steps}-step benchmark: 0 / ${pairs.length.toLocaleString()}…`;
+        const t0=performance.now();
+        for(let i=0;i<pairs.length;i++){
+          const r=exactPair(asset,pairs[i],'turf',steps);
+          turfRuns[steps].results[i]=r;
+          turfRuns[steps].stages[r.stage]++;
+          if(i===0 || (i+1)%250===0) { els.status.textContent=`Running Turf ${steps}-step benchmark: ${(i+1).toLocaleString()} / ${pairs.length.toLocaleString()}…`; await new Promise(r=>setTimeout(r,0)); }
+        }
+        turfRuns[steps].ms=performance.now()-t0;
       }
-      const turfMs=performance.now()-t0;
 
-      await new Promise(r=>setTimeout(r,0));
+      els.status.textContent=`Running custom benchmark: 0 / ${pairs.length.toLocaleString()}…`;
       const t1=performance.now();
-      const customResults=new Array(pairs.length);
-      let maxDiff=0, sumDiff=0;
       for(let i=0;i<pairs.length;i++){
-        const r=exactPair(asset,pairs[i],'custom');
-        customResults[i]=r;
-        stages.custom[r.stage]++;
-        const a=turfResults[i].pct, b=r.pct;
-        const diff=Math.abs(a-b);
-        diffs.push(diff); sumDiff+=diff; maxDiff=Math.max(maxDiff,diff);
-        const turfSel=a>=15, customSel=b>=15;
-        if(turfSel!==customSel) mismatches++;
+        const r=exactPair(asset,pairs[i],'custom',referenceSteps);
+        customRun.results[i]=r;
+        customRun.stages[r.stage]++;
+        if(i===0 || (i+1)%250===0) { els.status.textContent=`Running custom benchmark: ${(i+1).toLocaleString()} / ${pairs.length.toLocaleString()}…`; await new Promise(r=>setTimeout(r,0)); }
       }
-      const customMs=performance.now()-t1;
-      const meanDiff=sumDiff/pairs.length;
+      customRun.ms=performance.now()-t1;
+
+      const refResults=turfRuns[referenceSteps].results;
+      const summaryByResolution={};
+      for(const steps of turfResolutions){
+        let sumDiff=0,maxDiff=0,mismatches=0;
+        for(let i=0;i<pairs.length;i++){
+          const a=turfRuns[steps].results[i].pct, b=customRun.results[i].pct;
+          const diff=Math.abs(a-b); sumDiff+=diff; maxDiff=Math.max(maxDiff,diff);
+          if((a>=15)!==(b>=15)) mismatches++;
+        }
+        summaryByResolution[steps]={meanDiff:sumDiff/pairs.length,maxDiff,mismatches,speedup:customRun.ms>0?turfRuns[steps].ms/customRun.ms:0};
+      }
+
+      const mismatchRows=[];
+      for(let i=0;i<pairs.length;i++){
+        const a=refResults[i].pct, b=customRun.results[i].pct;
+        if((a>=15)!==(b>=15)) mismatchRows.push({index:i,a,b,diff:Math.abs(a-b),pair:pairs[i]});
+      }
+      mismatchRows.sort((x,y)=>y.diff-x.diff);
 
       const rows=[
         ['Asset load',`${asset.__loadMs.toFixed(1)} ms`,`${asset.feature_count.toLocaleString()} DAs`],
-        ['Mode',mode==='edge15'?'15% edge cases':'Random',mode==='edge15'?`target ${edgeMeta.targetMin.toFixed(2)}%–${edgeMeta.targetMax.toFixed(2)}%`:`seed ${seed}`],
+        ['Mode',mode==='edge15'?'15% edge cases':'Random',mode==='edge15'?`target ${edgeMeta.targetMin.toFixed(2)}%–${edgeMeta.targetMax.toFixed(2)}%; edge reference ${referenceSteps} steps`:`seed ${seed}`],
         ['Sample pairs',pairs.length.toLocaleString(),`${radiusKm} km radius`],
-        ...(edgeMeta ? [['Edge-case search',`${edgeMeta.attempts.toLocaleString()} samples`,`exact ${edgeMeta.exactTests.toLocaleString()}`]] : []),
-        ['Turf total',`${turfMs.toFixed(1)} ms`,`exact ${stages.turf.exact.toLocaleString()}`],
-        ['Custom total',`${customMs.toFixed(1)} ms`,`exact ${stages.custom.exact.toLocaleString()}`],
-        ['Speedup',customMs>0?(turfMs/customMs).toFixed(2)+'×':'—',customMs<turfMs?'custom faster':'custom slower'],
-        ['Mean abs overlap error',`${meanDiff.toFixed(4)} percentage points`,'Turf vs custom'],
-        ['Max abs overlap error',`${maxDiff.toFixed(4)} percentage points`,'Turf vs custom'],
-        ['15% selection mismatches',mismatches.toLocaleString(),mismatches===0?'exactly matched':'needs investigation']
+        ...(edgeMeta ? [['Edge-case search',`${edgeMeta.attempts.toLocaleString()} samples`,`exact ${edgeMeta.exactTests.toLocaleString()}; reference ${referenceSteps} steps`]] : []),
+        ...turfResolutions.map(steps=>[`Turf ${steps}-step total`,`${turfRuns[steps].ms.toFixed(1)} ms`,`exact ${turfRuns[steps].stages.exact.toLocaleString()}; vs custom ${summaryByResolution[steps].speedup.toFixed(2)}×`]),
+        ['Custom total',`${customRun.ms.toFixed(1)} ms`,`exact ${customRun.stages.exact.toLocaleString()}`]
       ];
-      let html=`<table><thead><tr><th>Metric</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td class="${r[0].includes('mismatch')&&mismatches===0?'good':''}">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
-      if(mismatches>0){
-        const mismatchRows=[];
-        for(let i=0;i<pairs.length;i++){
-          const a=turfResults[i].pct, b=customResults[i].pct;
-          if((a>=15)!==(b>=15)) mismatchRows.push({index:i,a,b,diff:Math.abs(a-b),pair:pairs[i]});
-        }
-        mismatchRows.sort((x,y)=>y.diff-x.diff);
-        html+=`<table><thead><tr><th>Mismatch pair</th><th>Turf overlap</th><th>Custom overlap</th><th>Abs error</th><th>Decision</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.index+1}</td><td>${m.a.toFixed(6)}%</td><td>${m.b.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td><td>${m.a>=15?'Turf YES':'Turf NO'} / ${m.b>=15?'Custom YES':'Custom NO'}</td></tr>`).join('')}</tbody></table>`;
+      let html=`<table><thead><tr><th>Metric</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
+
+      html+=`<h2 style="font-size:16px;margin:18px 0 6px">Custom vs Turf by circle resolution</h2>`;
+      html+=`<table><thead><tr><th>Turf steps</th><th>Mean abs error (pp)</th><th>Max abs error (pp)</th><th>15% mismatches</th><th>Custom speedup</th></tr></thead><tbody>${turfResolutions.map(steps=>{const x=summaryByResolution[steps]; return `<tr><td>${steps}</td><td>${x.meanDiff.toFixed(4)}</td><td>${x.maxDiff.toFixed(4)}</td><td>${x.mismatches}</td><td>${x.speedup.toFixed(2)}×</td></tr>`;}).join('')}</tbody></table>`;
+
+      if(mismatchRows.length>0){
+        html+=`<h2 style="font-size:16px;margin:18px 0 6px">Mismatches vs ${referenceSteps}-step Turf</h2>`;
+        html+=`<table><thead><tr><th>Mismatch pair</th><th>96</th><th>256</th><th>512</th><th>1024</th><th>Custom</th><th>Ref abs error</th></tr></thead><tbody>${mismatchRows.slice(0,20).map(m=>`<tr><td>#${m.index+1}</td>${turfResolutions.map(s=>`<td>${turfRuns[s].results[m.index].pct.toFixed(6)}%</td>`).join('')}<td>${customRun.results[m.index].pct.toFixed(6)}%</td><td>${m.diff.toFixed(6)} pp</td></tr>`).join('')}</tbody></table>`;
         for(const m of mismatchRows.slice(0,5)){
-          html += buildMismatchDetails(asset,m,turfResults[m.index],customResults[m.index]);
+          html += buildMismatchDetails(asset,m,refResults[m.index],customRun.results[m.index],referenceSteps);
         }
       }
+
       els.results.innerHTML=html;
       els.status.textContent='Benchmark complete.';
     }catch(err){
       console.error(err);
       els.status.textContent='ERROR: '+(err?.stack||err?.message||String(err));
-    }finally{ els.run.disabled=false; }
+    }finally{els.run.disabled=false;}
   }
 
   els.run.addEventListener('click',run);

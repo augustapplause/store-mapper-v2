@@ -30,7 +30,7 @@
 </head>
 <body>
   <h1>Store Explorer DA / Circle Geometry Benchmark</h1>
-  <p>Benchmarks the current Turf polygon/circle intersection against a specialized polygon/circle clipping-area routine using the same provincial spatial assets. Edge-case mode deliberately constructs circle positions near the 15% decision boundary.</p>
+  <p>Benchmarks Turf at multiple circle resolutions against a specialized polygon/circle clipping-area routine using the same provincial spatial assets. Edge-case mode deliberately constructs circle positions near the 15% decision boundary so the resolutions can be compared directly.</p>
   <div class="controls">
     <label>Province
       <select id="province"></select>
@@ -47,6 +47,9 @@
     <label>Radius (km)
       <select id="radius"><option>1</option><option selected>2</option><option>3</option></select>
     </label>
+    <label>Edge-case reference
+      <select id="referenceSteps"><option>96</option><option>256</option><option>512</option><option selected>1024</option></select>
+    </label>
     <label>Seed
       <input id="seed" value="12345" inputmode="numeric" style="width:110px">
     </label>
@@ -55,7 +58,7 @@
   <div id="status">Loading Turf…</div>
   <div id="results"></div>
   <div class="note">
-    The custom routine uses a local tangent-plane approximation around each circle center, while Turf uses its geodesic area calculation. This benchmark therefore measures speed and practical selection equivalence; small area differences are expected. Mismatch diagnostics overlay the Turf intersection polygon and the custom clipping boundary so edge-case geometry can be inspected directly.
+    The custom routine uses a local tangent-plane approximation around each circle center. Turf is benchmarked at 96, 256, 512, and 1024 polygon steps, so the effect of circle approximation resolution can be measured directly. Edge-case search uses the selected reference resolution. Mismatch diagnostics compare the 1024-step Turf intersection polygon with the custom clipping boundary.
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
   <script src="da-circle-benchmark.js"></script>
