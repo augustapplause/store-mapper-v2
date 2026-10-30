@@ -931,7 +931,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-quartile-scale .qline{border-top:2px solid #fff;}
 .popup-quartile-scale .q100,.popup-quartile-scale .q0{border-top-color:#fff;}
 
-/* v1.124 popup quartile/ticker refinements */
+/* v1.125 geography-driven DA province detection + two-decimal circle handle */
 .popup-quartile-scale .q100,
 .popup-quartile-scale .q0{border-top:none;}
 .popup-quartile-scale .q75,

@@ -2254,20 +2254,20 @@
     el('filterDialog').close();
   }
 
-  function candidateProvincesFromFilteredRowsInViewport() {
-    // Candidate provinces are derived from DATA ROWS that pass the active filters,
-    // not from Leaflet marker visibility/opacity. This keeps Census geography
-    // synchronized with the actual filtered workbook rows.
-    if (!state.rows?.length || !state.columns.province || !state.columns.lat || !state.columns.lon) return [];
-    const bounds = map.getBounds();
-    const found = new Set();
-    for (const row of state.rows) {
-      if (!filterRowPasses(row) || !hasCoords(row)) continue;
-      const lat = toNumber(row[state.columns.lat]);
-      const lng = toNumber(row[state.columns.lon]);
-      if (lat === null || lng === null || !bounds.contains([lat, lng])) continue;
-      const code = provinceCodeFromText(row[state.columns.province] || '');
-      if (code && CONFIG.daFiles[code]) found.add(code);
+  function bboxOverlaps(a,b){
+    return Array.isArray(a) && a.length>=4 && Array.isArray(b) && b.length>=4 &&
+      a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+  }
+
+  function candidateProvinceCodesFromGeography(boundary){
+    if(!boundary?.geometry) return [];
+    const targetBbox=turf.bbox(boundary);
+    const found=new Set();
+    // CSD province coverage is only a cheap candidate reducer. Exact province
+    // presence is confirmed by DA_ENGINE.detectIntersectingProvinces(), below.
+    for(const code of Object.keys(CONFIG.daFiles||{})) {
+      const bbox=state.csdProvinceBBoxes?.get(code);
+      if(!bbox || bboxOverlaps(targetBbox,bbox)) found.add(code);
     }
     return [...found].sort();
   }
@@ -2613,6 +2613,92 @@
       return entry;
     }
 
+    function pointInRing(x,y,ring){
+      let inside=false;
+      for(let i=0,j=ring.length-1;i<ring.length;j=i++) {
+        const xi=ring[i][0], yi=ring[i][1], xj=ring[j][0], yj=ring[j][1];
+        const intersect=((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi || Number.EPSILON)+xi);
+        if(intersect) inside=!inside;
+      }
+      return inside;
+    }
+    function pointInPolygonGeometry(x,y,geometry){
+      if(!geometry) return false;
+      const polys=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];
+      for(const rings of polys){
+        if(!rings?.length || !pointInRing(x,y,rings[0])) continue;
+        let inHole=false;
+        for(let i=1;i<rings.length;i++){ if(pointInRing(x,y,rings[i])) { inHole=true; break; } }
+        if(!inHole) return true;
+      }
+      return false;
+    }
+    function orientation(a,b,c){
+      const v=(b[1]-a[1])*(c[0]-b[0])-(b[0]-a[0])*(c[1]-b[1]);
+      if(Math.abs(v)<1e-12) return 0;
+      return v>0?1:2;
+    }
+    function onSegment(a,b,p){
+      return p[0]>=Math.min(a[0],b[0])-1e-12 && p[0]<=Math.max(a[0],b[0])+1e-12 &&
+             p[1]>=Math.min(a[1],b[1])-1e-12 && p[1]<=Math.max(a[1],b[1])+1e-12;
+    }
+    function segmentsIntersect(a,b,c,d){
+      const o1=orientation(a,b,c),o2=orientation(a,b,d),o3=orientation(c,d,a),o4=orientation(c,d,b);
+      if(o1!==o2 && o3!==o4) return true;
+      if(o1===0 && onSegment(a,b,c)) return true;
+      if(o2===0 && onSegment(a,b,d)) return true;
+      if(o3===0 && onSegment(c,d,a)) return true;
+      if(o4===0 && onSegment(c,d,b)) return true;
+      return false;
+    }
+    function ringIntersectsRect(ring,bbox){
+      if(!Array.isArray(ring)||ring.length<2) return false;
+      const [minX,minY,maxX,maxY]=bbox;
+      for(const p of ring){ if(p[0]>=minX && p[0]<=maxX && p[1]>=minY && p[1]<=maxY) return true; }
+      const corners=[[minX,minY],[maxX,minY],[maxX,maxY],[minX,maxY]];
+      for(let i=0;i<ring.length;i++){
+        const a=ring[i],b=ring[(i+1)%ring.length];
+        for(let j=0;j<4;j++) if(segmentsIntersect(a,b,corners[j],corners[(j+1)%4])) return true;
+      }
+      return pointInRing(minX,minY,ring);
+    }
+    function geometryIntersectsRect(geometry,bbox){
+      if(!geometry) return false;
+      const polys=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];
+      for(const rings of polys){
+        if(!rings?.length) continue;
+        if(ringIntersectsRect(rings[0],bbox)) return true;
+        for(let i=1;i<rings.length;i++) if(ringIntersectsRect(rings[i],bbox)) return true;
+        const [minX,minY,maxX,maxY]=bbox;
+        if(pointInPolygonGeometry(minX,minY,geometry) || pointInPolygonGeometry(maxX,minY,geometry) ||
+           pointInPolygonGeometry(maxX,maxY,geometry) || pointInPolygonGeometry(minX,maxY,geometry)) return true;
+      }
+      return false;
+    }
+    async function detectIntersectingProvinces(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
+      if(!boundary?.geometry) return [];
+      const boundaryBbox=turf.bbox(boundary);
+      const hits=[];
+      for(const provinceCode of provinceCodes||[]){
+        if(!CONFIG.daFiles[provinceCode]) continue;
+        const entry=await loadProvince(provinceCode);
+        const candidates=bboxQuery(entry,boundaryBbox);
+        let hit=false;
+        const circleProjector=(boundaryType==='circle' && targetCircle)?buildAeqdProjector(targetCircle):null;
+        for(const index of candidates){
+          try{
+            if(bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle)){ hit=true; break; }
+            const feature=featureFromAsset(entry,index,true);
+            if(boundaryType==='circle' && targetCircle){
+              if(trueCircleIntersectionArea(feature,targetCircle,circleProjector)>0){ hit=true; break; }
+            } else if(geometryIntersectsRect(feature.geometry,boundaryBbox)){ hit=true; break; }
+          }catch(_){ }
+        }
+        if(hit) hits.push(provinceCode);
+      }
+      return hits.sort();
+    }
+
     function evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,boundaryType,targetCircle,threshold,selected,aggregate,includeAggregate){
       let actualIntersectionCount=0;
       const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
@@ -2724,7 +2810,7 @@
     }
 
     function clearCache() { cache.clear(); }
-    return {select,clearCache,getId};
+    return {select,clearCache,getId,detectIntersectingProvinces};
   })();
 
   function viewportBoundary() {
@@ -2865,9 +2951,12 @@
     setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
     try {
       const boundary = activeDaBoundary();
-      // Candidate provinces come ONLY from workbook rows that pass the active filters and whose store coordinates are inside the current map viewport.
-      // Leaflet marker opacity/visibility is intentionally irrelevant.
-      const candidates = candidateProvincesFromFilteredRowsInViewport();
+      // Province candidates come from geography, not workbook markers. A lightweight
+      // CSD province-coverage check narrows the set; exact DA presence is then confirmed
+      // by DA_ENGINE with the same canonical geometry path used for Census selection.
+      const geoCandidates = candidateProvinceCodesFromGeography(boundary);
+      const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
+      const candidates = await DA_ENGINE.detectIntersectingProvinces(boundary, geoCandidates, {boundaryType,targetCircle});
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
         clearDaOverlay();
@@ -2875,13 +2964,12 @@
           aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},fullProvinceCodes:[],partialProvinceCodes:[]};
         state.daSelectionResult=empty;
         updateCensusPopulationSummary(empty.aggregate);
-        const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">No filtered store markers are visible in the current viewport, so no Census DAs are included.</div>';
-        setDaTestStatus('No candidate provinces: there are no filtered store markers in the current viewport.');
+        const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">No Census DAs intersect the current geographic view.</div>';
+        setDaTestStatus('No Census DAs intersect the current geographic view.');
         return;
       }
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
       const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
-      const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
       const result = await selectCensusBoundary(boundary, candidates, threshold, {
         provinceModes,
         shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay && !state.navigationDaSuppressed,
@@ -3585,7 +3673,7 @@
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
   function circleRadiusLabelText(radiusMeters){
     const km=radiusMeters/1000;
-    return `${km.toFixed(km<1?2:1)} km`;
+    return `${km.toFixed(2)} km`;
   }
   function makeCircleRadiusLabel(latlng,radiusMeters){
     return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,-14]})});
