@@ -1608,7 +1608,7 @@
     state.markers.forEach(m=>{
       const passes=filterRowPasses(m.__row);
       const inSelection=selectedSet.has(m.__row)||state.selection.type==='national';
-      const animateVisible=passes && selectedSet.has(m.__row) && bounds.contains(m.__trueLatLng||m.getLatLng());
+      const animateVisible=passes && bounds.contains(m.__trueLatLng||m.getLatLng());
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
@@ -1682,6 +1682,7 @@
     });
   }
   function getFilteredRows(){return state.rows.filter(filterRowPasses);}
+  /* Deprecated: highlights are viewport-governed and are never cleared merely by panning. */
   function clearHighlightsOutsideVisibleShapeArea(){
     if(!censusShapeType())return false;
     const bounds=map.getBounds();
@@ -2421,7 +2422,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.136`,
+        `DA PERF v1.137`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -4165,9 +4166,9 @@
     }
     state.userMapInteraction=false;
     clearOffscreenTransientVisuals();
-    if(censusShapeType()) clearHighlightsOutsideVisibleShapeArea();
     updateHeaderGeography();
     if(!censusShapeType()) updateSelection();
+    refreshMarkerStyles();
     refreshMunicipalityLabels();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
     // can still follow the viewport when no Census shape is active.
