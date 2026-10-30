@@ -1040,7 +1040,7 @@
     for(const radiusKm of neededRadii){
       const cacheKey=`${cacheBase}|${radiusKm}`;
       if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
-      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:360});
       const result=await selectCensusBoundary(boundary,[provinceCode],threshold,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
       const aggregate=result?.aggregate || {totalPopulation:0,population65Plus:0};
       const radiusValues={[`Population ${radiusKm} km`]:aggregate.totalPopulation,[`Population 65+ ${radiusKm} km`]:aggregate.population65Plus};
@@ -2466,6 +2466,108 @@
       return true;
     }
 
+    function buildAeqdProjector(targetCircle) {
+      if (!targetCircle || typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
+      const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
+      return proj4('EPSG:4326', definition);
+    }
+
+    function projectRingToAeqd(ring, projector) {
+      return ring.map(([lng, lat]) => {
+        const xy = projector.forward([lng, lat]);
+        if (!Array.isArray(xy) || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
+          throw new Error('Non-finite WGS84 AEQD coordinate encountered.');
+        }
+        return [xy[0], xy[1]];
+      });
+    }
+
+    function signedRingArea(ring) {
+      let sum = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        sum += a[0] * b[1] - b[0] * a[1];
+      }
+      return sum / 2;
+    }
+
+    function edgeCircleContribution(ax, ay, bx, by, radius) {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const A = dx * dx + dy * dy;
+      if (A === 0) return 0;
+      const B = 2 * (ax * dx + ay * dy);
+      const C = ax * ax + ay * ay - radius * radius;
+      const discriminant = B * B - 4 * A * C;
+      const ts = [0];
+      if (discriminant > 0) {
+        const root = Math.sqrt(discriminant);
+        const t1 = (-B - root) / (2 * A);
+        const t2 = (-B + root) / (2 * A);
+        if (t1 > 0 && t1 < 1) ts.push(t1);
+        if (t2 > 0 && t2 < 1 && Math.abs(t2 - t1) > 1e-12) ts.push(t2);
+      }
+      ts.push(1);
+      ts.sort((a,b) => a - b);
+
+      let contribution = 0;
+      for (let i = 0; i < ts.length - 1; i++) {
+        const t0 = ts[i];
+        const t1 = ts[i + 1];
+        const x0 = ax + dx * t0;
+        const y0 = ay + dy * t0;
+        const x1 = ax + dx * t1;
+        const y1 = ay + dy * t1;
+        const mx = (x0 + x1) / 2;
+        const my = (y0 + y1) / 2;
+        if (mx * mx + my * my <= radius * radius) {
+          contribution += (x0 * y1 - x1 * y0) / 2;
+        } else {
+          contribution += radius * radius * Math.atan2(x0 * y1 - y0 * x1, x0 * x1 + y0 * y1) / 2;
+        }
+      }
+      return contribution;
+    }
+
+    function clippedRingArea(ring, radius) {
+      let area = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        area += edgeCircleContribution(a[0], a[1], b[0], b[1], radius);
+      }
+      return area;
+    }
+
+    function trueCircleIntersectionArea(feature, targetCircle, projector) {
+      const aeqdProjector = projector || buildAeqdProjector(targetCircle);
+      const geometry = feature?.geometry;
+      if (!geometry) return 0;
+
+      const polygonAreaFromRings = rings => {
+        if (!Array.isArray(rings) || !rings.length) return 0;
+        let total = 0;
+        for (let i = 0; i < rings.length; i++) {
+          const projected = projectRingToAeqd(rings[i], aeqdProjector);
+          if (projected.length < 3) continue;
+          const winding = signedRingArea(projected);
+          const clipped = clippedRingArea(projected, targetCircle.radiusMeters);
+          if (i === 0) total += winding >= 0 ? clipped : -clipped;
+          else total += winding <= 0 ? clipped : -clipped;
+        }
+        return Math.abs(total);
+      };
+
+      if (geometry.type === 'Polygon') return polygonAreaFromRings(geometry.coordinates);
+      if (geometry.type === 'MultiPolygon') {
+        let total = 0;
+        for (const polygon of geometry.coordinates || []) total += polygonAreaFromRings(polygon);
+        return Math.abs(total);
+      }
+      return 0;
+    }
+
     function bboxQuery(entry, bbox) {
       const tree = entry.asset.spatial_index;
       if (!tree?.levels?.length) return [];
@@ -2513,6 +2615,7 @@
 
     function evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,boundaryType,targetCircle,threshold,selected,aggregate,includeAggregate){
       let actualIntersectionCount=0;
+      const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
       for(const index of candidates){
         try{
           const fullyContained=bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle);
@@ -2528,11 +2631,22 @@
             continue;
           }
           const feature=featureFromAsset(entry,index,true);
-          if(!turf.booleanIntersects(feature,boundary))continue;
-          actualIntersectionCount+=1;
-          const daArea=turf.area(feature);if(!(daArea>0))continue;
-          const inter=turf.intersect(turf.featureCollection([feature,boundary]));if(!inter)continue;
-          const overlapPct=turf.area(inter)/daArea*100;if(overlapPct<threshold)continue;
+          let overlapPct=0;
+          if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
+            const daArea=turf.area(feature);
+            if (!(daArea>0)) continue;
+            const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
+            if (!(intersectionArea>0)) continue;
+            actualIntersectionCount+=1;
+            overlapPct=intersectionArea/daArea*100;
+          } else {
+            if(!turf.booleanIntersects(feature,boundary))continue;
+            actualIntersectionCount+=1;
+            const daArea=turf.area(feature);if(!(daArea>0))continue;
+            const inter=turf.intersect(turf.featureCollection([feature,boundary]));if(!inter)continue;
+            overlapPct=turf.area(inter)/daArea*100;
+          }
+          if(overlapPct<threshold)continue;
           selected.push({feature,provinceCode:entry.provinceCode,overlapPct});
           if(includeAggregate){
             const a=censusAttributes(feature);
@@ -2563,7 +2677,23 @@
       const fullProvinceCodes = [];
       const partialProvinceCodes = [];
       const shouldRender = !!options.shouldRender;
-      const boundaryBbox = turf.bbox(boundary);
+      let boundaryBbox = turf.bbox(boundary);
+      if ((options.boundaryType || 'viewport') === 'circle' && options.targetCircle) {
+        // circleBoundary() is only the R-tree query shell. Expand it by the
+        // maximum sagitta of the 360-segment circle so the true geodesic circle
+        // can never fall just outside the candidate bbox. Exact overlap is
+        // handled by the WGS84 AEQD true-circle clipper below.
+        const r = Number(options.targetCircle.radiusMeters) || 0;
+        const lat = Number(options.targetCircle.lat) || 0;
+        const sagittaM = r * (1 - Math.cos(Math.PI / 360));
+        const latMargin = sagittaM / 111320;
+        const cosLat = Math.max(0.1, Math.cos(lat * Math.PI / 180));
+        const lngMargin = sagittaM / (111320 * cosLat);
+        boundaryBbox = [
+          boundaryBbox[0] - lngMargin, boundaryBbox[1] - latMargin,
+          boundaryBbox[2] + lngMargin, boundaryBbox[3] + latMargin
+        ];
+      }
 
       for (const mode of modes) {
         // FULL provinces are fully contained by the active target. Their
@@ -2605,7 +2735,7 @@
   function circleBoundary() {
     const circle = state.circleSelection?.circle;
     if (!circle) return null;
-    return turf.circle([circle.getLngLat ? circle.getLngLat().lng : circle.getLatLng().lng, circle.getLatLng().lat], circle.getRadius() / 1000, {units:'kilometers', steps:96});
+    return turf.circle([circle.getLngLat ? circle.getLngLat().lng : circle.getLatLng().lng, circle.getLatLng().lat], circle.getRadius() / 1000, {units:'kilometers', steps:360});
   }
 
   function activeDaBoundary() {
