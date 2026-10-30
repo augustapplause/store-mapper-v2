@@ -2353,7 +2353,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.133`,
+        `DA PERF v1.134`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3816,7 +3816,7 @@
     if(type==='rectangle'){
       const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
       icon.className='header-census-icon rectangle';
-      value.textContent=`Rectangle ${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
+      value.textContent=`Box ${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
       wrap.classList.remove('hidden');
       return;
     }
@@ -3849,8 +3849,8 @@
     }else if(type==='rectangle'){
       const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
       indicator.className='census-shape-indicator-rectangle';
-      indicator.setAttribute('aria-label','Rectangle Census Query active');
-      label.textContent='Rectangle';
+      indicator.setAttribute('aria-label','Box Census Query active');
+      label.textContent='Box';
       value.textContent=`${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
       clearBtn.disabled=false;
     }else{
@@ -3900,26 +3900,43 @@
   function showRectangleHandles(){
     removeRectangleHandles();
     const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
-    const b=rectangle.getBounds();
-    const centerHandle=L.marker(b.getCenter(),{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const cornerHandle=L.marker(b.getSouthEast(),{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const b0=rectangle.getBounds();
+    const centerHandle=L.marker(b0.getCenter(),{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const cornerHandle=L.marker(b0.getSouthEast(),{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     centerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
+      const current=rectangle.getBounds();
+      const currentCenter=current.getCenter();
       const nextCenter=e.target.getLatLng();
-      const oldCenter=b.getCenter();
-      const dLat=nextCenter.lat-oldCenter.lat,dLng=nextCenter.lng-oldCenter.lng;
-      const nb=L.latLngBounds([[b.getSouth()+dLat,b.getWest()+dLng],[b.getNorth()+dLat,b.getEast()+dLng]]);
-      rectangle.setBounds(nb);cornerHandle.setLatLng(nb.getSouthEast());
-      updateCensusShapeStatus();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'rectangle moved');
+      const dLat=nextCenter.lat-currentCenter.lat;
+      const dLng=nextCenter.lng-currentCenter.lng;
+      const nb=L.latLngBounds(
+        [current.getSouth()+dLat,current.getWest()+dLng],
+        [current.getNorth()+dLat,current.getEast()+dLng]
+      );
+      rectangle.setBounds(nb);
+      centerHandle.setLatLng(nb.getCenter());
+      cornerHandle.setLatLng(nb.getSouthEast());
+      updateCensusShapeStatus();
+      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      scheduleCensusQuery(null,'rectangle moved');
     });
     cornerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
-      const ll=e.target.getLatLng();
-      const fixedSw=b.getSouthWest();
-      const north=Math.max(fixedSw.lat+0.0001,ll.lat),east=Math.max(fixedSw.lng+0.0001,ll.lng);
-      const nb=L.latLngBounds([fixedSw,L.latLng(north,east)]);
-      rectangle.setBounds(nb);centerHandle.setLatLng(nb.getCenter());cornerHandle.setLatLng(nb.getSouthEast());
-      updateCensusShapeStatus();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'rectangle resized');
+      const current=rectangle.getBounds();
+      const fixedNW=current.getNorthWest();
+      const pointer=e.target.getLatLng();
+      const minLatDelta=Math.max(0.0001, Math.abs(current.getNorth()-current.getSouth())*0.001);
+      const minLngDelta=Math.max(0.0001, Math.abs(current.getEast()-current.getWest())*0.001);
+      const south=Math.min(fixedNW.lat-minLatDelta,pointer.lat);
+      const east=Math.max(fixedNW.lng+minLngDelta,pointer.lng);
+      const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
+      rectangle.setBounds(nb);
+      centerHandle.setLatLng(nb.getCenter());
+      cornerHandle.setLatLng(nb.getSouthEast());
+      updateCensusShapeStatus();
+      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      scheduleCensusQuery(null,'rectangle resized');
     });
     state.rectangleEditHandles=[centerHandle,cornerHandle];
   }
@@ -3928,7 +3945,7 @@
     state.circleDrawMode=false;state.rectangleDrawMode=false;state.censusShapeDrawing=null;state.circleDrawing=null;
     state.markerClickSuppressed=false;map.getContainer().style.cursor='';removeAllCensusHandles();
     el('drawCircleBtn').querySelector('span:last-child').textContent='Circle';
-    el('drawRectangleBtn').querySelector('span:last-child').textContent='Rectangle';
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Box';
   }
   function clearCensusShape({keepDrawingMode=false}={}){
     removeAllCensusHandles();
@@ -4094,6 +4111,19 @@
   el('filterPickerSelectAll').addEventListener('click',()=>{const list=el('filterValuePickerList');const checks=[...list.querySelectorAll('.filter-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);el('filterPickerSelectAll').textContent=all?'Select all':'Clear all';});
   el('filterPickerApply').addEventListener('click',e=>{e.preventDefault();applyFilterValuePicker();el('filterValueDialog').close();});
   el('filterPickerCancel').addEventListener('click',e=>{e.preventDefault();state.filterValuePickerIndex=null;el('filterValueDialog').close();});
+
+  function setLeftPanelCollapsed(collapsed){
+    state.leftPanelCollapsed=!!collapsed;
+    document.body.classList.toggle('left-panel-collapsed',state.leftPanelCollapsed);
+    const toggle=el('leftPanelToggle');
+    if(toggle){
+      toggle.setAttribute('aria-expanded',String(!state.leftPanelCollapsed));
+      toggle.setAttribute('aria-label',state.leftPanelCollapsed?'Expand controls':'Collapse controls');
+      const icon=toggle.querySelector('span');
+      if(icon)icon.textContent=state.leftPanelCollapsed?'›':'‹';
+    }
+    requestAnimationFrame(()=>map.invalidateSize(false));
+  }
 
   el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
   el('censusThreshold').addEventListener('change',()=>scheduleCensusQuery(null,'threshold change'));

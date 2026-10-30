@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.133</title>
+  <title>Store Explorer v1.134</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.133.0.census-query" />
+      <link rel="stylesheet" href="styles.css?v=1.134.0.census-query-box" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.133</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.134</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -37,11 +37,11 @@
       </section>
 
       <section class="panel-card census-query-card">
-        <h2>Census Query</h2>
+        <h2>Census Shape Query</h2>
         <div class="census-query-controls" aria-label="Census query shape controls">
           <div class="census-query-buttons">
             <button id="drawCircleBtn" type="button" class="circle-action-button"><span class="circle-button-icon" aria-hidden="true"></span><span>Circle</span></button>
-            <button id="drawRectangleBtn" type="button" class="circle-action-button"><span class="rectangle-button-icon" aria-hidden="true"></span><span>Rectangle</span></button>
+            <button id="drawRectangleBtn" type="button" class="circle-action-button"><span class="rectangle-button-icon" aria-hidden="true"></span><span>Box</span></button>
           </div>
           <button id="clearCensusShapeBtn" type="button" class="circle-action-button census-query-clear" disabled><span class="clear-button-icon" aria-hidden="true">×</span><span>Clear</span></button>
           <div class="census-query-status-row">
