@@ -3,30 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Store Explorer — AEQD Final Validation</title>
+<title>Store Explorer Rectangle Intersection Benchmark v0.2</title>
 <style>
-body{font-family:Arial,sans-serif;margin:24px;color:#222;background:#fafafa}
-.wrap{max-width:1100px;margin:auto}
-h1{font-size:24px;margin:0 0 8px}.sub{color:#666;margin-bottom:18px}
-button{padding:10px 16px;font-weight:600;cursor:pointer}.status{margin:14px 0;padding:10px;background:#eee;border-radius:6px}
-table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #ddd;padding:9px;text-align:right}th:first-child,td:first-child{text-align:left}
-.ok{background:#e9f7ea}.bad{background:#fdecec}.summary{margin:14px 0;padding:12px;background:#f2f5f7;border-left:4px solid #888}
-pre{white-space:pre-wrap;background:#fff;border:1px solid #ddd;padding:12px}
+body{font-family:Arial,sans-serif;margin:24px;line-height:1.4;background:#f7f7f7;color:#222}h1{margin:0 0 8px;font-size:22px}.sub{margin-bottom:18px;color:#555}.panel{background:#fff;border:1px solid #ccc;border-radius:8px;padding:16px;margin:12px 0}label{display:block;margin:8px 0 4px;font-weight:600}input,select,button{font:inherit;padding:7px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.row>div{min-width:180px}.buttons{margin-top:12px;display:flex;gap:8px}button{cursor:pointer}.status{white-space:pre-wrap;background:#111;color:#eee;padding:12px;border-radius:6px;min-height:80px;font-family:Consolas,monospace;font-size:13px}table{border-collapse:collapse;width:100%;margin-top:14px;background:#fff}th,td{border:1px solid #ccc;padding:7px 8px;text-align:right}th:first-child,td:first-child{text-align:left}.good{font-weight:700}.bad{font-weight:700}.note{font-size:13px;color:#555}.mono{font-family:Consolas,monospace}
 </style>
 </head>
 <body>
-<div class="wrap">
-<h1>Store Explorer — WGS84 AEQD Final Validation</h1>
-<div class="sub">Final six-case validation of the specialized true-circle clipper using WGS84 Azimuthal Equidistant coordinates centered on each store.</div>
-<button id="run" type="button">Run final AEQD validation</button>
-<div id="status" class="status">Ready. No asset download required.</div>
-<div id="summary"></div>
-<table>
-<thead><tr><th>Case</th><th>DA</th><th>Independent WGS84 reference</th><th>AEQD custom</th><th>Difference</th><th>15% ref / custom</th><th>Clip time</th></tr></thead>
-<tbody id="tbody"></tbody>
-</table>
-<div class="summary"><b>Method:</b> Each DA is transformed from WGS84 longitude/latitude into a WGS84 Azimuthal Equidistant projection centered on the store. The same specialized true-circle clipping algorithm is then run against a 2,000 m Euclidean circle. Reference values were independently precomputed using WGS84 geodesic circle construction, Lambert azimuthal equal-area intersection construction, and GeographicLib geodesic area.</div>
+<h1>Rectangle Intersection Benchmark v0.2</h1>
+<div class="sub">Benchmark-only prototype. Custom DA rectangle intersection vs Turf booleanIntersects(). No production Store Explorer code is modified.</div>
+<div class="panel">
+  <div class="row">
+    <div><label for="scope">Data scope</label><select id="scope"><option value="ON">Ontario</option><option value="QC">Quebec</option><option value="ONQC" selected>Ontario + Quebec</option><option value="ABBC">Alberta + BC</option><option value="MB SK">Manitoba + Saskatchewan</option><option value="all">All provinces</option></select></div>
+    <div><label for="rect">Viewport test set</label><select id="rect"><option value="presets">Preset wide/narrow viewports</option><option value="random">Random viewports</option><option value="national">Canada-wide</option></select></div>
+    <div><label for="randomRects">Random rectangles</label><input id="randomRects" type="number" min="10" max="5000" value="500"></div>
+    <div><label for="iterations">Warm benchmark iterations</label><input id="iterations" type="number" min="1" max="10" value="5"></div>
+  </div>
+  <div class="buttons"><button id="loadBtn">1. Load DA assets</button><button id="benchBtn" disabled>2. Run benchmark</button></div>
+  <div class="note">Serve this page from the same folder as the provincial DA asset JSON files. Turf 7.2.0 is loaded from jsDelivr. The custom routine and Turf operate on the same decoded DA geometry objects.</div>
 </div>
-<script src="test.js?v=7"></script>
+<div class="panel"><div class="status" id="status">Ready.</div></div>
+<div class="panel" id="results"><div class="note">No benchmark has been run.</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
+<script src="test.js?v=0.2.20261030"></script>
 </body>
 </html>
