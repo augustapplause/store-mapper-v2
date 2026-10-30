@@ -1,4 +1,4 @@
-// Rectangle intersection benchmark v0.4. Cache-buster: 2026-10-30T11:15:00-0400\n'use strict';
+// Rectangle intersection benchmark v0.6. Cache-buster: 2026-10-30T11:15:00-0400\n'use strict';
 
 const PROVINCES=['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'];
 const ASSET_FILES=Object.fromEntries(PROVINCES.map(p=>[p,`${p}_da_spatial_asset_v1.json`]));
@@ -245,141 +245,114 @@ function makeTestRects(codes){
   return {rects:wideViewportRects(codes),label:'Wide multi-province viewports'};
 }
 
-function runOne(rows,rect,method){
-  let hits=0, partialChecks=0;
+function collectPartialCandidates(rows,rect){
+  const out=[];
   for(const row of rows){
     if(!bboxOverlaps(row.bbox,rect))continue;
     if(bboxFullyContainedInTarget(row.bbox,rect))continue;
-    partialChecks++;
-    const geom=loadGeometry(row);
-    if(method(geom,rect))hits++;
+    out.push(row);
   }
-  return {hits,partialChecks};
-}
-function runTurf(rows,rect){
-  const polygon=turf.bboxPolygon(rect);
-  let hits=0, partialChecks=0;
-  for(const row of rows){
-    if(!bboxOverlaps(row.bbox,rect))continue;
-    if(bboxFullyContainedInTarget(row.bbox,rect))continue;
-    partialChecks++;
-    const geom=loadGeometry(row);
-    if(turf.booleanIntersects(geom,polygon))hits++;
-  }
-  return {hits,partialChecks};
+  return out;
 }
 
-function buildDataset(codes){
-  const rows=[];
-  for(const code of codes){
-    const asset=state.assets.get(code);if(!asset)continue;
-    for(let i=0;i<asset.geometry_records.length;i++){
-      const bbox=bboxOfRecord(asset,i);if(!bbox)continue;
-      rows.push({code,index:i,bbox,geometry:null});
-    }
-  }
-  return rows;
-}
-function loadGeometry(row){
-  if(!row.geometry){row.geometry=geometryFeature(state.assets.get(row.code),row.index);}
-  return row.geometry;
-}
-
-async function loadAssets(){
-  if(typeof turf==='undefined')throw new Error('Turf failed to load.');
-  state.assets.clear();
-  const codes=provinceCodesForScope();
-  const counts=[];
-  for(const code of codes){
-    const res=await fetch(ASSET_FILES[code]);
-    if(!res.ok)throw new Error(`${code}: HTTP ${res.status}`);
-    const asset=await res.json();
-    if(!Array.isArray(asset.geometry_records))throw new Error(`${code}: invalid geometry_records`);
-    state.assets.set(code,asset);counts.push(`${code}:${asset.geometry_records.length.toLocaleString()}`);
-  }
-  state.loaded=true;
-  $('benchBtn').disabled=false;
-  const total=counts.reduce((s,x)=>s+Number(x.split(':')[1].replaceAll(',','')),0);
-  log(`Loaded ${total.toLocaleString()} DAs across ${codes.length} province(s).\n${counts.join('  ')}`);
-}
-
-function makeTestRects(codes){
-  const mode=$('rect').value;
-  if(mode==='national')return {rects:[unionBbox(codes)],label:'Canada-wide'};
-  if(mode==='random')return {rects:randomRects(codes,Number($('randomRects').value)||500),label:'Random viewports'};
-  if(mode==='targeted')return targetedFalseOverlapRects(codes,Number($('targetedRects').value)||100);
-  return {rects:rectPresets(codes),label:'Preset wide/narrow viewports'};
-}
-
-function runOne(rows,rect,method){
+function runCustomOnPartial(partialRows,rect){
   let hits=0;
-  for(const row of rows){
-    if(!bboxOverlaps(row.bbox,rect))continue;
-    const geom=loadGeometry(row);
-    const hit=method(geom,rect);
-    if(hit)hits++;
+  for(const row of partialRows){
+    if(geometryIntersectsRect(loadGeometry(row),rect))hits++;
   }
   return hits;
 }
-function runTurf(rows,rect){
-  const polygon=turf.bboxPolygon(rect);
+
+function runTurfOnPartial(partialRows,rect,polygon){
   let hits=0;
-  for(const row of rows){
-    if(!bboxOverlaps(row.bbox,rect))continue;
-    const geom=loadGeometry(row);
-    if(turf.booleanIntersects(geom,polygon))hits++;
+  for(const row of partialRows){
+    if(turf.booleanIntersects(loadGeometry(row),polygon))hits++;
   }
   return hits;
 }
 
 function benchFunction(fn,loops){
-  const t0=performance.now();let value=0;
+  const t0=performance.now();
+  let value=0;
   for(let i=0;i<loops;i++)value=fn();
-  const ms=performance.now()-t0;return {ms,value};
+  return {ms:performance.now()-t0,value};
 }
 
 async function benchmark(){
   const codes=provinceCodesForScope();
   if(!state.loaded)await loadAssets();
   const rows=buildDataset(codes);
-  const testSet=makeTestRects(codes); const rects=testSet.rects;
-  const loops=Math.max(1,Math.min(10,Number($('iterations').value)||5));
+  const testSet=makeTestRects(codes);
+  const rects=testSet.rects;
+  const loops=Math.max(1,Math.min(20,Number($('iterations').value)||5));
   if(!rects.length)throw new Error('No test rectangles available.');
-  log(`Prepared ${rows.length.toLocaleString()} DAs and ${rects.length.toLocaleString()} wide viewport(s).\nWarming geometry cache...`);
-  // Warm geometry decode and both algorithms once.
-  for(const rect of rects.slice(0,Math.min(rects.length,5))){runOne(rows,rect,geometryIntersectsRect);runTurf(rows,rect);}
 
-  let customHits=0,turfHits=0,customMs=0,turfMs=0,partialCandidates=0,totalBboxCandidates=0;
-  const perRect=[];
+  log(`Prepared ${rows.length.toLocaleString()} DAs and ${rects.length.toLocaleString()} wide viewport(s).\nBuilding partial-candidate sets...`);
+
+  const prepared=[];
+  let totalBboxCandidates=0;
+  let totalPartialCandidates=0;
   for(const rect of rects){
-    let bboxCandidates=0,partial=0;
-    for(const row of rows){if(!bboxOverlaps(row.bbox,rect))continue;bboxCandidates++;if(!bboxFullyContainedInTarget(row.bbox,rect))partial++;}
-    totalBboxCandidates+=bboxCandidates; partialCandidates+=partial;
-    const a=benchFunction(()=>runOne(rows,rect,geometryIntersectsRect),loops);
-    const b=benchFunction(()=>runTurf(rows,rect),loops);
-    customMs+=a.ms; turfMs+=b.ms;
-    const av=a.value,bv=b.value;
-    customHits+=av.hits; turfHits+=bv.hits;
-    perRect.push({rect,bboxCandidates,partialCandidates:partial,custom:av.hits,turf:bv.hits,agree:av.hits===bv.hits});
+    const bboxCandidates=[];
+    for(const row of rows){if(bboxOverlaps(row.bbox,rect))bboxCandidates.push(row);}
+    const partialRows=[];
+    for(const row of bboxCandidates){if(!bboxFullyContainedInTarget(row.bbox,rect))partialRows.push(row);}
+    // Decode once before timing both methods so geometry decoding is not part of either comparison.
+    for(const row of partialRows)loadGeometry(row);
+    const polygon=turf.bboxPolygon(rect);
+    totalBboxCandidates+=bboxCandidates.length;
+    totalPartialCandidates+=partialRows.length;
+    prepared.push({rect,polygon,bboxCandidates,partialRows});
   }
+
+  // Warm both algorithms on each prepared partial set.
+  for(const item of prepared){runCustomOnPartial(item.partialRows,item.rect);runTurfOnPartial(item.partialRows,item.rect,item.polygon);}
+
+  let customMs=0,turfMs=0,customHits=0,turfHits=0;
+  let allAgree=true;
+  const perRect=[];
+
+  for(const item of prepared){
+    const a=benchFunction(()=>runCustomOnPartial(item.partialRows,item.rect),loops);
+    const b=benchFunction(()=>runTurfOnPartial(item.partialRows,item.rect,item.polygon),loops);
+    customMs+=a.ms;
+    turfMs+=b.ms;
+    const customHits=a.value;
+    const turfHitsForRect=b.value;
+    const agree=customHits===turfHitsForRect;
+    // Counts are per rectangle; each loop returns the same hit count.
+    perRect.push({
+      rect:item.rect,
+      bboxCandidates:item.bboxCandidates.length,
+      partialCandidates:item.partialRows.length,
+      custom:customHits,
+      turf:turfHitsForRect,
+      agree
+    });
+  }
+
+  customHits=perRect.reduce((sum,x)=>sum+x.custom,0);
+  turfHits=perRect.reduce((sum,x)=>sum+x.turf,0);
   const disagreements=perRect.filter(x=>!x.agree);
-  const speedup=turfMs/customMs; const accuracy=customHits===turfHits&&disagreements.length===0;
+  const speedup=customMs>0?turfMs/customMs:Infinity;
+  const accuracy=customHits===turfHits&&disagreements.length===0;
+
   let html=`<h2>Results</h2>`;
   html+=`<p><strong>Candidate:</strong> custom rectangle boundary + containment test <strong>Reference:</strong> Turf booleanIntersects()</p>`;
   html+=`<table><tr><th>Metric</th><th>Custom</th><th>Turf</th></tr>`;
   html+=`<tr><td>Viewport rectangles</td><td>${rects.length}</td><td>${rects.length}</td></tr>`;
   html+=`<tr><td>Total DA bbox candidates</td><td colspan="2">${totalBboxCandidates.toLocaleString()}</td></tr>`;
-  html+=`<tr><td>Partial-intersection candidates (timed stage)</td><td colspan="2">${partialCandidates.toLocaleString()}</td></tr>`;
+  html+=`<tr><td>Partial-intersection candidates (timed stage)</td><td colspan="2">${totalPartialCandidates.toLocaleString()}</td></tr>`;
   html+=`<tr><td>Measured time (${loops}x)</td><td>${customMs.toFixed(1)} ms</td><td>${turfMs.toFixed(1)} ms</td></tr>`;
-  html+=`<tr><td>Approx. speedup</td><td colspan="2">${speedup.toFixed(2)}x</td></tr>`;
-  html+=`<tr><td>Total hit count across runs</td><td>${customHits.toLocaleString()}</td><td>${turfHits.toLocaleString()}</td></tr>`;
+  html+=`<tr><td>Approx. speedup</td><td colspan="2">${Number.isFinite(speedup)?speedup.toFixed(2)+'x':'n/a'}</td></tr>`;
+  html+=`<tr><td>Total hit count across rectangles</td><td>${customHits.toLocaleString()}</td><td>${turfHits.toLocaleString()}</td></tr>`;
   html+=`<tr><td>Decision agreement</td><td colspan="2" class="${accuracy?'good':'bad'}">${accuracy?'PASS':'FAIL'}${disagreements.length?` — ${disagreements.length} rectangle(s) differ`:''}</td></tr></table>`;
-  if(disagreements.length){html+='<h3>Disagreements</h3><table><tr><th>#</th><th>Bbox candidates</th><th>Partial candidates</th><th>Custom</th><th>Turf</th><th>Rectangle</th></tr>';disagreements.slice(0,25).forEach((d,i)=>{html+=`<tr><td>${i+1}</td><td>${d.bboxCandidates}</td><td>${d.partialCandidates}</td><td>${d.custom}</td><td>${d.turf}</td><td>${d.rect.map(v=>v.toFixed(5)).join(', ')}</td></tr>`});html+='</table>'; }
+  if(disagreements.length){html+='<h3>Disagreements</h3><table><tr><th>#</th><th>Bbox candidates</th><th>Partial candidates</th><th>Custom</th><th>Turf</th><th>Rectangle</th></tr>';disagreements.slice(0,25).forEach((d,i)=>{html+=`<tr><td>${i+1}</td><td>${d.bboxCandidates}</td><td>${d.partialCandidates}</td><td>${d.custom}</td><td>${d.turf}</td><td>${d.rect.map(v=>v.toFixed(5)).join(', ')}</td></tr>`});html+='</table>';}
   html+='<h3>Per-rectangle results</h3><table><tr><th>#</th><th>Bbox candidates</th><th>Partial candidates</th><th>Custom hits</th><th>Turf hits</th><th>Agreement</th></tr>';
   perRect.forEach((d,i)=>{html+=`<tr><td>${i+1}</td><td>${d.bboxCandidates}</td><td>${d.partialCandidates}</td><td>${d.custom}</td><td>${d.turf}</td><td>${d.agree?'PASS':'FAIL'}</td></tr>`});
   html+='</table>';
   $('results').innerHTML=html;
-  log(`Benchmark complete.\nBbox candidates: ${totalBboxCandidates.toLocaleString()}\nPartial candidates: ${partialCandidates.toLocaleString()}\nCustom: ${customMs.toFixed(1)} ms\nTurf:   ${turfMs.toFixed(1)} ms\nSpeedup: ${speedup.toFixed(2)}x\nAgreement: ${accuracy?'PASS':'FAIL'}`);
+  log(`Benchmark complete.\nBbox candidates: ${totalBboxCandidates.toLocaleString()}\nPartial candidates: ${totalPartialCandidates.toLocaleString()}\nCustom: ${customMs.toFixed(1)} ms\nTurf:   ${turfMs.toFixed(1)} ms\nSpeedup: ${Number.isFinite(speedup)?speedup.toFixed(2)+'x':'n/a'}\nAgreement: ${accuracy?'PASS':'FAIL'}`);
 }
 
 $('loadBtn').onclick=()=>loadAssets().catch(err=>log(`LOAD ERROR\n${err.stack||err}`));
