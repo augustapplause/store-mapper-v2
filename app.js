@@ -1,4 +1,4 @@
-/* Store Explorer - v1.139
+/* Store Explorer - v1.140
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2439,7 +2439,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.139`,
+        `DA PERF v1.140`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3058,31 +3058,45 @@
     return {totalPopulation:Number(p.total_population||0),population65Plus:Number(p.population_65_plus||0),population40Plus:Number(p.population_40_64||0)+Number(p.population_65_plus||0),visibleMinorityPopulation:Number(p.visible_minority_population||0),totalHouseholds:Number(p.total_households||0),incomeWeighted:Number(p.incomeWeighted||0),daCount:Number(p.da_count||0)};
   }
 
-  function applyCensusGeoScope(scope){
-    if(!scope){clearCensusGeoSelection();resetCensusPopulationSummary();setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');if(el('censusDaList'))el('censusDaList').innerHTML='<div class=\"empty-message\">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';updateCensusShapeStatus();return;}
+  async function applyCensusGeoScope(scope){
+    if(!scope){
+      clearCensusGeoSelection();
+      resetCensusPopulationSummary();
+      setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');
+      if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+      updateCensusShapeStatus();
+      return;
+    }
     clearCensusShape();
     clearRightPanelHighlights();
+    if(!state.provinceGeo?.features?.length) await loadProvinces();
     const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
     const selectedFeature=scope==='CA'?null:state.provinceGeo?.features?.find(f=>provinceCodeFromFeature(f)===scope)||null;
     if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
     const features=scope==='CA'?(state.provinceGeo?.features||[]):(selectedFeature?[selectedFeature]:[]);
+    let fitLayer=null;
     if(features.length){
-      state.censusGeoLayer=L.geoJSON({type:'FeatureCollection',features},{style:{color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}}).addTo(map);
+      fitLayer=L.geoJSON({type:'FeatureCollection',features},{style:{color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}}).addTo(map);
+      state.censusGeoLayer=fitLayer;
     }
     state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name};
     const aggregate=censusScopeAggregate(scope);
     updateCensusPopulationSummary(aggregate);
     const storeScope=scope==='CA'?'Canada':name;
     el('censusPopPerStore').textContent='—';
-    el('censusDaList').innerHTML=`<div class=\"empty-message\">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
+    el('censusDaList').innerHTML=`<div class="empty-message">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
     setDaTestStatus(`${esc(storeScope)} population selected from precomputed Census totals. No DA spatial query was run.`);
     state.daSelectionResult=null;
     updateCensusShapeStatus();
+    if(fitLayer){
+      const bounds=fitLayer.getBounds();
+      if(bounds.isValid()) fitMapProgrammatically(bounds,{padding:[22,22]});
+    }
     updateSelection();
   }
 
   function setCensusGeoScope(scope){
-    applyCensusGeoScope(scope||'');
+    void applyCensusGeoScope(scope||'');
   }
 
   function setDaTestStatus(text) {
