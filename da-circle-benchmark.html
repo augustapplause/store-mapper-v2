@@ -30,7 +30,7 @@
 </head>
 <body>
   <h1>Store Explorer DA / Circle Geometry Benchmark</h1>
-  <p>Validates a specialized true-circle polygon clipping-area routine against increasingly high-resolution geodesic circle references using the same provincial spatial assets. The highest reference uses 16,384 segments to test convergence, while the custom method operates against the mathematical circle directly.</p>
+  <p>Benchmarks a specialized true-circle polygon clipping-area routine against increasingly high-resolution geodesic circle references. Edge-case test sets are constructed with the fast custom routine so benchmark setup remains responsive.</p>
   <div class="controls">
     <label>Province
       <select id="province"></select>
@@ -58,9 +58,9 @@
   <div id="status">Loading Turf…</div>
   <div id="results"></div>
   <div class="note">
-    The custom routine uses a local tangent-plane true-circle model. The reference uses a high-resolution geodesic circle approximation (up to 16,384 segments) and geodesic area calculation. The purpose is validation of convergence and geometry fidelity, not adoption of Turf as the definition of a 1 km / 2 km circle.
+    The custom routine uses a local tangent-plane true-circle model. Edge cases are constructed with the custom routine; the benchmark then compares the same cases against high-resolution geodesic circle approximations. This keeps setup fast while still testing convergence and geometry fidelity.
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
-  <script src="da-circle-benchmark.js"></script>
+  <script src="da-circle-benchmark-v8.js"></script>
 </body>
 </html>
