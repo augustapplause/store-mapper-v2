@@ -1,4 +1,4 @@
-/* Store Explorer - v1.140
+/* Store Explorer - v1.143
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -101,6 +101,48 @@
   const selectionCirclePane = map.createPane('selectionCirclePane');
   selectionCirclePane.style.zIndex = '550';
   selectionCirclePane.style.pointerEvents = 'auto';
+  const censusHandlePane = map.createPane('censusHandlePane');
+  censusHandlePane.style.zIndex = '700';
+  censusHandlePane.style.pointerEvents = 'auto';
+  const CENSUS_DEBUG_ENABLED = new URLSearchParams(location.search).get('debug') === '1';
+  const CENSUS_DEBUG = {
+    events: [],
+    log(event, detail={}) {
+      const row = {time:new Date().toISOString(), event, detail};
+      this.events.push(row);
+      if (this.events.length > 120) this.events.shift();
+      if (CENSUS_DEBUG_ENABLED) {
+        console.debug('[CENSUS STATE]', event, detail);
+        this.render();
+      }
+    },
+    render() {
+      if (!CENSUS_DEBUG_ENABLED) return;
+      let panel = document.getElementById('censusDebugPanel');
+      if (!panel) {
+        panel = document.createElement('pre');
+        panel.id = 'censusDebugPanel';
+        Object.assign(panel.style,{position:'fixed',left:'10px',bottom:'10px',zIndex:99998,background:'rgba(0,0,0,.9)',color:'#fff',padding:'10px',margin:0,font:'11px/1.4 monospace',whiteSpace:'pre-wrap',maxWidth:'520px',maxHeight:'70vh',overflow:'auto'});
+        document.body.appendChild(panel);
+      }
+      const shape=censusShapeType?.()||null;
+      const geo=censusGeoScopeType?.()||null;
+      const scope=geo||shape||'viewport';
+      const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
+      panel.textContent=[
+        'CENSUS STATE DEBUG v1.143',
+        `scope: ${scope}`,
+        `shape: ${shape||'none'} | geo: ${geo||'none'}`,
+        `geoCode: ${state.censusGeoSelection?.code||'none'}`,
+        `selectedRows: ${(state.selectedRows||[]).length}`,
+        `DA result: ${state.daSelectionResult?.selectedCount ?? 0}`,
+        `circle handles: ${state.circleEditHandles.length} | box handles: ${state.rectangleEditHandles.length}`,
+        '--- events ---',
+        last || '(none)'
+      ].join('\n');
+    }
+  };
+  CENSUS_DEBUG.log('initialized');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
   state.markerCluster = L.layerGroup().addTo(map);
@@ -1674,8 +1716,16 @@
     return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
   }
   function getSelectedRows(){
-    // Shape = metric/aggregation scope. No shape = viewport scope. Filters are
-    // always applied on top of that spatial scope.
+    // Census geography scope, when active, is the metric/aggregation scope.
+    // Census shapes are the next most specific scope. With neither active,
+    // the viewport governs marker selection. Filters always apply on top.
+    if(censusGeoScopeType()){
+      const scope=state.censusGeoSelection.code;
+      const base=scope==='CA'
+        ? state.rows
+        : state.rows.filter(row=>provinceCodeFromText(row[state.columns.province] || '')===scope);
+      return base.filter(filterRowPasses);
+    }
     if(censusShapeType()) return getCensusShapeRows();
     return getViewportRows({respectFilters:true});
   }
@@ -1736,7 +1786,11 @@
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
     const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
     const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
-    const selectionLabel=censusShapeType()?(circleVisible?'current Census circle':'current Census box'):'current map view';
+    const selectionLabel=censusGeoScopeType()
+      ? (state.censusGeoSelection.code==='CA'?'Canada':'selected province')
+      : censusShapeType()
+        ? (circleVisible?'current Census circle':'current Census box')
+        : 'current map view';
     el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
@@ -1753,6 +1807,7 @@
   }
   function updateSelection(){
     updateSelectionState();
+    CENSUS_DEBUG.log('selection:update',{scope:censusScopeType(),selectedRows:state.selectedRows.length,filters:state.filters.length});
     updateSelectionPanels();
   }
   function scheduleSelectionUpdate(){
@@ -2439,7 +2494,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.140`,
+        `DA PERF v1.143`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3059,8 +3114,11 @@
   }
 
   async function applyCensusGeoScope(scope){
+    CENSUS_DEBUG.log('geoScope:start',{scope});
+    const select=el('censusGeoSelect');
     if(!scope){
       clearCensusGeoSelection();
+      CENSUS_DEBUG.log('geoScope:cleared');
       resetCensusPopulationSummary();
       setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');
       if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
@@ -3069,6 +3127,7 @@
     }
     clearCensusShape();
     clearRightPanelHighlights();
+    if(select) select.value=scope;
     if(!state.provinceGeo?.features?.length) await loadProvinces();
     const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
     const selectedFeature=scope==='CA'?null:state.provinceGeo?.features?.find(f=>provinceCodeFromFeature(f)===scope)||null;
@@ -3080,6 +3139,7 @@
       state.censusGeoLayer=fitLayer;
     }
     state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name};
+    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name});
     const aggregate=censusScopeAggregate(scope);
     updateCensusPopulationSummary(aggregate);
     const storeScope=scope==='CA'?'Canada':name;
@@ -3087,16 +3147,20 @@
     el('censusDaList').innerHTML=`<div class="empty-message">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
     setDaTestStatus(`${esc(storeScope)} population selected from precomputed Census totals. No DA spatial query was run.`);
     state.daSelectionResult=null;
+    state.daActivationTrigger='geography scope';
     updateCensusShapeStatus();
     if(fitLayer){
       const bounds=fitLayer.getBounds();
-      if(bounds.isValid()) fitMapProgrammatically(bounds,{padding:[22,22]});
+      if(bounds.isValid()) {
+        CENSUS_DEBUG.log('geoScope:fit',{scope,bounds:bounds.toBBoxString()});
+        fitMapProgrammatically(bounds,{padding:[22,22]});
+      }
     }
     updateSelection();
   }
 
   function setCensusGeoScope(scope){
-    void applyCensusGeoScope(scope||'');
+    return applyCensusGeoScope(scope||'');
   }
 
   function setDaTestStatus(text) {
@@ -3157,6 +3221,8 @@
     clearDaOverlay();
     state.daSelectionResult = result;
     state.selectedRows=getCensusShapeRows();
+    requestAnimationFrame(()=>showActiveCensusShapeHandles());
+    CENSUS_DEBUG.log('da:rendered',{count:result?.selectedCount||0,shape:censusShapeType()});
     updateSelectionState();
     updateSelectionPanels();
     updateCensusPopulationSummary(result.aggregate);
@@ -4068,8 +4134,8 @@
     const circle=state.circleSelection?.circle;if(!circle)return;
     const center=circle.getLatLng();
     const edge=circleEdgeLatLng(center,circle.getRadius());
-    const centerHandle=L.marker(center,{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const radiusHandle=L.marker(edge,{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const centerHandle=L.marker(center,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const radiusHandle=L.marker(edge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     centerHandle.on('drag',e=>{
       if(!state.circleSelection)return;
       const ll=e.target.getLatLng();circle.setLatLng(ll);radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
@@ -4087,8 +4153,8 @@
     removeRectangleHandles();
     const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
     const b0=rectangle.getBounds();
-    const centerHandle=L.marker(b0.getCenter(),{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const cornerHandle=L.marker(b0.getSouthEast(),{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const centerHandle=L.marker(b0.getCenter(),{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const cornerHandle=L.marker(b0.getSouthEast(),{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     centerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4134,6 +4200,7 @@
     el('drawRectangleBtn').querySelector('span:last-child').textContent='Box';
   }
   function clearCensusShape({keepDrawingMode=false}={}){
+    CENSUS_DEBUG.log('scope:clear',{hadShape:!!censusShapeType(),hadGeo:!!censusGeoScopeType()});
     removeAllCensusHandles();
     if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
     state.censusRequestId++;
@@ -4156,6 +4223,7 @@
   }
   function clearCircle(){clearCensusShape();}
   function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
+    CENSUS_DEBUG.log('circle:create:start',{lat:center.lat,lng:center.lng,radiusMeters,reason});
     clearCensusShape();
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const radius=Math.max(10,radiusMeters);
@@ -4164,6 +4232,8 @@
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     state.circleSelection={circle,label};
     updateCensusShapeStatus();showCircleHandles();
+    requestAnimationFrame(()=>{ if(state.circleSelection?.circle===circle) showCircleHandles(); });
+    CENSUS_DEBUG.log('circle:create:handles',{count:state.circleEditHandles.length});
     scheduleCensusQuery(null,reason);
   }
   function createOrReplaceRectangle(bounds,reason='rectangle draw'){
@@ -4188,7 +4258,14 @@
   el('drawCircleBtn').addEventListener('click',()=>{if(state.circleDrawMode){exitCensusDrawMode();return;}enterCircleDrawMode();});
   el('drawRectangleBtn').addEventListener('click',()=>{if(state.rectangleDrawMode){exitCensusDrawMode();return;}enterRectangleDrawMode();});
   el('clearCensusShapeBtn').addEventListener('click',()=>{clearCensusShape();});
-  el('censusGeoSelect')?.addEventListener('change',e=>{setCensusGeoScope(e.target.value);});
+  el('censusGeoSelect')?.addEventListener('change',e=>{
+    const scope=String(e.target.value||'');
+    CENSUS_DEBUG.log('geoScope:change',{scope});
+    Promise.resolve(setCensusGeoScope(scope)).catch(err=>{
+      console.error('[CENSUS GEO] scope selection failed',err);
+      setDaTestStatus(`Census geography selection failed: ${err.message||err}`);
+    });
+  });
 
   map.on('mousedown',e=>{
     if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing||!e.originalEvent)return;
@@ -4219,6 +4296,7 @@
     try{
       if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);
       state.censusShapeDrawing=null;
+      exitCensusDrawMode();
       if(draw.mode==='circle'){
         const r=map.distance(draw.start,e.latlng);createOrReplaceCircle(draw.start,Math.max(10,r));
       }else{
@@ -4226,7 +4304,6 @@
         if(map.distance(bounds.getSouthWest(),bounds.getNorthEast())<50) throw new Error('Rectangle is too small.');
         createOrReplaceRectangle(bounds);
       }
-      exitCensusDrawMode();
     }catch(err){
       console.error('Census Query draw completion failed:',err);
       if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);state.censusShapeDrawing=null;exitCensusDrawMode();
@@ -4285,6 +4362,7 @@
     }
     state.userMapInteraction=false;
     clearOffscreenTransientVisuals();
+    requestAnimationFrame(()=>showActiveCensusShapeHandles());
     updateHeaderGeography();
     if(!censusShapeType()) updateSelection();
     else { updateGroups(); updateDistribution(); }
