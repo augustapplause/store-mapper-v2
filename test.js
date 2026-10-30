@@ -1,4 +1,4 @@
-// Rectangle intersection benchmark v0.2. Cache-buster: 2026-10-30T10:56:00-0400\n'use strict';
+// Rectangle intersection benchmark v0.3. Cache-buster: 2026-10-30T11:02:00-0400\n'use strict';
 
 const PROVINCES=['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'];
 const ASSET_FILES=Object.fromEntries(PROVINCES.map(p=>[p,`${p}_da_spatial_asset_v1.json`]));
@@ -100,6 +100,7 @@ function polygonIntersectsRect(rings,rect){
 }
 function geometryIntersectsRect(geometry,rect){
   if(!geometry)return false;
+  if(geometry.type==='Feature') geometry=geometry.geometry;
   if(geometry.type==='Polygon')return polygonIntersectsRect(geometry.coordinates,rect);
   if(geometry.type==='MultiPolygon'){
     for(const rings of geometry.coordinates||[])if(polygonIntersectsRect(rings,rect))return true;
