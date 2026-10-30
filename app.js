@@ -1,4 +1,4 @@
-/* Store Explorer - v1.130
+/* Store Explorer - v1.106
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2723,12 +2723,7 @@
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
           } else {
-            // Viewport intersection: the candidate DA bbox has already been
-            // indexed against the viewport. Fully-contained bboxes were
-            // handled above; only partial candidates reach this branch.
-            // Use the benchmarked custom rectangle test instead of Turf's
-            // booleanIntersects() for the include/exclude decision.
-            if(!geometryIntersectsRect(feature.geometry,boundaryBbox)) continue;
+            if(!turf.booleanIntersects(feature,boundary))continue;
             actualIntersectionCount+=1;
             const daArea=turf.area(feature);if(!(daArea>0))continue;
             const inter=turf.intersect(turf.featureCollection([feature,boundary]));if(!inter)continue;
@@ -2783,7 +2778,7 @@
         ];
       }
 
-        const indexedCandidatesByProvince=options.indexedCandidatesByProvince || null;
+      const indexedCandidatesByProvince=options.indexedCandidatesByProvince||{};
       for (const mode of modes) {
         // FULL provinces are fully contained by the active target. Their
         // Census totals come entirely from the precomputed province aggregate.
@@ -2798,20 +2793,14 @@
           aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
           if(!shouldRender)continue;
           const entry=await loadProvince(mode.provinceCode);
-          const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
-          const candidates = Array.isArray(precomputedCandidates)
-            ? precomputedCandidates
-            : bboxQuery(entry,boundaryBbox);
+          const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
           candidateCount+=candidates.length;
           actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
           continue;
         }
         const entry=await loadProvince(mode.provinceCode);
         partialProvinceCodes.push(mode.provinceCode);
-        const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
-        const candidates = Array.isArray(precomputedCandidates)
-          ? precomputedCandidates
-          : bboxQuery(entry,boundaryBbox);
+        const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
         indexedFeatures+=entry.featureCount||0;
         candidateCount+=candidates.length;
         actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
