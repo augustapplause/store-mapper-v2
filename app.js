@@ -1,4 +1,4 @@
-/* Store Explorer - v1.106
+/* Store Explorer - v1.130
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
    province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
@@ -2723,7 +2723,12 @@
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
           } else {
-            if(!turf.booleanIntersects(feature,boundary))continue;
+            // Viewport intersection: the candidate DA bbox has already been
+            // indexed against the viewport. Fully-contained bboxes were
+            // handled above; only partial candidates reach this branch.
+            // Use the benchmarked custom rectangle test instead of Turf's
+            // booleanIntersects() for the include/exclude decision.
+            if(!geometryIntersectsRect(feature.geometry,boundaryBbox)) continue;
             actualIntersectionCount+=1;
             const daArea=turf.area(feature);if(!(daArea>0))continue;
             const inter=turf.intersect(turf.featureCollection([feature,boundary]));if(!inter)continue;
