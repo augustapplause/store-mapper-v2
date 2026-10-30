@@ -1,4 +1,4 @@
-// Rectangle intersection benchmark v0.3. Cache-buster: 2026-10-30T11:02:00-0400\n'use strict';
+// Rectangle intersection benchmark v0.4. Cache-buster: 2026-10-30T11:15:00-0400\n'use strict';
 
 const PROVINCES=['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'];
 const ASSET_FILES=Object.fromEntries(PROVINCES.map(p=>[p,`${p}_da_spatial_asset_v1.json`]));
@@ -152,6 +152,40 @@ function randomRects(codes,n){
   return out;
 }
 
+function targetedFalseOverlapRects(codes,targetCount){
+  // Deliberately build rectangles that overlap a DA's bbox but are expected to
+  // sit just inside a bbox corner while remaining outside the actual polygon.
+  // Turf is used only during SETUP to verify the target case; it is NOT included
+  // in the timed benchmark.
+  const rows=buildDataset(codes);
+  const out=[]; const seen=new Set();
+  const cornerDefs=[
+    (b)=>[b[0],b[1],b[0]+(b[2]-b[0])*0.08,b[1]+(b[3]-b[1])*0.08],
+    (b)=>[b[2]-(b[2]-b[0])*0.08,b[1],b[2],b[1]+(b[3]-b[1])*0.08],
+    (b)=>[b[0],b[3]-(b[3]-b[1])*0.08,b[0]+(b[2]-b[0])*0.08,b[3]],
+    (b)=>[b[2]-(b[2]-b[0])*0.08,b[3]-(b[3]-b[1])*0.08,b[2],b[3]]
+  ];
+  for(let pass=0;pass<rows.length && out.length<targetCount;pass++){
+    const row=rows[pass]; const b=row.bbox;
+    if((b[2]-b[0])<=0 || (b[3]-b[1])<=0) continue;
+    const geom=loadGeometry(row);
+    const poly=turf.bboxPolygon(b);
+    for(let c=0;c<cornerDefs.length && out.length<targetCount;c++){
+      const r=cornerDefs[c](b);
+      // Skip degenerate rectangles.
+      if(r[2]<=r[0]||r[3]<=r[1]) continue;
+      // Verify this is truly a bbox-overlap-but-geometry-does-not-intersect case.
+      if(!turf.booleanIntersects(geom,turf.bboxPolygon(r))){
+        const key=r.map(v=>v.toFixed(10)).join(',');
+        if(seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+      }
+    }
+  }
+  return {rects:out,sourceRows:rows.length};
+}
+
 function buildDataset(codes){
   const rows=[];
   for(const code of codes){
@@ -188,9 +222,10 @@ async function loadAssets(){
 
 function makeTestRects(codes){
   const mode=$('rect').value;
-  if(mode==='national')return [unionBbox(codes)];
-  if(mode==='random')return randomRects(codes,Number($('randomRects').value)||500);
-  return rectPresets(codes);
+  if(mode==='national')return {rects:[unionBbox(codes)],label:'Canada-wide'};
+  if(mode==='random')return {rects:randomRects(codes,Number($('randomRects').value)||500),label:'Random viewports'};
+  if(mode==='targeted')return targetedFalseOverlapRects(codes,Number($('targetedRects').value)||100);
+  return {rects:rectPresets(codes),label:'Preset wide/narrow viewports'};
 }
 
 function runOne(rows,rect,method){
@@ -223,8 +258,10 @@ function benchFunction(fn,loops){
 async function benchmark(){
   const codes=provinceCodesForScope();
   if(!state.loaded)await loadAssets();
-  const rows=buildDataset(codes); const rects=makeTestRects(codes); const loops=Math.max(1,Math.min(10,Number($('iterations').value)||3));
-  log(`Prepared ${rows.length.toLocaleString()} DAs and ${rects.length.toLocaleString()} viewport rectangle(s).\nWarming caches...`);
+  const rows=buildDataset(codes); const testSet=makeTestRects(codes); const rects=testSet.rects; const loops=Math.max(1,Math.min(10,Number($('iterations').value)||3));
+  if(!rects.length)throw new Error('No targeted rectangles were found. Try a broader province scope or larger target count.');
+  const targetNote=testSet.sourceRows?`\nTargeted setup scanned ${testSet.sourceRows.toLocaleString()} DAs; each rectangle was pre-verified by Turf as bbox-overlap but geometry-nonintersecting.`:'';
+  log(`Prepared ${rows.length.toLocaleString()} DAs and ${rects.length.toLocaleString()} viewport rectangle(s).${targetNote}\nWarming caches...`);
   // Warm geometry decode and both algorithms once.
   for(const rect of rects.slice(0,Math.min(rects.length,5))){runOne(rows,rect,geometryIntersectsRect);runTurf(rows,rect);}
 
@@ -245,6 +282,7 @@ async function benchmark(){
   html+=`<table><tr><th>Metric</th><th>Custom</th><th>Turf</th></tr>`;
   html+=`<tr><td>Viewport rectangles</td><td>${rects.length.toLocaleString()}</td><td>${rects.length.toLocaleString()}</td></tr>`;
   html+=`<tr><td>DA bbox candidate checks</td><td colspan="2">${candidateChecks.toLocaleString()}</td></tr>`;
+  if(testSet.sourceRows) html+=`<tr><td>Targeted false-overlap rectangles</td><td colspan="2">${rects.length.toLocaleString()}</td></tr>`;
   html+=`<tr><td>Measured time (${loops}x)</td><td>${customMs.toFixed(1)} ms</td><td>${turfMs.toFixed(1)} ms</td></tr>`;
   html+=`<tr><td>Approx. speedup</td><td colspan="2">${speedup.toFixed(2)}x</td></tr>`;
   html+=`<tr><td>Total hit count across runs</td><td>${customHits.toLocaleString()}</td><td>${turfHits.toLocaleString()}</td></tr>`;
