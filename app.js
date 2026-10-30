@@ -771,6 +771,7 @@
     return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
+    if(censusShapeType() && !rowInsideActiveCensusShape(row))return false;
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
     if(state.selectedStoreRow===row)return true;
     if(dist1 && state.distributionSubject){
@@ -1649,27 +1650,74 @@
     return filterRowPasses(row);
   }
 
+  function rowInsideActiveCensusShape(row){
+    if(!hasCoords(row))return false;
+    const c=state.columns;
+    const ll=L.latLng(toNumber(row[c.lat]),toNumber(row[c.lon]));
+    if(state.circleSelection?.circle){
+      const circle=state.circleSelection.circle;
+      return map.distance(circle.getLatLng(),ll)<=circle.getRadius()+0.0001;
+    }
+    if(state.rectangleSelection?.rectangle){
+      return state.rectangleSelection.rectangle.getBounds().contains(ll);
+    }
+    return true;
+  }
+  function getCensusShapeRows({respectFilters=true}={}){
+    if(!state.rows.length)return[];
+    if(!state.columns.lat||!state.columns.lon) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
+    if(!censusShapeType()) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
+    return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
+  }
   function getSelectedRows(){
+    if(censusShapeType()) return getCensusShapeRows();
     if(!state.rows.length)return[];
     const c=state.columns;
     if(!c.lat||!c.lon) return state.rows.filter(filterRowPasses);
     const bounds=map.getBounds();
-    const circle=state.circleSelection;
-    const rectangle=state.rectangleSelection;
-    const circleVisible=!!(circle && circle.circle && circle.circle.getBounds().intersects(bounds));
-    const rectangleVisible=!!(rectangle && rectangle.rectangle && rectangle.rectangle.getBounds().intersects(bounds));
-    const centre=circleVisible?circle.circle.getLatLng():null;
-    const radiusMeters=circleVisible?circle.circle.getRadius():0;
     return state.rows.filter(r=>{
       if(!filterRowPasses(r)||!hasCoords(r))return false;
       const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
-      if(!bounds.contains(ll))return false;
-      if(circleVisible)return map.distance(centre,ll)<=radiusMeters+0.0001;
-      if(rectangleVisible)return rectangle.rectangle.getBounds().contains(ll);
-      return true;
+      return bounds.contains(ll);
     });
   }
   function getFilteredRows(){return state.rows.filter(filterRowPasses);}
+  function clearHighlightsOutsideVisibleShapeArea(){
+    if(!censusShapeType())return false;
+    const bounds=map.getBounds();
+    const visibleRows=(state.selectedRows||[]).filter(row=>{
+      const c=state.columns;
+      if(!c.lat||!c.lon||!hasCoords(row))return false;
+      return bounds.contains(L.latLng(toNumber(row[c.lat]),toNumber(row[c.lon])));
+    });
+    const hasGroup=state.selectedGroupKey!==null;
+    const hasDist1=state.distributionBinKey!==null&&!!state.distributionSubject;
+    const hasDist2=state.distributionBinKey2!==null&&!!state.distributionSubject2;
+    const hasStore=state.selectedStoreRow!==null;
+    let changed=false;
+    const distributionMatches=(row,slot)=>{
+      const subject=slot===2?state.distributionSubject2:state.distributionSubject;
+      const key=slot===2?state.distributionBinKey2:state.distributionBinKey;
+      if(!subject||key===null)return false;
+      const bins=buildDistributionBins(slot);
+      const b=bins.find(x=>x.key===key);
+      if(!b)return false;
+      if(state.types[subject]==='numeric'){
+        const v=toNumber(row[subject]);
+        return v!==null&&v>=b.min&&(b.last?v<=b.max:v<b.max);
+      }
+      return String(row[subject]??'')===String(b.value??'');
+    };
+    if(hasGroup&&!visibleRows.some(rowMatchesSelectedGroup)){state.selectedGroupKey=null;changed=true;}
+    if(hasDist1&&!visibleRows.some(r=>distributionMatches(r,1))){state.distributionBinKey=null;changed=true;}
+    if(hasDist2&&!visibleRows.some(r=>distributionMatches(r,2))){state.distributionBinKey2=null;changed=true;}
+    if(hasStore&&!visibleRows.includes(state.selectedStoreRow)){state.selectedStoreRow=null;changed=true;}
+    if(changed){
+      updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();
+    }
+    return changed;
+  }
+
   function updateSelectionState(){
     state.selectedRows=getSelectedRows();
     if(state.selectedStoreRow!==null && !state.selectedRows.includes(state.selectedStoreRow)) state.selectedStoreRow=null;
@@ -1677,7 +1725,7 @@
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
     const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
     const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
-    const selectionLabel=circleVisible?'current selection circle and viewport':rectangleVisible?'current selection rectangle and viewport':'current map view';
+    const selectionLabel=censusShapeType()?(circleVisible?'current Census circle':'current Census box'):'current map view';
     el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
@@ -1958,7 +2006,8 @@
     return `${prefix}${f.formula||f.column||''}`;
   }
   function uniqueColumnValues(column){
-    return [...new Set(state.rows.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+    const scope=getCensusShapeRows({respectFilters:false});
+    return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
   }
   function exactFormulaTokens(formula){
     const tokens=tokenizeTicker(String(formula??'').trim());
@@ -2197,6 +2246,25 @@
     const s=String(row[filter.column]??'');
     return Array.isArray(filter.values) && filter.values.some(v=>String(v)===s);
   }
+  function reconcileFiltersToShape(){
+    if(!censusShapeType()||!state.filters.length)return false;
+    const scopeRows=getCensusShapeRows({respectFilters:false});
+    const availableByColumn=new Map();
+    const next=[];
+    for(const f of state.filters){
+      if(f.type!=='text'){next.push(f);continue;}
+      if(!availableByColumn.has(f.column)){
+        availableByColumn.set(f.column,new Set(scopeRows.map(r=>String(r[f.column]??''))));
+      }
+      const available=availableByColumn.get(f.column);
+      const values=(f.values||[]).filter(v=>available.has(String(v)));
+      if(values.length) next.push({...f,values});
+    }
+    const changed=JSON.stringify(next)!==JSON.stringify(state.filters);
+    if(changed){state.filters=next;rebuildFilterPassCache();}
+    return changed;
+  }
+
   function redrawAfterFilterChange(){
     // Rebuild the marker layer from the newly applied filters so filtered stores
     // are excluded from both the map and all viewport-based calculations.
@@ -2353,7 +2421,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.135`,
+        `DA PERF v1.136`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2986,6 +3054,10 @@
     const renderT0=DA_PERF_ENABLED?performance.now():0;
     clearDaOverlay();
     state.daSelectionResult = result;
+    state.selectedRows=getCensusShapeRows();
+    reconcileFiltersToShape();
+    updateSelectionState();
+    updateSelectionPanels();
     updateCensusPopulationSummary(result.aggregate);
 
     const zoom = map.getZoom();
@@ -3956,6 +4028,8 @@
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    state.selectedRows=[];state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=null;state.distributionBinKey2=null;
+    state.filters=[];state.filterDraft=[];rebuildFilterPassCache();
     updateCensusShapeStatus();
     if(!keepDrawingMode)exitCensusDrawMode();
     resetCensusPopulationSummary();
@@ -4091,11 +4165,12 @@
     }
     state.userMapInteraction=false;
     clearOffscreenTransientVisuals();
+    if(censusShapeType()) clearHighlightsOutsideVisibleShapeArea();
     updateHeaderGeography();
-    updateSelection();
+    if(!censusShapeType()) updateSelection();
     refreshMunicipalityLabels();
-    // Viewport movement is navigation-only. Census DA selection never runs here.
-    updateHeaderGeography();
+    // Viewport movement is navigation-only for Census DA selection; ordinary store selection
+    // can still follow the viewport when no Census shape is active.
   });
   map.on('zoomend',()=>{ refreshMunicipalityLabels(); hideUnifiedHover(); });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();refreshMunicipalityLabels();});
