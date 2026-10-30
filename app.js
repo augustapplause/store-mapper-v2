@@ -1,4 +1,4 @@
-/* Store Explorer - v1.144
+/* Store Explorer - v1.145
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -130,7 +130,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.144',
+        'CENSUS STATE DEBUG v1.145',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -2494,7 +2494,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.144`,
+        `DA PERF v1.145`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3127,7 +3127,7 @@
       updateCensusShapeStatus();
       return;
     }
-    clearCensusShape();
+    clearCensusShapeOnly({keepGeoScope:true});
     clearRightPanelHighlights();
     if(select) select.value=scope;
     if(!state.provinceGeo?.features?.length) await loadProvinces();
@@ -4225,6 +4225,23 @@
     setDaTestStatus('Draw a Census Query circle or rectangle to calculate Census data.');
     if(state.rows.length) updateSelection();
   }
+  function clearCensusShapeOnly({keepGeoScope=false}={}){
+    CENSUS_DEBUG.log('shape:clearOnly',{hadShape:!!censusShapeType(),keepGeoScope});
+    removeAllCensusHandles();
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    state.censusRequestId++;
+    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
+    state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
+    state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    clearDaOverlay();
+    state.daSelectionResult=null;
+    updateCensusShapeStatus();
+    if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+    if(!keepGeoScope) clearCensusGeoSelection();
+  }
+
   function clearCircle(){clearCensusShape();}
   function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
     CENSUS_DEBUG.log('circle:create:start',{lat:center.lat,lng:center.lng,radiusMeters,reason});
