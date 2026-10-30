@@ -2353,7 +2353,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.134`,
+        `DA PERF v1.135`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -4055,6 +4055,20 @@
     unspiderfyMarkers();
     if(state.programmaticMoveDepth===0) state.userMapInteraction = true;
   });
+  function clearOffscreenTransientVisuals(){
+    const bounds=map.getBounds();
+    // Navigation/result highlights are viewport-bound and should not linger once
+    // the user pans/zooms them completely off-screen. Census shape DA overlays
+    // are intentionally excluded: an active Census shape owns those results.
+    if(state.navigationResultLatLng && !bounds.contains(state.navigationResultLatLng)){
+      clearNavigationResult();
+    }
+    if(!censusShapeType() && state.daLayer){
+      clearDaOverlay();
+      state.daSelectionResult=null;
+    }
+  }
+
   map.on('moveend',()=>{
     if(state.circleSelection?.circle && state.circleEditHandles.length){
       const center=state.circleSelection.circle.getLatLng();
@@ -4076,6 +4090,7 @@
       state.daActivationTrigger=state.daActivationTrigger||'map pan/zoom';
     }
     state.userMapInteraction=false;
+    clearOffscreenTransientVisuals();
     updateHeaderGeography();
     updateSelection();
     refreshMunicipalityLabels();
