@@ -1014,6 +1014,7 @@
     const provinceModes=options.provinceModes || classifyCandidateProvinces(codes, hasCircle);
     return DA_ENGINE.select(boundary, provinceModes, threshold, {
       shouldRender: !!options.shouldRender,
+      indexedCandidatesByProvince: options.indexedCandidatesByProvince || {},
       boundaryType,
       targetCircle: options.targetCircle || null
     });
@@ -2263,8 +2264,8 @@
     if(!boundary?.geometry) return [];
     const targetBbox=turf.bbox(boundary);
     const found=new Set();
-    // CSD province coverage is only a cheap candidate reducer. Exact province
-    // presence is confirmed by DA_ENGINE.detectIntersectingProvinces(), below.
+    // CSD province coverage is a cheap candidate reducer. DA R-tree bbox hits
+    // then establish province presence without decoding DA geometry or clipping.
     for(const code of Object.keys(CONFIG.daFiles||{})) {
       const bbox=state.csdProvinceBBoxes?.get(code);
       if(!bbox || bboxOverlaps(targetBbox,bbox)) found.add(code);
@@ -2675,28 +2676,24 @@
       }
       return false;
     }
-    async function detectIntersectingProvinces(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
-      if(!boundary?.geometry) return [];
+    async function collectIndexedCandidates(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
+      if(!boundary?.geometry) return {provinces:[],candidatesByProvince:{},candidateCount:0,indexedFeatures:0,boundaryBbox:null};
       const boundaryBbox=turf.bbox(boundary);
-      const hits=[];
+      const candidatesByProvince={};
+      const provinces=[];
+      let candidateCount=0;
+      let indexedFeatures=0;
       for(const provinceCode of provinceCodes||[]){
         if(!CONFIG.daFiles[provinceCode]) continue;
         const entry=await loadProvince(provinceCode);
         const candidates=bboxQuery(entry,boundaryBbox);
-        let hit=false;
-        const circleProjector=(boundaryType==='circle' && targetCircle)?buildAeqdProjector(targetCircle):null;
-        for(const index of candidates){
-          try{
-            if(bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle)){ hit=true; break; }
-            const feature=featureFromAsset(entry,index,true);
-            if(boundaryType==='circle' && targetCircle){
-              if(trueCircleIntersectionArea(feature,targetCircle,circleProjector)>0){ hit=true; break; }
-            } else if(geometryIntersectsRect(feature.geometry,boundaryBbox)){ hit=true; break; }
-          }catch(_){ }
-        }
-        if(hit) hits.push(provinceCode);
+        candidatesByProvince[provinceCode]=candidates;
+        candidateCount+=candidates.length;
+        indexedFeatures+=entry.featureCount||0;
+        if(candidates.length) provinces.push(provinceCode);
       }
-      return hits.sort();
+      provinces.sort();
+      return {provinces,candidatesByProvince,candidateCount,indexedFeatures,boundaryBbox};
     }
 
     function evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,boundaryType,targetCircle,threshold,selected,aggregate,includeAggregate){
@@ -2781,6 +2778,7 @@
         ];
       }
 
+      const indexedCandidatesByProvince=options.indexedCandidatesByProvince||{};
       for (const mode of modes) {
         // FULL provinces are fully contained by the active target. Their
         // Census totals come entirely from the precomputed province aggregate.
@@ -2795,13 +2793,16 @@
           aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
           if(!shouldRender)continue;
           const entry=await loadProvince(mode.provinceCode);
-          const candidates=bboxQuery(entry,boundaryBbox);candidateCount+=candidates.length;
+          const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
+          candidateCount+=candidates.length;
           actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
           continue;
         }
         const entry=await loadProvince(mode.provinceCode);
         partialProvinceCodes.push(mode.provinceCode);
-        const candidates=bboxQuery(entry,boundaryBbox);indexedFeatures+=entry.featureCount;candidateCount+=candidates.length;
+        const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
+        indexedFeatures+=entry.featureCount||0;
+        candidateCount+=candidates.length;
         actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
       }
 
@@ -2810,7 +2811,7 @@
     }
 
     function clearCache() { cache.clear(); }
-    return {select,clearCache,getId,detectIntersectingProvinces};
+    return {select,clearCache,getId,collectIndexedCandidates};
   })();
 
   function viewportBoundary() {
@@ -2956,7 +2957,16 @@
       // by DA_ENGINE with the same canonical geometry path used for Census selection.
       const geoCandidates = candidateProvinceCodesFromGeography(boundary);
       const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
-      const candidates = await DA_ENGINE.detectIntersectingProvinces(boundary, geoCandidates, {boundaryType,targetCircle});
+      const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${geoCandidates.join(',')}`;
+      let candidatePacket=null;
+      if(state.daProvinceCacheKey===boundaryKey && state.daProvinceCache && state.daProvinceCache.candidatesByProvince){
+        candidatePacket=state.daProvinceCache;
+      } else {
+        candidatePacket=await DA_ENGINE.collectIndexedCandidates(boundary, geoCandidates, {boundaryType,targetCircle});
+        state.daProvinceCacheKey=boundaryKey;
+        state.daProvinceCache=candidatePacket;
+      }
+      const candidates=candidatePacket.provinces;
       if (!candidates.length) {
         if (requestId !== state.censusRequestId) return;
         clearDaOverlay();
@@ -2969,16 +2979,14 @@
         return;
       }
       const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
-      const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${candidates.join(',')}`;
       const result = await selectCensusBoundary(boundary, candidates, threshold, {
         provinceModes,
+        indexedCandidatesByProvince: candidatePacket.candidatesByProvince,
         shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay && !state.navigationDaSuppressed,
         boundaryType,
         targetCircle
       });
       if (requestId !== state.censusRequestId) return;
-      state.daProvinceCacheKey = boundaryKey;
-      state.daProvinceCache = candidates;
       renderDaSelection(result);
     } catch (err) {
       if (requestId !== state.censusRequestId) return;
