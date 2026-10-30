@@ -2326,8 +2326,35 @@
   };
   const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0}; },
-    show(){ if(!DA_PERF_ENABLED)return; const d=this.d; let el=document.getElementById('daPerfPanel'); if(!el){el=document.createElement('pre');el.id='daPerfPanel';Object.assign(el.style,{position:'fixed',right:'10px',bottom:'10px',zIndex:99999,background:'rgba(0,0,0,.88)',color:'#fff',padding:'10px',margin:0,font:'12px/1.45 monospace',whiteSpace:'pre-wrap',maxWidth:'560px',maxHeight:'70vh',overflow:'auto'});document.body.appendChild(el);} const f=n=>`${(n||0).toFixed(1)} ms`; el.textContent=[`DA PERF v1.131`,`refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,`province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,`cache hit: ${d.candidateCacheHit}`,`indexed ${d.indexed.toLocaleString()} | bbox candidates ${d.candidates.toLocaleString()}`,`full-contained ${d.full.toLocaleString()} | partial ${d.partial.toLocaleString()}`,`booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,`turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,`turf.area ${d.areaCalls} / ${f(d.areaMs)}`,`actual intersections ${d.actual.toLocaleString()} | selected ${d.selected.toLocaleString()}`].join('\n'); console.log('[DA PERF]',d); }
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
+    show(){
+      if(!DA_PERF_ENABLED)return;
+      const d=this.d;
+      let el=document.getElementById('daPerfPanel');
+      if(!el){el=document.createElement('pre');el.id='daPerfPanel';Object.assign(el.style,{position:'fixed',right:'10px',bottom:'10px',zIndex:99999,background:'rgba(0,0,0,.88)',color:'#fff',padding:'10px',margin:0,font:'12px/1.45 monospace',whiteSpace:'pre-wrap',maxWidth:'760px',maxHeight:'78vh',overflow:'auto'});document.body.appendChild(el);}
+      const f=n=>`${(n||0).toFixed(1)} ms`;
+      const top=d.intersections.slice().sort((a,b)=>b.ms-a.ms).slice(0,12);
+      const lines=top.length
+        ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
+        : ['(none)'];
+      el.textContent=[
+        `DA PERF v1.132`,
+        `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
+        `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
+        `cache hit: ${d.candidateCacheHit}`,
+        `indexed ${d.indexed.toLocaleString()} | bbox candidates ${d.candidates.toLocaleString()}`,
+        `full-contained ${d.full.toLocaleString()} | partial ${d.partial.toLocaleString()}`,
+        `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
+        `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
+        `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
+        `actual intersections ${d.actual.toLocaleString()} | selected ${d.selected.toLocaleString()}`,
+        `top intersect calls: DA_ID type points rings time`,
+        ...lines,
+        `full intersect detail is logged to console as [DA PERF INTERSECTIONS]`
+      ].join('\n');
+      console.log('[DA PERF]',d);
+      console.table('[DA PERF INTERSECTIONS]',d.intersections.slice().sort((a,b)=>b.ms-a.ms));
+    }
   };
   DA_PERF.reset();
 
@@ -2707,7 +2734,7 @@
 
     function evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,boundaryType,targetCircle,threshold,selected,aggregate,includeAggregate){
       let actualIntersectionCount=0;
-      if(DA_PERF_ENABLED) DA_PERF.d.partial+=candidates.length;
+      
       const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
       for(const index of candidates){
         try{
@@ -2725,6 +2752,7 @@
             continue;
           }
           const feature=featureFromAsset(entry,index,true);
+          if(DA_PERF_ENABLED) DA_PERF.d.partial++;
           let overlapPct=0;
           if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
             const daArea=turf.area(feature);
@@ -2742,7 +2770,29 @@
             const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if(!(daArea>0))continue;
             const i0=DA_PERF_ENABLED?performance.now():0; const inter=turf.intersect(turf.featureCollection([feature,boundary]));
-            if(DA_PERF_ENABLED){DA_PERF.d.intersectCalls++;DA_PERF.d.intersectMs+=performance.now()-i0;}
+            if(DA_PERF_ENABLED){
+              const elapsed=performance.now()-i0;
+              DA_PERF.d.intersectCalls++;
+              DA_PERF.d.intersectMs+=elapsed;
+              const g=feature.geometry;
+              let points=0, rings=0;
+              if(g?.type==='Polygon'){
+                rings=g.coordinates?.length||0;
+                for(const ring of (g.coordinates||[])) points+=ring?.length||0;
+              }else if(g?.type==='MultiPolygon'){
+                for(const polygon of (g.coordinates||[])){
+                  rings+=polygon?.length||0;
+                  for(const ring of (polygon||[])) points+=ring?.length||0;
+                }
+              }
+              DA_PERF.d.intersections.push({
+                daId:String(feature.properties?.DA_ID ?? ''),
+                type:String(g?.type||'unknown'),
+                points,
+                rings,
+                ms:elapsed
+              });
+            }
             if(!inter)continue;
             const a1=DA_PERF_ENABLED?performance.now():0; const interArea=turf.area(inter);
             if(DA_PERF_ENABLED){DA_PERF.d.areaCalls++;DA_PERF.d.areaMs+=performance.now()-a1;}
