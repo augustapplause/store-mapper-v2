@@ -771,7 +771,8 @@
     return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
-    if(censusShapeType() && !rowInsideActiveCensusShape(row))return false;
+    // Highlights are viewport-driven. The Census shape constrains metrics and
+    // aggregations, but never suppresses a highlight in the current viewport.
     if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
     if(state.selectedStoreRow===row)return true;
     if(dist1 && state.distributionSubject){
@@ -1670,13 +1671,19 @@
     return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
   }
   function getSelectedRows(){
+    // Shape = metric/aggregation scope. No shape = viewport scope. Filters are
+    // always applied on top of that spatial scope.
     if(censusShapeType()) return getCensusShapeRows();
-    if(!state.rows.length)return[];
+    return getViewportRows({respectFilters:true});
+  }
+  function getViewportRows({respectFilters=true}={}){
+    if(!state.rows.length)return [];
     const c=state.columns;
-    if(!c.lat||!c.lon) return state.rows.filter(filterRowPasses);
+    if(!c.lat||!c.lon)return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
     const bounds=map.getBounds();
     return state.rows.filter(r=>{
-      if(!filterRowPasses(r)||!hasCoords(r))return false;
+      if(respectFilters&&!filterRowPasses(r))return false;
+      if(!hasCoords(r))return false;
       const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
       return bounds.contains(ll);
     });
@@ -1861,12 +1868,15 @@
   function updateGroups(){
     const box=el('groupsSummary');
     if(!state.rows.length||!state.groups.length){box.innerHTML='<div class="empty-message">Choose one or more Groups to compare store segments.</div>';return;}
+    const viewportRows=getViewportRows({respectFilters:true});
+    const selectedSet=new Set(state.selectedRows);
     const groups=new Map();
-    for(const row of state.selectedRows){
+    for(const row of viewportRows){
       const parts=state.groups.map(g=>String(row[g]??'(blank)'));
       const key=JSON.stringify(parts);
-      if(!groups.has(key))groups.set(key,{parts,rows:[]});
+      if(!groups.has(key))groups.set(key,{parts,rows:[],selectedRows:[]});
       groups.get(key).rows.push(row);
+      if(selectedSet.has(row))groups.get(key).selectedRows.push(row);
     }
     const list=[...groups.entries()].sort((a,b)=>b[1].rows.length-a[1].rows.length).slice(0,100);
     const e=state.columns.ebit;
@@ -1874,8 +1884,9 @@
     let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectMetrics.map(m=>`<th>${esc(tickerMetricTitle(m))}</th>`).join('')+'</tr></thead><tbody>';
     for(const [key,g] of list){
       let success='';
-      if(e){const ev=g.rows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
-      const subj=groupedSubjectMetrics.map(m=>{const v=evaluateTickerFormula(m.formula,g.rows,m.aggregation||'average');return `<td>${esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces))}</td>`;}).join('');
+      if(e){const ev=g.selectedRows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
+      const metricRows=g.selectedRows;
+      const subj=groupedSubjectMetrics.map(m=>{const v=metricRows.length?evaluateTickerFormula(m.formula,metricRows,m.aggregation||'average'):NaN;return `<td>${metricRows.length?esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces)):'—'}</td>`;}).join('');
       const active=state.selectedGroupKey===key;
       html+=`<tr class="group-select-row${active?' active-group':''}" data-group-key="${esc(key)}"><td><strong>${g.parts.map(esc).join(' / ')}</strong></td><td>${g.rows.length}</td>${success}${subj}</tr>`;
     }
@@ -1903,9 +1914,10 @@
   function setDistributionBinKey(slot,key){if(slot===2)state.distributionBinKey2=key;else state.distributionBinKey=key;}
   function buildDistributionBins(slot=1){
     const h=getDistributionSubject(slot);
-    if(!h||!state.selectedRows.length)return [];
+    const scopeRows=getViewportRows({respectFilters:true});
+    if(!h||!scopeRows.length)return [];
     if(state.types[h]==='numeric'){
-      const vals=state.selectedRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
+      const vals=scopeRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
       if(!vals.length)return [];
       const min=Math.min(...vals),max=Math.max(...vals);
       if(min===max)return [{key:'0',min,max:min+1,count:vals.length,label:formatBinValue(min,h),last:true}];
@@ -1915,7 +1927,7 @@
       return bins;
     }
     const counts=new Map();
-    for(const row of state.selectedRows){const value=String(row[h]??'');counts.set(value,(counts.get(value)||0)+1);}
+    for(const row of scopeRows){const value=String(row[h]??'');counts.set(value,(counts.get(value)||0)+1);}
     return [...counts.entries()]
       .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],undefined,{numeric:true,sensitivity:'base'}))
       .slice(0,40)
@@ -1942,7 +1954,8 @@
     if(currentKey!==null&&!bins.some(b=>b.key===currentKey))setDistributionBinKey(slot,null);
     const activeKey=getDistributionBinKey(slot), maxCount=Math.max(...bins.map(b=>b.count),1);
     const label=slot===2?'Distribution 2':'Distribution';
-    let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${state.selectedRows.length.toLocaleString()} stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of selected column">`;
+    const viewportCount=getViewportRows({respectFilters:true}).length;
+    let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${viewportCount.toLocaleString()} visible stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of visible column">`;
     for(const b of bins){const active=activeKey===b.key;const width=Math.max(2,(b.count/maxCount)*100);html+=`<button type="button" class="distribution-bar${active?' active-distribution':''}" data-bin-key="${esc(b.key)}" title="${esc(b.label)}: ${b.count} stores"><span class="distribution-label">${esc(b.label)}</span><span class="distribution-track"><span class="distribution-fill" style="width:${width}%"></span></span><strong>${b.count}</strong></button>`;}
     html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
     box.querySelectorAll('.distribution-bar').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.binKey;setDistributionBinKey(slot,getDistributionBinKey(slot)===key?null:key);if(getDistributionBinKey(slot)!==null){state.selectedGroupKey=null;state.selectedStoreRow=null;if(slot===1)state.distributionBinKey2=null;else state.distributionBinKey=null;}updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}));
@@ -2007,7 +2020,8 @@
     return `${prefix}${f.formula||f.column||''}`;
   }
   function uniqueColumnValues(column){
-    const scope=getCensusShapeRows({respectFilters:false});
+    // Filter-value availability follows the viewport, not the Census shape.
+    const scope=getViewportRows({respectFilters:false});
     return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
   }
   function exactFormulaTokens(formula){
@@ -2422,7 +2436,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.137`,
+        `DA PERF v1.138`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3056,7 +3070,6 @@
     clearDaOverlay();
     state.daSelectionResult = result;
     state.selectedRows=getCensusShapeRows();
-    reconcileFiltersToShape();
     updateSelectionState();
     updateSelectionPanels();
     updateCensusPopulationSummary(result.aggregate);
@@ -4029,14 +4042,16 @@
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
-    state.selectedRows=[];state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=null;state.distributionBinKey2=null;
-    state.filters=[];state.filterDraft=[];rebuildFilterPassCache();
+    // The shape is only the spatial metric scope. Filters and viewport-driven
+    // highlights remain active when the shape is removed.
+    clearDaOverlay();
     updateCensusShapeStatus();
     if(!keepDrawingMode)exitCensusDrawMode();
     resetCensusPopulationSummary();
     state.daSelectionResult=null;
     if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
     setDaTestStatus('Draw a Census Query circle or rectangle to calculate Census data.');
+    if(state.rows.length) updateSelection();
   }
   function clearCircle(){clearCensusShape();}
   function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
@@ -4060,10 +4075,12 @@
     scheduleCensusQuery(null,reason);
   }
   function enterCircleDrawMode(){
+    if(censusShapeType()) clearCensusShape();
     exitCensusDrawMode();state.circleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
     el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
   }
   function enterRectangleDrawMode(){
+    if(censusShapeType()) clearCensusShape();
     exitCensusDrawMode();state.rectangleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
     el('drawRectangleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
   }
@@ -4168,6 +4185,7 @@
     clearOffscreenTransientVisuals();
     updateHeaderGeography();
     if(!censusShapeType()) updateSelection();
+    else { updateGroups(); updateDistribution(); }
     refreshMarkerStyles();
     refreshMunicipalityLabels();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
