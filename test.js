@@ -68,11 +68,27 @@
     return [(pt[0]-lon0)*lonScale,(pt[1]-lat0)*latScale];
   }
 
-  const aeqdDef = `+proj=aeqd +lat_0=${CENTER[1]} +lon_0=${CENTER[0]} +datum=WGS84 +units=m +no_defs`;
-  const laeaDef = `+proj=laea +lat_0=${CENTER[1]} +lon_0=${CENTER[0]} +datum=WGS84 +units=m +no_defs`;
-  const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
+  const aeqdDef = { proj: 'aeqd', lat_0: CENTER[1], lon_0: CENTER[0], datum: 'WGS84', units: 'm', no_defs: true };
+  const laeaDef = { proj: 'laea', lat_0: CENTER[1], lon_0: CENTER[0], datum: 'WGS84', units: 'm', no_defs: true };
 
-  function projected(pt, def){ return proj4(wgs84,def,pt); }
+  function projected(pt, def){
+    const xy = proj4(def, [pt[0], pt[1]]);
+    if(!Array.isArray(xy) || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])){
+      throw new Error(`Projection returned non-finite coordinates for ${pt[0]}, ${pt[1]}`);
+    }
+    return [xy[0], xy[1]];
+  }
+
+  function projectionSanity(def, name){
+    const centerXY = projected(CENTER, def);
+    if(Math.hypot(centerXY[0], centerXY[1]) > 1e-6){
+      throw new Error(`${name} center did not map to approximately (0,0): ${centerXY.join(', ')}`);
+    }
+    const north = proj4(def, CENTER[0], CENTER[1] + (RADIUS / R) * 180 / Math.PI, true);
+    if(!Array.isArray(north) || !Number.isFinite(north[0]) || !Number.isFinite(north[1])){
+      throw new Error(`${name} sanity point is non-finite`);
+    }
+  }
 
   function runOne(name, fn, referenceAreaForPct){
     const ring=DA.map(fn);
@@ -90,6 +106,8 @@
     status.textContent='Running #549 projections...';
     setTimeout(()=>{
       try{
+        projectionSanity(aeqdDef, 'AEQD');
+        projectionSanity(laeaDef, 'LAEA');
         const current = runOne('Current local model', currentLocal, DA_AREA_REF);
         const aeqd = runOne('WGS84 Azimuthal Equidistant', p=>projected(p,aeqdDef), DA_AREA_REF);
         const laea = runOne('WGS84 Lambert Azimuthal Equal-Area', p=>projected(p,laeaDef), DA_AREA_REF);
