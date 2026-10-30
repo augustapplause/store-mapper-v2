@@ -945,9 +945,16 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-popup-leader-arrow{fill:#111;stroke:#111;}
 
 /* v1.133 Census Query controls */
+
+.census-query-split{grid-template-columns:minmax(0,1fr) minmax(108px,.82fr);}
+.census-query-shape-column{display:grid;grid-template-rows:1fr 1fr;gap:7px;min-width:0;}
+.census-query-shape-column .circle-action-button{width:100%;min-width:0;}
+.census-query-geo-column{display:flex;flex-direction:column;justify-content:center;min-width:0;}
+.census-query-geo-label{font-size:10px;font-weight:800;color:var(--muted);margin-bottom:5px;}
+.census-query-geo-column select{width:100%;min-width:0;padding:9px 8px;border:1px solid var(--line);background:#fff;color:var(--text);font-weight:700;font-size:11px;}
 .census-query-controls{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
-.census-query-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
-.census-query-buttons button,.census-query-clear{min-height:42px;padding:8px 9px;font-size:12px;font-weight:700;}
+.census-query-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(108px,.9fr);gap:7px;align-items:stretch;}
+.census-query-buttons button,.census-query-clear{min-height:40px;padding:7px 9px;font-size:12px;font-weight:700;}
 .census-query-clear{width:100%;margin-top:7px;}
 .census-query-status-row{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;color:var(--muted);min-height:18px;}
 .census-query-status-row strong{font-size:12px;color:var(--text);margin-left:auto;text-align:right;white-space:nowrap;}

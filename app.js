@@ -1,6 +1,6 @@
-/* Store Explorer - v1.106
+/* Store Explorer - v1.139
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   DA spatial selection is activated only by an explicit Census Query circle or rectangle; the map viewport is navigation-only:
+   DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
 */
 (() => {
@@ -41,6 +41,8 @@
     }
   };
 
+  const CENSUS_PROVINCE_NAMES = {AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NL:'Newfoundland and Labrador',NS:'Nova Scotia',NT:'Northwest Territories',NU:'Nunavut',ON:'Ontario',PE:'Prince Edward Island',QC:'Quebec',SK:'Saskatchewan',YT:'Yukon'};
+
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
     subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
@@ -57,7 +59,7 @@
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
-    circleSelection: null, rectangleSelection: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
+    circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -423,6 +425,7 @@
   }
 
   async function geocodeAndRadius(query){
+    clearRightPanelHighlights();
     if(!query.trim())return;
     const token=++state.searchToken;
     try{
@@ -2436,7 +2439,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.138`,
+        `DA PERF v1.139`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3012,6 +3015,76 @@
     return null;
   }
 
+  function censusGeoScopeType() {
+    return state.censusGeoSelection?.type || null;
+  }
+
+  function censusScopeType() {
+    return censusShapeType() || censusGeoScopeType();
+  }
+
+  function clearCensusGeoSelection(){
+    if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
+    state.censusGeoSelection=null;
+    const sel=el('censusGeoSelect'); if(sel)sel.value='';
+    updateHeaderCensusIndicator();
+  }
+
+  function clearRightPanelHighlights({refresh=true}={}){
+    const changed=state.selectedGroupKey!==null||state.distributionBinKey!==null||state.distributionBinKey2!==null||state.selectedStoreRow!==null;
+    state.selectedGroupKey=null;
+    state.distributionBinKey=null;
+    state.distributionBinKey2=null;
+    state.selectedStoreRow=null;
+    if(refresh&&changed){updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}
+    return changed;
+  }
+
+  function censusScopeAggregate(scope){
+    if(!scope)return null;
+    if(scope==='CA') {
+      return Object.values(CONFIG.provinceAggregates).reduce((a,p)=>({
+        totalPopulation:a.totalPopulation+Number(p.total_population||0),
+        population65Plus:a.population65Plus+Number(p.population_65_plus||0),
+        population40Plus:a.population40Plus+Number(p.population_40_64||0)+Number(p.population_65_plus||0),
+        visibleMinorityPopulation:a.visibleMinorityPopulation+Number(p.visible_minority_population||0),
+        totalHouseholds:a.totalHouseholds+Number(p.total_households||0),
+        incomeWeighted:a.incomeWeighted+Number(p.incomeWeighted||0),
+        daCount:a.daCount+Number(p.da_count||0)
+      }),{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0});
+    }
+    const p=CONFIG.provinceAggregates[scope];
+    if(!p)return null;
+    return {totalPopulation:Number(p.total_population||0),population65Plus:Number(p.population_65_plus||0),population40Plus:Number(p.population_40_64||0)+Number(p.population_65_plus||0),visibleMinorityPopulation:Number(p.visible_minority_population||0),totalHouseholds:Number(p.total_households||0),incomeWeighted:Number(p.incomeWeighted||0),daCount:Number(p.da_count||0)};
+  }
+
+  function applyCensusGeoScope(scope){
+    if(!scope){clearCensusGeoSelection();resetCensusPopulationSummary();setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');if(el('censusDaList'))el('censusDaList').innerHTML='<div class=\"empty-message\">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';updateCensusShapeStatus();return;}
+    clearCensusShape();
+    clearRightPanelHighlights();
+    const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
+    const selectedFeature=scope==='CA'?null:state.provinceGeo?.features?.find(f=>provinceCodeFromFeature(f)===scope)||null;
+    if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
+    const features=scope==='CA'?(state.provinceGeo?.features||[]):(selectedFeature?[selectedFeature]:[]);
+    if(features.length){
+      state.censusGeoLayer=L.geoJSON({type:'FeatureCollection',features},{style:{color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}}).addTo(map);
+    }
+    state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name};
+    const aggregate=censusScopeAggregate(scope);
+    updateCensusPopulationSummary(aggregate);
+    const storeScope=scope==='CA'?'Canada':name;
+    el('censusPopPerStore').textContent='—';
+    el('censusDaList').innerHTML=`<div class=\"empty-message\">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
+    setDaTestStatus(`${esc(storeScope)} population selected from precomputed Census totals. No DA spatial query was run.`);
+    state.daSelectionResult=null;
+    updateCensusShapeStatus();
+    updateSelection();
+  }
+
+  function setCensusGeoScope(scope){
+    applyCensusGeoScope(scope||'');
+  }
+
   function setDaTestStatus(text) {
     const note = el('censusNote');
     if (note) note.textContent = text;
@@ -3048,7 +3121,7 @@
     el('censusForty').innerHTML = censusValueWithShare(totals.population40Plus, totals.totalPopulation);
     el('censusVisibleMinority').innerHTML = censusValueWithShare(totals.visibleMinorityPopulation, totals.totalPopulation);
     const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
-    el('censusPopPerStore').textContent = storeCount > 0 ? fmtInt(Math.round(totals.totalPopulation / storeCount)) : '—';
+    el('censusPopPerStore').textContent = censusGeoScopeType() ? '—' : (storeCount > 0 ? fmtInt(Math.round(totals.totalPopulation / storeCount)) : '—');
     el('censusHouseholdIncome').textContent = totals.totalHouseholds > 0 ? `$${fmtInt(Math.round(totals.incomeWeighted / totals.totalHouseholds))}` : '—';
     updateKpis();
   }
@@ -3178,6 +3251,7 @@
   }
 
   function goToStoreNumber(){
+    clearRightPanelHighlights();
     const query=String(el('storeNumberInput').value??'').trim();
     const token=++state.searchToken;
     if(!query){el('storeJumpStatus').textContent='Enter a Store Profile Number.';return;}
@@ -3906,6 +3980,12 @@
       wrap.classList.remove('hidden');
       return;
     }
+    if(censusGeoScopeType()){
+      icon.className='header-census-icon rectangle';
+      value.textContent=state.censusGeoSelection.code==='CA'?'Canada':state.censusGeoSelection.name;
+      wrap.classList.remove('hidden');
+      return;
+    }
     icon.className='header-census-icon';
     value.textContent='—';
     wrap.classList.add('hidden');
@@ -3938,6 +4018,12 @@
       indicator.setAttribute('aria-label','Box Census Query active');
       label.textContent='Box';
       value.textContent=`${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
+      clearBtn.disabled=false;
+    }else if(censusGeoScopeType()){
+      indicator.className='census-shape-indicator-rectangle';
+      indicator.setAttribute('aria-label','Census population geography active');
+      label.textContent=state.censusGeoSelection.code==='CA'?'Canada':state.censusGeoSelection.name;
+      value.textContent='Population';
       clearBtn.disabled=false;
     }else{
       indicator.className='census-shape-indicator-off';
@@ -4042,6 +4128,7 @@
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    clearCensusGeoSelection();
     // The shape is only the spatial metric scope. Filters and viewport-driven
     // highlights remain active when the shape is removed.
     clearDaOverlay();
@@ -4075,18 +4162,19 @@
     scheduleCensusQuery(null,reason);
   }
   function enterCircleDrawMode(){
-    if(censusShapeType()) clearCensusShape();
+    if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
     exitCensusDrawMode();state.circleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
     el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
   }
   function enterRectangleDrawMode(){
-    if(censusShapeType()) clearCensusShape();
+    if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
     exitCensusDrawMode();state.rectangleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
     el('drawRectangleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
   }
   el('drawCircleBtn').addEventListener('click',()=>{if(state.circleDrawMode){exitCensusDrawMode();return;}enterCircleDrawMode();});
   el('drawRectangleBtn').addEventListener('click',()=>{if(state.rectangleDrawMode){exitCensusDrawMode();return;}enterRectangleDrawMode();});
   el('clearCensusShapeBtn').addEventListener('click',()=>{clearCensusShape();});
+  el('censusGeoSelect')?.addEventListener('change',e=>{setCensusGeoScope(e.target.value);});
 
   map.on('mousedown',e=>{
     if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing||!e.originalEvent)return;
