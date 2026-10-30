@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.132</title>
+  <title>Store Explorer v1.133</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.132.0.intersect-profile" />
+      <link rel="stylesheet" href="styles.css?v=1.133.0.census-query" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.132</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
-        <div class="subtitle">Geographic store performance + census context <span id="headerCircleStatus" class="header-circle-status hidden" aria-label="Selection circle active"><span class="header-circle-icon" aria-hidden="true"></span><span id="headerCircleRadius">— km</span></span></div>
+        <h1><span>Store Explorer <span class="version-badge">v1.133</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
         <div id="tickerViewport" class="ticker-viewport" tabindex="0" aria-live="polite">
@@ -36,6 +36,22 @@
         <button id="clearFileBtn" class="secondary" disabled>Clear financial data</button>
       </section>
 
+      <section class="panel-card census-query-card">
+        <h2>Census Query</h2>
+        <div class="census-query-controls" aria-label="Census query shape controls">
+          <div class="census-query-buttons">
+            <button id="drawCircleBtn" type="button" class="circle-action-button"><span class="circle-button-icon" aria-hidden="true"></span><span>Circle</span></button>
+            <button id="drawRectangleBtn" type="button" class="circle-action-button"><span class="rectangle-button-icon" aria-hidden="true"></span><span>Rectangle</span></button>
+          </div>
+          <button id="clearCensusShapeBtn" type="button" class="circle-action-button census-query-clear" disabled><span class="clear-button-icon" aria-hidden="true">×</span><span>Clear</span></button>
+          <div class="census-query-status-row">
+            <span class="census-shape-indicator-off" id="censusShapeIndicator" aria-label="No Census query shape active"></span>
+            <span id="censusShapeStatusLabel">No shape</span>
+            <strong id="censusShapeStatusValue">—</strong>
+          </div>
+        </div>
+      </section>
+
       <section class="panel-card">
         <h2>Go to geography</h2>
         <form id="searchForm">
@@ -45,21 +61,9 @@
             <button type="submit">Go</button>
           </div>
         </form>
-        <div class="circle-controls" aria-label="Map selection circle controls">
-          <div class="circle-control-buttons">
-            <button id="drawCircleBtn" type="button" class="circle-action-button"><span class="circle-button-icon" aria-hidden="true"></span><span>Draw</span></button>
-            <button id="clearCircleBtn" type="button" class="circle-action-button" disabled><span class="circle-button-icon" aria-hidden="true"></span><span>Clear</span></button>
-          </div>
-          <div class="circle-status-row">
-            <span class="circle-indicator-off" id="circleIndicator" aria-label="No selection circle active"></span>
-            <span>Radius</span>
-            <strong id="circleRadiusCounter">—</strong>
-            <span>km</span>
-          </div>
-        </div>
         <form id="storeJumpForm" class="store-jump"><button id="storeNumberBtn" type="submit">Go to store #</button><input id="storeNumberInput" type="text" placeholder="Store Profile Number" autocomplete="off" /></form>
         <div id="storeJumpStatus" class="status muted"></div>
-        <div id="geoStatus" class="status muted">Click a province, click a city boundary, search an address, or draw a selection circle.</div>
+        <div id="geoStatus" class="status muted">Pan and zoom the map freely. Draw a Census Query shape to calculate Census data.</div>
       </section>
 
       <section class="panel-card">
@@ -140,7 +144,7 @@
             <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
             <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
           </div>
-          <div id="censusNote" class="small muted">A qualifying DA contributes its full Census population. Store selection does not affect which DAs qualify.</div>
+          <div id="censusNote" class="small muted">A Census Query shape selects DAs. The map viewport is for navigation only.</div>
         </div>
 
         <div class="subject-box">

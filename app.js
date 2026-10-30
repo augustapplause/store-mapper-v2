@@ -1,7 +1,7 @@
 /* Store Explorer - v1.106
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
-   DA spatial selection remains independent of store/KPI selection; Census attributes are read only after DA selection:
-   province -> provincial DA GeoJSON -> browser spatial index -> active boundary intersections -> >=50% overlap -> selected DA geometries.
+   DA spatial selection is activated only by an explicit Census Query circle or rectangle; the map viewport is navigation-only:
+   Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
 */
 (() => {
   'use strict';
@@ -57,7 +57,7 @@
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
-    circleSelection: null, circleDrawMode: false, leftPanelCollapsed: false, circleDrawing: null, circleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
+    circleSelection: null, rectangleSelection: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
     programmaticMoveDepth: 0,
     programmaticMoveUntil: 0,
@@ -410,14 +410,14 @@
   }
 
   function selectProvince(feature,layer){
-    clearCircle();clearDaOverlay();state.censusRequestId++;
+    clearCensusShape();clearDaOverlay();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();layer.setStyle(provinceSelectedStyle);
     const name=feature.properties.PRNAME||feature.properties.PRENAME||'Province';
     const code=provinceCodeFromFeature(feature);
     state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='province selection';
     resetCensusPopulationSummary();
-    el('censusNote').textContent='Province selected. The visible map will be used for DA selection after the map settles.';
+    el('censusNote').textContent='Province selected. Draw a Census Query circle or rectangle to calculate Census data.';
     fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
     updateSelection();
   }
@@ -438,7 +438,7 @@
         provinceCode=csd ? provinceCodeFromCsdFeature(csd) : null;
       }
       if(!provinceCode) throw new Error('Could not determine province for this address.');
-      closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+      closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
       state.navigationDaSuppressed=true;
       state.storeJumpTarget=null;
       state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
@@ -465,12 +465,12 @@
   }
 
   function resetCanada(){
-    closeStorePopup();clearCircle();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+    closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
     if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
-    resetCensusPopulationSummary();el('censusNote').textContent='DA selection is dormant on the initial Canada view. Make a geographic move to activate it.';
-    fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});updateSelection();
+    resetCensusPopulationSummary();el('censusNote').textContent='Census Query is dormant until a circle or rectangle is drawn.';
+    fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setDaTestStatus('Census Query is dormant until a circle or rectangle is drawn.');updateSelection();
   }
 
   function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
@@ -530,7 +530,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCircle();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1655,15 +1655,18 @@
     if(!c.lat||!c.lon) return state.rows.filter(filterRowPasses);
     const bounds=map.getBounds();
     const circle=state.circleSelection;
+    const rectangle=state.rectangleSelection;
     const circleVisible=!!(circle && circle.circle && circle.circle.getBounds().intersects(bounds));
+    const rectangleVisible=!!(rectangle && rectangle.rectangle && rectangle.rectangle.getBounds().intersects(bounds));
     const centre=circleVisible?circle.circle.getLatLng():null;
     const radiusMeters=circleVisible?circle.circle.getRadius():0;
     return state.rows.filter(r=>{
       if(!filterRowPasses(r)||!hasCoords(r))return false;
       const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
       if(!bounds.contains(ll))return false;
-      if(!circleVisible)return true;
-      return map.distance(centre,ll)<=radiusMeters+0.0001;
+      if(circleVisible)return map.distance(centre,ll)<=radiusMeters+0.0001;
+      if(rectangleVisible)return rectangle.rectangle.getBounds().contains(ll);
+      return true;
     });
   }
   function getFilteredRows(){return state.rows.filter(filterRowPasses);}
@@ -1672,7 +1675,10 @@
     if(state.selectedStoreRow!==null && !state.selectedRows.includes(state.selectedStoreRow)) state.selectedStoreRow=null;
     const filtered=getFilteredRows();
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
-    el('geoStatus').textContent=state.rows.length?(state.circleSelection && state.circleSelection.circle && state.circleSelection.circle.getBounds().intersects(map.getBounds()) ? `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current selection circle and viewport${filterNote}.` : `${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in current map view${filterNote}.`):'Load a workbook to calculate store results.';
+    const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
+    const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
+    const selectionLabel=circleVisible?'current selection circle and viewport':rectangleVisible?'current selection rectangle and viewport':'current map view';
+    el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
   }
@@ -2197,7 +2203,7 @@
     unspiderfyMarkers();
     rebuildMarkers();
     state.daProvinceCacheKey=null; state.daProvinceCache=null;
-    if (!state.initialNationalView) scheduleDaRefresh(null,'filter change');
+    if (censusShapeType()) scheduleCensusQuery(null,'filter change');
   }
   function updateFilterUI(){
     const btn=el('filterBtn');if(btn)btn.disabled=!state.rows.length;
@@ -2297,11 +2303,20 @@
     return corners.every(corner => map.distance(center, corner) <= radius + 0.01);
   }
 
-  function classifyCandidateProvinces(candidates, hasCircle) {
-    return candidates.map(code => ({
-      provinceCode: code,
-      mode: (hasCircle ? bboxFullyInsideCircle(code) : bboxFullyInsideViewport(code)) ? 'full' : 'partial'
-    }));
+  function bboxFullyInsideRectangle(provinceCode, rectangleBounds) {
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
+    if (!bbox || !rectangleBounds) return false;
+    return rectangleBounds[0] <= bbox[0] && rectangleBounds[1] <= bbox[1] &&
+      rectangleBounds[2] >= bbox[2] && rectangleBounds[3] >= bbox[3];
+  }
+
+  function classifyCandidateProvinces(candidates, boundaryType='viewport', targetCircle=null, targetRectangleBounds=null) {
+    return candidates.map(code => {
+      let full=false;
+      if(boundaryType==='circle') full=bboxFullyInsideCircle(code);
+      else if(boundaryType==='rectangle') full=bboxFullyInsideRectangle(code, targetRectangleBounds);
+      return {provinceCode:code,mode:full?'full':'partial'};
+    });
   }
 
 
@@ -2338,7 +2353,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.132`,
+        `DA PERF v1.133`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2755,7 +2770,7 @@
           if(DA_PERF_ENABLED) DA_PERF.d.partial++;
           let overlapPct=0;
           if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
-            const daArea=turf.area(feature);
+            const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if (!(daArea>0)) continue;
             const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
             if (!(intersectionArea>0)) continue;
@@ -2891,19 +2906,27 @@
     return {select,clearCache,getId,collectIndexedCandidates};
   })();
 
-  function viewportBoundary() {
-    const b = map.getBounds();
-    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
-  }
-
   function circleBoundary() {
     const circle = state.circleSelection?.circle;
     if (!circle) return null;
     return turf.circle([circle.getLngLat ? circle.getLngLat().lng : circle.getLatLng().lng, circle.getLatLng().lat], circle.getRadius() / 1000, {units:'kilometers', steps:360});
   }
 
-  function activeDaBoundary() {
-    return circleBoundary() || viewportBoundary();
+  function rectangleBoundary() {
+    const rectangle = state.rectangleSelection?.rectangle;
+    if (!rectangle) return null;
+    const b = rectangle.getBounds();
+    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+  }
+
+  function activeCensusBoundary() {
+    return circleBoundary() || rectangleBoundary();
+  }
+
+  function censusShapeType() {
+    if(state.circleSelection?.circle) return 'circle';
+    if(state.rectangleSelection?.rectangle) return 'rectangle';
+    return null;
   }
 
   function setDaTestStatus(text) {
@@ -3002,81 +3025,69 @@
     return Number.isFinite(input) ? Math.max(0, Math.min(10000, input)) : 500;
   }
 
-  function scheduleDaRefresh(delay=null, reason='map change') {
-    if(state.navigationDaSuppressed) return;
+  function scheduleCensusQuery(delay=null, reason='shape change') {
+    if(state.navigationDaSuppressed || !censusShapeType()) return;
     if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
     if(reason)state.daActivationTrigger=reason;
     const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
-    state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshDaSelection();},wait);
+    state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshCensusQuery();},wait);
   }
 
-  async function refreshDaSelection() {
+  async function refreshCensusQuery() {
     const refreshT0=DA_PERF_ENABLED?performance.now():0;
     if(DA_PERF_ENABLED) DA_PERF.reset();
-    if(state.navigationDaSuppressed) return;
-    const hasCircle = !!state.circleSelection?.circle;
-    const boundaryType = hasCircle ? 'circle' : 'viewport';
-    if (state.initialNationalView) {
-      clearDaOverlay();
-      resetCensusPopulationSummary();
-      const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">Make a geographic move to activate DA selection.</div>';
-      setDaTestStatus('DA selection is dormant on the initial Canada view. Pan, zoom, search, draw a circle, or go to a store to activate it.');
-      return;
-    }
-    if (typeof turf === 'undefined' || typeof RBush === 'undefined') {
+    if(state.navigationDaSuppressed || !censusShapeType()) return;
+    if(typeof turf==='undefined' || typeof RBush==='undefined'){
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    const threshold = Number(el('censusThreshold')?.value ?? 15);
-    const requestId = ++state.censusRequestId;
-    state.daSelectionResult = null;
-    setDaTestStatus(`Finding DAs using visible filtered stores (${boundaryType})…`);
-    try {
-      const boundary = activeDaBoundary();
-      // Province candidates come from geography, not workbook markers. A lightweight
-      // CSD province-coverage check narrows the set; exact DA presence is then confirmed
-      // by DA_ENGINE with the same canonical geometry path used for Census selection.
+    const threshold=Number(el('censusThreshold')?.value ?? 15);
+    const requestId=++state.censusRequestId;
+    state.daSelectionResult=null;
+    const shapeType=censusShapeType();
+    setDaTestStatus(`Finding DAs inside the active ${shapeType} query…`);
+    try{
+      const boundary=activeCensusBoundary();
       const geoT0=DA_PERF_ENABLED?performance.now():0;
-      const geoCandidates = candidateProvinceCodesFromGeography(boundary);
-      if(DA_PERF_ENABLED) DA_PERF.d.provinceMs+=performance.now()-geoT0;
-      const targetCircle = hasCircle ? (() => { const ll = state.circleSelection.circle.getLatLng(); return {lat: ll.lat, lng: ll.lng, radiusMeters: state.circleSelection.circle.getRadius()}; })() : null;
-      const boundaryKey = `${boundaryType}:${hasCircle ? `${state.circleSelection.circle.getLatLng().lat.toFixed(5)}:${state.circleSelection.circle.getLatLng().lng.toFixed(5)}:${state.circleSelection.circle.getRadius().toFixed(1)}` : map.getBounds().toBBoxString()}|${geoCandidates.join(',')}`;
+      const geoCandidates=candidateProvinceCodesFromGeography(boundary);
+      if(DA_PERF_ENABLED)DA_PERF.d.provinceMs+=performance.now()-geoT0;
+      const hasCircle=shapeType==='circle';
+      const hasRectangle=shapeType==='rectangle';
+      const targetCircle=hasCircle?(()=>{const ll=state.circleSelection.circle.getLatLng();return {lat:ll.lat,lng:ll.lng,radiusMeters:state.circleSelection.circle.getRadius()};})():null;
+      const rectangleBounds=hasRectangle?(()=>{const b=state.rectangleSelection.rectangle.getBounds();return [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()];})():null;
+      const boundaryType=shapeType;
+      const boundaryKey=`${boundaryType}:${boundaryType==='circle'?`${targetCircle.lat.toFixed(5)}:${targetCircle.lng.toFixed(5)}:${targetCircle.radiusMeters.toFixed(1)}`:rectangleBounds.map(v=>Number(v).toFixed(5)).join(':')}|${geoCandidates.join(',')}`;
       let candidatePacket=null;
-      if(state.daProvinceCacheKey===boundaryKey && state.daProvinceCache && state.daProvinceCache.candidatesByProvince){
+      if(state.daProvinceCacheKey===boundaryKey && state.daProvinceCache?.candidatesByProvince){
         candidatePacket=state.daProvinceCache;
-        if(DA_PERF_ENABLED) DA_PERF.d.candidateCacheHit=true;
-      } else {
-        candidatePacket=await DA_ENGINE.collectIndexedCandidates(boundary, geoCandidates, {boundaryType,targetCircle});
+        if(DA_PERF_ENABLED)DA_PERF.d.candidateCacheHit=true;
+      }else{
+        candidatePacket=await DA_ENGINE.collectIndexedCandidates(boundary,geoCandidates,{boundaryType,targetCircle});
         state.daProvinceCacheKey=boundaryKey;
         state.daProvinceCache=candidatePacket;
       }
       const candidates=candidatePacket.provinces;
-      if (!candidates.length) {
-        if (requestId !== state.censusRequestId) return;
+      if(!candidates.length){
+        if(requestId!==state.censusRequestId)return;
         clearDaOverlay();
-        const empty = {threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,
-          aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},fullProvinceCodes:[],partialProvinceCodes:[]};
+        const empty={threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},fullProvinceCodes:[],partialProvinceCodes:[]};
         state.daSelectionResult=empty;
         updateCensusPopulationSummary(empty.aggregate);
-        const list = el('censusDaList'); if (list) list.innerHTML = '<div class="empty-message">No Census DAs intersect the current geographic view.</div>';
-        setDaTestStatus('No Census DAs intersect the current geographic view.');
+        const list=el('censusDaList');if(list)list.innerHTML='<div class="empty-message">No Census DAs intersect the active Census Query shape.</div>';
+        setDaTestStatus('No Census DAs intersect the active Census Query shape.');
+        if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
+        DA_PERF.show();
         return;
       }
-      const provinceModes = classifyCandidateProvinces(candidates, hasCircle);
-      const result = await selectCensusBoundary(boundary, candidates, threshold, {
-        provinceModes,
-        indexedCandidatesByProvince: candidatePacket.candidatesByProvince,
-        shouldRender: map.getZoom() >= CONFIG.daMinRenderZoom && state.showDaOverlay && !state.navigationDaSuppressed,
-        boundaryType,
-        targetCircle
-      });
-      if (requestId !== state.censusRequestId) return;
+      const provinceModes=classifyCandidateProvinces(candidates,boundaryType,targetCircle,rectangleBounds);
+      const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:candidatePacket.candidatesByProvince,shouldRender:!!state.showDaOverlay,boundaryType,targetCircle});
+      if(requestId!==state.censusRequestId)return;
       renderDaSelection(result);
-      if(DA_PERF_ENABLED) DA_PERF.d.refreshMs=performance.now()-refreshT0;
-    } catch (err) {
-      if (requestId !== state.censusRequestId) return;
+      if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
+    }catch(err){
+      if(requestId!==state.censusRequestId)return;
       clearDaOverlay();
-      setDaTestStatus(`DA selection failed: ${err.message}`);
+      setDaTestStatus(`Census Query failed: ${err.message}`);
     }
   }
 
@@ -3101,7 +3112,7 @@
     const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
     // Header resolves from the current map position via the local CSD lookup.
     const km=2.5;
-    closeStorePopup(); clearCircle(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
+    closeStorePopup(); clearCensusShape(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
     state.navigationDaSuppressed=true;
     state.storeJumpTarget=target;
     state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
@@ -3117,7 +3128,7 @@
       showNavigationResult(lat,lng,'store',target,()=>{
         if(token!==state.searchToken)return;
         state.navigationDaSuppressed=false;
-        scheduleDaRefresh(null,'store navigation complete');
+        setDaTestStatus('Map navigation complete. Draw a Census Query shape to calculate Census data.');
       });
     };
     map.once('moveend',finish);
@@ -3789,53 +3800,82 @@
   }
 
   // ---------- Selection circle interaction ----------
-  function updateHeaderCircleIndicator(){
-    const wrap=el('headerCircleStatus');
-    const value=el('headerCircleRadius');
-    if(!wrap||!value)return;
-    const circle=state.circleSelection?.circle;
-    if(circle){
-      const km=circle.getRadius()/1000;
-      value.textContent=`${km.toFixed(km<1?2:1)} km`;
+  function updateHeaderCensusIndicator(){
+    const wrap=el('headerCensusStatus');
+    const icon=el('headerCensusIcon');
+    const value=el('headerCensusShapeValue');
+    if(!wrap||!icon||!value)return;
+    const type=censusShapeType();
+    if(type==='circle'){
+      const km=state.circleSelection.circle.getRadius()/1000;
+      icon.className='header-census-icon circle';
+      value.textContent=`Circle ${km.toFixed(km<1?2:1)} km`;
       wrap.classList.remove('hidden');
+      return;
+    }
+    if(type==='rectangle'){
+      const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
+      icon.className='header-census-icon rectangle';
+      value.textContent=`Rectangle ${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
+      wrap.classList.remove('hidden');
+      return;
+    }
+    icon.className='header-census-icon';
+    value.textContent='—';
+    wrap.classList.add('hidden');
+  }
+
+  function getRectangleDimensionsKm(bounds){
+    const north=bounds.getNorth(),south=bounds.getSouth(),east=bounds.getEast(),west=bounds.getWest();
+    const centerLat=(north+south)/2;
+    const widthMeters=map.distance(L.latLng(centerLat,west),L.latLng(centerLat,east));
+    const lengthMeters=map.distance(L.latLng(south,west),L.latLng(north,west));
+    return {width:widthMeters/1000,length:lengthMeters/1000};
+  }
+  function updateCensusShapeStatus(){
+    const indicator=el('censusShapeIndicator');
+    const label=el('censusShapeStatusLabel');
+    const value=el('censusShapeStatusValue');
+    const clearBtn=el('clearCensusShapeBtn');
+    const type=censusShapeType();
+    if(!indicator||!label||!value||!clearBtn)return;
+    if(type==='circle'){
+      const km=state.circleSelection.circle.getRadius()/1000;
+      indicator.className='census-shape-indicator-circle';
+      indicator.setAttribute('aria-label','Circle Census Query active');
+      label.textContent='Circle';
+      value.textContent=`${km.toFixed(km<1?2:1)} km radius`;
+      clearBtn.disabled=false;
+    }else if(type==='rectangle'){
+      const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
+      indicator.className='census-shape-indicator-rectangle';
+      indicator.setAttribute('aria-label','Rectangle Census Query active');
+      label.textContent='Rectangle';
+      value.textContent=`${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
+      clearBtn.disabled=false;
     }else{
-      value.textContent='— km';
-      wrap.classList.add('hidden');
+      indicator.className='census-shape-indicator-off';
+      indicator.setAttribute('aria-label','No Census Query shape active');
+      label.textContent='No shape';
+      value.textContent='—';
+      clearBtn.disabled=true;
     }
+    updateHeaderCensusIndicator();
   }
+  function removeCircleHandles(){ state.circleEditHandles.forEach(h=>map.removeLayer(h)); state.circleEditHandles=[]; }
+  function removeRectangleHandles(){ state.rectangleEditHandles.forEach(h=>map.removeLayer(h)); state.rectangleEditHandles=[]; }
+  function removeAllCensusHandles(){removeCircleHandles();removeRectangleHandles();}
 
-  function setLeftPanelCollapsed(collapsed){
-    state.leftPanelCollapsed=!!collapsed;
-    document.body.classList.toggle('left-panel-collapsed',state.leftPanelCollapsed);
-    const btn=el('leftPanelToggle');
-    if(btn){
-      btn.setAttribute('aria-expanded',String(!state.leftPanelCollapsed));
-      btn.setAttribute('aria-label',state.leftPanelCollapsed?'Expand controls':'Collapse controls');
-      const icon=btn.querySelector('span');
-      if(icon)icon.textContent=state.leftPanelCollapsed?'›':'‹';
-    }
-    requestAnimationFrame(()=>{
-      map.invalidateSize(false);
-      updateSelection();
-      if(state.openPopupMarker)positionStorePopup(true);
-    });
-  }
+  function setCensusShapeIndicator(){ updateCensusShapeStatus(); }
+  function setCircleIndicator(active){ updateCensusShapeStatus(); }
+  function updateCircleRadiusCounter(){ updateCensusShapeStatus(); }
 
-  function setCircleIndicator(active){
-    const dot=el('circleIndicator');
-    if(!dot)return;
-    dot.className=active?'circle-indicator-on':'circle-indicator-off';
-    dot.setAttribute('aria-label',active?'Selection circle active':'No selection circle active');
-    el('clearCircleBtn').disabled=!active;
-  }
-  function updateCircleRadiusCounter(){
-    const km=state.circleSelection?.circle?state.circleSelection.circle.getRadius()/1000:NaN;
-    el('circleRadiusCounter').textContent=Number.isFinite(km)?km.toFixed(km<1?2:1):'—';
-    updateHeaderCircleIndicator();
-  }
-  function removeCircleHandles(){
-    state.circleEditHandles.forEach(h=>map.removeLayer(h));
-    state.circleEditHandles=[];
+  function updateRectangleHandles(){
+    const rectangle=state.rectangleSelection?.rectangle;
+    if(!rectangle||state.rectangleEditHandles.length<2)return;
+    const b=rectangle.getBounds();
+    state.rectangleEditHandles[0].setLatLng(b.getCenter());
+    state.rectangleEditHandles[1].setLatLng(b.getSouthEast());
   }
   function showCircleHandles(){
     removeCircleHandles();
@@ -3846,111 +3886,142 @@
     const radiusHandle=L.marker(edge,{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-radius-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     centerHandle.on('drag',e=>{
       if(!state.circleSelection)return;
-      const ll=e.target.getLatLng();
-      circle.setLatLng(ll);
-      radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
-      updateCircleRadiusCounter();updateCircleLabel();scheduleSelectionUpdate();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(null,'circle moved');
+      const ll=e.target.getLatLng();circle.setLatLng(ll);radiusHandle.setLatLng(circleEdgeLatLng(ll,circle.getRadius()));
+      updateCensusShapeStatus();updateCircleLabel();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'circle moved');
     });
     radiusHandle.on('drag',e=>{
       if(!state.circleSelection)return;
-      const ll=e.target.getLatLng();
-      const center=circle.getLatLng();
-      const radius=Math.max(10,map.distance(center,ll));
-      circle.setRadius(radius);
-      radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
-      updateCircleRadiusCounter();updateCircleLabel();scheduleSelectionUpdate();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleDaRefresh(null,'circle moved');
+      const ll=e.target.getLatLng();const center=circle.getLatLng();const radius=Math.max(10,map.distance(center,ll));
+      circle.setRadius(radius);radiusHandle.setLatLng(circleEdgeLatLng(center,radius));
+      updateCensusShapeStatus();updateCircleLabel();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'circle resized');
     });
     state.circleEditHandles=[centerHandle,radiusHandle];
   }
-  function enterCircleDrawMode(){
-    state.circleDrawMode=true;state.markerClickSuppressed=true;
-    map.getContainer().style.cursor='crosshair';
-    el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag on map';
-    removeCircleHandles();
+  function showRectangleHandles(){
+    removeRectangleHandles();
+    const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
+    const b=rectangle.getBounds();
+    const centerHandle=L.marker(b.getCenter(),{draggable:true,interactive:true,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const cornerHandle=L.marker(b.getSouthEast(),{draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    centerHandle.on('drag',e=>{
+      if(!state.rectangleSelection)return;
+      const nextCenter=e.target.getLatLng();
+      const oldCenter=b.getCenter();
+      const dLat=nextCenter.lat-oldCenter.lat,dLng=nextCenter.lng-oldCenter.lng;
+      const nb=L.latLngBounds([[b.getSouth()+dLat,b.getWest()+dLng],[b.getNorth()+dLat,b.getEast()+dLng]]);
+      rectangle.setBounds(nb);cornerHandle.setLatLng(nb.getSouthEast());
+      updateCensusShapeStatus();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'rectangle moved');
+    });
+    cornerHandle.on('drag',e=>{
+      if(!state.rectangleSelection)return;
+      const ll=e.target.getLatLng();
+      const fixedSw=b.getSouthWest();
+      const north=Math.max(fixedSw.lat+0.0001,ll.lat),east=Math.max(fixedSw.lng+0.0001,ll.lng);
+      const nb=L.latLngBounds([fixedSw,L.latLng(north,east)]);
+      rectangle.setBounds(nb);centerHandle.setLatLng(nb.getCenter());cornerHandle.setLatLng(nb.getSouthEast());
+      updateCensusShapeStatus();state.daProvinceCacheKey=null;state.daProvinceCache=null;scheduleCensusQuery(null,'rectangle resized');
+    });
+    state.rectangleEditHandles=[centerHandle,cornerHandle];
   }
-  function exitCircleDrawMode(){
-    state.circleDrawMode=false;state.circleDrawing=null;state.markerClickSuppressed=false;
-    map.getContainer().style.cursor='';
-    el('drawCircleBtn').querySelector('span:last-child').textContent='Draw';
+  function showActiveCensusShapeHandles(){ if(censusShapeType()==='circle')showCircleHandles(); else if(censusShapeType()==='rectangle')showRectangleHandles(); }
+  function exitCensusDrawMode(){
+    state.circleDrawMode=false;state.rectangleDrawMode=false;state.censusShapeDrawing=null;state.circleDrawing=null;
+    state.markerClickSuppressed=false;map.getContainer().style.cursor='';removeAllCensusHandles();
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Circle';
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Rectangle';
   }
+  function clearCensusShape({keepDrawingMode=false}={}){
+    removeAllCensusHandles();
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    state.censusRequestId++;
+    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
+    state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
+    state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    updateCensusShapeStatus();
+    if(!keepDrawingMode)exitCensusDrawMode();
+    resetCensusPopulationSummary();
+    state.daSelectionResult=null;
+    if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+    setDaTestStatus('Draw a Census Query circle or rectangle to calculate Census data.');
+  }
+  function clearCircle(){clearCensusShape();}
   function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
-    state.initialNationalView=false;
-    state.mapReadyForViewport=true;
-    state.daActivationTrigger=reason;
-    clearCircle();
-    state.daProvinceCacheKey=null; state.daProvinceCache=null;
+    clearCensusShape();
+    state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const radius=Math.max(10,radiusMeters);
     const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineCap:'round',lineJoin:'round'}).addTo(map);
     circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     state.circleSelection={circle,label};
-    setCircleIndicator(true);updateCircleRadiusCounter();updateCircleLabel();showCircleHandles();
-    updateSelection();
-    scheduleDaRefresh(null,'circle draw');
-    if(!map.getBounds().contains(circle.getBounds().getNorthEast()) || !map.getBounds().contains(circle.getBounds().getSouthWest())){
-      fitMapProgrammatically(circle.getBounds(),{padding:[30,30],maxZoom:map.getZoom()});
-    }
+    updateCensusShapeStatus();showCircleHandles();
+    scheduleCensusQuery(null,reason);
   }
-  function clearCircle(){
-    removeCircleHandles();state.markerClickSuppressed=false;
-    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
-    state.censusRequestId++;
-    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
-    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
-    state.circleSelection=null;
-    state.circleDrawing=null;
-    state.daProvinceCacheKey=null; state.daProvinceCache=null;
-    setCircleIndicator(false);
-    if(state.circleDrawMode)exitCircleDrawMode();
-    updateCircleRadiusCounter();
+  function createOrReplaceRectangle(bounds,reason='rectangle draw'){
+    clearCensusShape();
+    state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
+    const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
+    rectangle.on('click',e=>{L.DomEvent.stopPropagation(e);showRectangleHandles();});
+    state.rectangleSelection={rectangle};
+    updateCensusShapeStatus();showRectangleHandles();
+    scheduleCensusQuery(null,reason);
   }
-  el('drawCircleBtn').addEventListener('click',()=>{
-    if(state.circleDrawMode){exitCircleDrawMode();return;}
-    enterCircleDrawMode();
-  });
-  el('clearCircleBtn').addEventListener('click',()=>{state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=state.daActivationTrigger||'circle clear';clearCircle();updateSelection();scheduleDaRefresh(0,'circle clear');});
+  function enterCircleDrawMode(){
+    exitCensusDrawMode();state.circleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
+  }
+  function enterRectangleDrawMode(){
+    exitCensusDrawMode();state.rectangleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
+  }
+  el('drawCircleBtn').addEventListener('click',()=>{if(state.circleDrawMode){exitCensusDrawMode();return;}enterCircleDrawMode();});
+  el('drawRectangleBtn').addEventListener('click',()=>{if(state.rectangleDrawMode){exitCensusDrawMode();return;}enterRectangleDrawMode();});
+  el('clearCensusShapeBtn').addEventListener('click',()=>{clearCensusShape();});
+
   map.on('mousedown',e=>{
-    if(!state.circleDrawMode || state.circleDrawing || !e.originalEvent)return;
-    state.circleDrawing={center:e.latlng};
+    if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing||!e.originalEvent)return;
+    const mode=state.circleDrawMode?'circle':'rectangle';
+    state.censusShapeDrawing={mode,start:e.latlng};
     map.dragging.disable();
-    const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(map);
-    const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
-    state.circleDrawing.temp=temp;
-    state.circleDrawing.label=label;
-    map.getContainer().style.cursor='crosshair';
+    if(mode==='circle'){
+      const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
+      state.censusShapeDrawing.temp=temp;state.censusShapeDrawing.label=label;
+    }else{
+      const temp=L.rectangle(L.latLngBounds(e.latlng,e.latlng),{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      state.censusShapeDrawing.temp=temp;
+    }
   });
   map.on('mousemove',e=>{
-    if(!state.circleDrawing?.temp)return;
-    const r=map.distance(state.circleDrawing.center,e.latlng);
-    const rr=Math.max(1,r);
-    state.circleDrawing.temp.setRadius(rr);
-    state.circleDrawing.label.setLatLng(circleEdgeLatLng(state.circleDrawing.center,rr));
-    const node=state.circleDrawing.label.getElement()?.querySelector('span');
-    if(node)node.textContent=circleRadiusLabelText(r);
-    el('circleRadiusCounter').textContent=(r/1000).toFixed(r<1000?2:1);
-  });
-  map.on('mouseup',e=>{
-    if(!state.circleDrawing?.temp)return;
-    const draw=state.circleDrawing;
-    try{
-      const r=map.distance(draw.center,e.latlng);
-      if(draw.temp)map.removeLayer(draw.temp);
-      if(draw.label)map.removeLayer(draw.label);
-      state.circleDrawing=null;
-      createOrReplaceCircle(draw.center,Math.max(10,r));
-      exitCircleDrawMode();
-    }catch(err){
-      console.error('Circle draw completion failed:',err);
-      if(draw.temp)map.removeLayer(draw.temp);
-      if(draw.label)map.removeLayer(draw.label);
-      state.circleDrawing=null;
-      exitCircleDrawMode();
-    }finally{
-      // Never leave Leaflet's normal map-drag state disabled after a failed draw.
-      map.dragging.enable();
-      setTimeout(()=>{state.markerClickSuppressed=false;},100);
+    const draw=state.censusShapeDrawing;if(!draw?.temp)return;
+    if(draw.mode==='circle'){
+      const r=map.distance(draw.start,e.latlng);draw.temp.setRadius(Math.max(1,r));
+      draw.label.setLatLng(circleEdgeLatLng(draw.start,Math.max(1,r)));
+      const node=draw.label.getElement()?.querySelector('span');if(node)node.textContent=circleRadiusLabelText(r);
+    }else{
+      draw.temp.setBounds(L.latLngBounds(draw.start,e.latlng));
     }
   });
+  map.on('mouseup',e=>{
+    const draw=state.censusShapeDrawing;if(!draw?.temp)return;
+    try{
+      if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);
+      state.censusShapeDrawing=null;
+      if(draw.mode==='circle'){
+        const r=map.distance(draw.start,e.latlng);createOrReplaceCircle(draw.start,Math.max(10,r));
+      }else{
+        const bounds=L.latLngBounds(draw.start,e.latlng);
+        if(map.distance(bounds.getSouthWest(),bounds.getNorthEast())<50) throw new Error('Rectangle is too small.');
+        createOrReplaceRectangle(bounds);
+      }
+      exitCensusDrawMode();
+    }catch(err){
+      console.error('Census Query draw completion failed:',err);
+      if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);state.censusShapeDrawing=null;exitCensusDrawMode();
+    }finally{map.dragging.enable();setTimeout(()=>{state.markerClickSuppressed=false;},100);}
+  });
+
   map.on('click',e=>{
     if(state.circleDrawMode)return;
     if(state.circleSelection && e.originalEvent?.target===state.circleSelection.circle?._path)return;
@@ -3975,6 +4046,9 @@
       state.circleEditHandles[1].setLatLng(edge);
       updateCircleLabel();
     }
+    if(state.rectangleSelection?.rectangle && state.rectangleEditHandles.length){
+      updateRectangleHandles();
+    }
     const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
     if(programmatic){
       if(state.userMapInteraction){state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='map pan/zoom';}
@@ -3988,14 +4062,8 @@
     updateHeaderGeography();
     updateSelection();
     refreshMunicipalityLabels();
-    if(state.navigationDaSuppressed) return;
-    if(state.moveTimer)clearTimeout(state.moveTimer);
-    state.moveTimer=setTimeout(async()=>{
-      updateHeaderGeography();
-      if (state.circleSelection?.circle) return;
-      state.daProvinceCacheKey=null; state.daProvinceCache=null;
-      scheduleDaRefresh(null,'map pan/zoom');
-    },250);
+    // Viewport movement is navigation-only. Census DA selection never runs here.
+    updateHeaderGeography();
   });
   map.on('zoomend',()=>{ refreshMunicipalityLabels(); hideUnifiedHover(); });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();refreshMunicipalityLabels();});
@@ -4028,10 +4096,10 @@
   el('filterPickerCancel').addEventListener('click',e=>{e.preventDefault();state.filterValuePickerIndex=null;el('filterValueDialog').close();});
 
   el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
-  el('censusThreshold').addEventListener('change',()=>scheduleDaRefresh(null,'threshold change'));
+  el('censusThreshold').addEventListener('change',()=>scheduleCensusQuery(null,'threshold change'));
   el('censusDelay')?.addEventListener('change',()=>{ state.daDelayMs=getDaDelayMs(); });
   el('censusDelay')?.addEventListener('input',()=>{ state.daDelayMs=getDaDelayMs(); });
-  el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleDaRefresh(0,'threshold change'),250); });
+  el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleCensusQuery(0,'threshold change'),250); });
   el('showSelectedDAs')?.addEventListener('change',(event)=>{
     state.showDaOverlay = !!event.target.checked;
     clearDaOverlay();
