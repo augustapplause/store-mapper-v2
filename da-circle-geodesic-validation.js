@@ -157,29 +157,52 @@
   };
 
   async function run() {
-    els.run.disabled=true;
-    els.status.textContent='Validation data ready — decoding 6 difficult DA geometries…';
-    await new Promise(r=>setTimeout(r,0));
-    const t0=performance.now();
-    const scale=embedded.coordinate_scale||1e7;
-    const rows=[];
-    for(const c of cases) {
-      els.status.textContent=`Case ${c.id}: decoding geometry and computing custom true-circle area…`;
-      await new Promise(r=>setTimeout(r,0));
-      const geom=decodeGeometry(embedded.geometry_records[String(c.index)],scale);
-      const custom=customAreaAndRatio(geom,c.lng,c.lat,c.radiusKm*1000);
-      const ref=reference[c.id];
-      rows.push({c, custom, ref, diff:custom.pct-ref.ratio, decisionCustom:custom.pct>=15, decisionRef:ref.ratio>=15});
+    els.run.disabled = true;
+    els.status.textContent = 'Running independent geodesic validation — 6 cases…';
+    await new Promise(r => setTimeout(r, 0));
+    const t0 = performance.now();
+    const rows = [];
+    for (const c of cases) {
+      els.status.textContent = `Case ${c.id}: decoding geometry and calculating custom true-circle result…`;
+      await new Promise(r => setTimeout(r, 0));
+      const geom = decodeGeometry(embedded.geometry_records[String(c.index)], embedded.coordinate_scale || 1e7);
+      const custom = customAreaAndRatio(geom, c.lng, c.lat, c.radiusKm * 1000);
+      const ref = reference[c.id];
+      rows.push({ c, custom, ref, diff: custom.pct - ref.ratio, decisionCustom: custom.pct >= 15, decisionRef: ref.ratio >= 15 });
     }
-    const elapsed=performance.now()-t0;
-    const abs=rows.map(r=>Math.abs(r.diff));
-    const mean=abs.reduce((a,b)=>a+b,0)/abs.length;
-    const max=Math.max(...abs);
-    const mismatches=rows.filter(r=>r.decisionCustom!==r.decisionRef).length;
-    els.summary.innerHTML=`<div class="summary-grid"><div><b>Reference</b><span>WGS84 geodesic / LAEA / GeographicLib</span></div><div><b>Cases</b><span>${rows.length}</span></div><div><b>Mean abs error</b><span>${mean.toFixed(6)} pp</span></div><div><b>Max abs error</b><span>${max.toFixed(6)} pp</span></div><div><b>15% mismatches</b><span>${mismatches}</span></div><div><b>Custom compute</b><span>${elapsed.toFixed(1)} ms</span></div></div>`;
-    els.tbody.innerHTML=rows.map(r=>`<tr><td>${r.c.id}</td><td>${r.c.index}</td><td>${r.ref.ratio.toFixed(6)}%</td><td>${r.custom.pct.toFixed(6)}%</td><td>${r.diff.toFixed(6)} pp</td><td class="${r.decisionCustom===r.decisionRef?'ok':'bad'}">${r.decisionRef?'YES':'NO'} / ${r.decisionCustom?'YES':'NO'}</td></tr>`).join('');
-    els.status.textContent='Validation complete — no provincial asset download required.';
-    els.run.disabled=false;
+    const elapsed = performance.now() - t0;
+    const abs = rows.map(r => Math.abs(r.diff));
+    const mean = abs.reduce((a, b) => a + b, 0) / abs.length;
+    const max = Math.max(...abs);
+    const mismatches = rows.filter(r => r.decisionCustom !== r.decisionRef).length;
+    const pass = mean <= 0.05 && max <= 0.10 && mismatches === 0;
+
+    els.summary.innerHTML = `
+      <div class="summary-grid">
+        <div><b>Independent reference</b><span>WGS84 geodesic / LAEA / independent precomputed values</span></div>
+        <div><b>Cases</b><span>${rows.length}</span></div>
+        <div><b>Mean abs error</b><span>${mean.toFixed(6)} pp</span></div>
+        <div><b>Max abs error</b><span>${max.toFixed(6)} pp</span></div>
+        <div><b>15% decision mismatches</b><span>${mismatches}</span></div>
+        <div><b>Custom compute time</b><span>${elapsed.toFixed(1)} ms</span></div>
+        <div class="result ${pass ? 'pass' : 'fail'}"><b>Validation</b><span>${pass ? 'PASS' : 'FAIL — investigate geometry before production'}</span></div>
+      </div>`;
+
+    els.tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.c.id}</td>
+        <td>${r.c.index}</td>
+        <td>${r.ref.ratio.toFixed(6)}%</td>
+        <td>${r.custom.pct.toFixed(6)}%</td>
+        <td>${r.diff.toFixed(6)} pp</td>
+        <td>${r.ref.intersection.toFixed(3)} m²</td>
+        <td>${r.custom.ia.toFixed(3)} m²</td>
+        <td class="${r.decisionCustom === r.decisionRef ? 'ok' : 'bad'}">${r.decisionRef ? 'YES' : 'NO'} / ${r.decisionCustom ? 'YES' : 'NO'}</td>
+      </tr>`).join('');
+
+    const worst = rows.slice().sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff))[0];
+    els.status.textContent = `Validation complete. Worst case: ${worst.c.id} (${worst.diff.toFixed(6)} pp).`;
+    els.run.disabled = false;
   }
 
   els.run.addEventListener('click',()=>run().catch(e=>{els.status.textContent=`ERROR: ${e.message}`;els.run.disabled=false;}));
