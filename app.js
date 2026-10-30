@@ -2778,7 +2778,7 @@
         ];
       }
 
-      const indexedCandidatesByProvince=options.indexedCandidatesByProvince||{};
+        const indexedCandidatesByProvince=options.indexedCandidatesByProvince || null;
       for (const mode of modes) {
         // FULL provinces are fully contained by the active target. Their
         // Census totals come entirely from the precomputed province aggregate.
@@ -2793,14 +2793,20 @@
           aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
           if(!shouldRender)continue;
           const entry=await loadProvince(mode.provinceCode);
-          const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
+          const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+          const candidates = Array.isArray(precomputedCandidates)
+            ? precomputedCandidates
+            : bboxQuery(entry,boundaryBbox);
           candidateCount+=candidates.length;
           actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
           continue;
         }
         const entry=await loadProvince(mode.provinceCode);
         partialProvinceCodes.push(mode.provinceCode);
-        const candidates=indexedCandidatesByProvince[mode.provinceCode]||[];
+        const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+        const candidates = Array.isArray(precomputedCandidates)
+          ? precomputedCandidates
+          : bboxQuery(entry,boundaryBbox);
         indexedFeatures+=entry.featureCount||0;
         candidateCount+=candidates.length;
         actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
