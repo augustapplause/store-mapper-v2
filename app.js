@@ -1,4 +1,4 @@
-/* Store Explorer - v1.147
+/* Store Explorer - v1.148
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -131,7 +131,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.147',
+        'CENSUS STATE DEBUG v1.148',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -2491,7 +2491,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.147`,
+        `DA PERF v1.148`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3144,23 +3144,40 @@
       updateCensusShapeStatus();
       return;
     }
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
     clearCensusShapeOnly({keepGeoScope:true});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
     clearRightPanelHighlights();
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-viewport-reset'});
     setCensusScope('viewport',{reason:'preparing geography scope',generation:scopeGeneration});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:state.censusSelectionScope});
     if(select) select.value=scope;
-    if(!state.provinceGeo?.features?.length) await loadProvinces();
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'select-value-set',selectValue:select?.value||''});
+    if(!state.provinceGeo?.features?.length){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-load-provinces'});
+      await loadProvinces();
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-load-provinces',featureCount:state.provinceGeo?.features?.length||0});
+    } else {
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'provinces-already-loaded',featureCount:state.provinceGeo.features.length});
+    }
     const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
     const selectedFeature=scope==='CA'?null:state.provinceGeo?.features?.find(f=>provinceCodeFromFeature(f)===scope)||null;
     if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'feature-resolution',name,selectedFeature:!!selectedFeature,featureCount:features?.length||0});
     const features=scope==='CA'?(state.provinceGeo?.features||[]):(selectedFeature?[selectedFeature]:[]);
     let fitLayer=null;
     if(features.length){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-outline-add',featureCount:features.length});
       fitLayer=L.geoJSON({type:'FeatureCollection',features},{style:{color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}}).addTo(map);
       state.censusGeoLayer=fitLayer;
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-outline-add',layerReady:!!state.censusGeoLayer});
+    } else {
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'no-features-for-outline'});
     }
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-activate'});
     state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,scopeGeneration};
     setCensusScope(state.censusGeoSelection.type==='canada'?'canada':'province',{code:scope,name,generation:scopeGeneration,reason:'geography selected'});
-    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration});
+    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration,currentScope:state.censusSelectionScope});
     const aggregate=censusScopeAggregate(scope);
     updateCensusPopulationSummary(aggregate);
     const storeScope=scope==='CA'?'Canada':name;
@@ -3171,10 +3188,14 @@
     state.daActivationTrigger='geography scope';
     updateCensusShapeStatus();
     if(fitLayer){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-bounds'});
       const bounds=fitLayer.getBounds();
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'bounds-resolved',valid:bounds.isValid(),bounds:bounds.isValid()?bounds.toBBoxString():null});
       if(bounds.isValid()) {
         CENSUS_DEBUG.log('geoScope:fit',{scope,bounds:bounds.toBBoxString()});
+        CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-map'});
         fitMapProgrammatically(bounds,{padding:[22,22]});
+        CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-fit-map-call'});
       }
     }
     updateSelection();
