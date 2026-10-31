@@ -1,4 +1,4 @@
-/* Store Explorer - v1.153
+/* Store Explorer - v1.154
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -65,7 +65,7 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false,
-    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, populationAreaBusyCount:0, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
   const el = id => document.getElementById(id);
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.153',
+        'CENSUS STATE DEBUG v1.154',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1032,18 +1032,29 @@
     return popupVirtualNames().map(name=>`<option value="${esc(name)}" ${selected===name?'selected':''}>${esc(name)}</option>`).join('');
   }
 
+  function setPopulationAreaBusy(active){
+    state.populationAreaBusyCount=Math.max(0,state.populationAreaBusyCount+(active?1:-1));
+    const pill=el('populationAreaStatus');
+    if(pill)pill.classList.toggle('hidden',state.populationAreaBusyCount===0);
+  }
+
   async function selectCensusBoundary(boundary, provinceCodes, threshold, options={}){
     const codes=[...new Set((provinceCodes||[]).filter(Boolean))].sort();
     if(!codes.length)return null;
     const boundaryType=options.boundaryType || 'viewport';
     const hasCircle=boundaryType==='circle';
     const provinceModes=options.provinceModes || classifyCandidateProvinces(codes, hasCircle);
-    return DA_ENGINE.select(boundary, provinceModes, threshold, {
-      shouldRender: !!options.shouldRender,
-      indexedCandidatesByProvince: options.indexedCandidatesByProvince || {},
-      boundaryType,
-      targetCircle: options.targetCircle || null
-    });
+    setPopulationAreaBusy(true);
+    try{
+      return await DA_ENGINE.select(boundary, provinceModes, threshold, {
+        shouldRender: !!options.shouldRender,
+        indexedCandidatesByProvince: options.indexedCandidatesByProvince || {},
+        boundaryType,
+        targetCircle: options.targetCircle || null
+      });
+    }finally{
+      setPopulationAreaBusy(false);
+    }
   }
 
   async function calculatePopupCensusForStore(row, formulaFields=popupItems()){

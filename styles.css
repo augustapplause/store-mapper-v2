@@ -986,3 +986,44 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 }
 .census-query-clear:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #7d111a;filter:brightness(.98);}
 .census-query-clear:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #7d111a;}
+
+
+/* v1.154: in-map population-area calculation status */
+.population-area-status{
+  position:absolute;
+  top:12px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:1200;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:34px;
+  padding:7px 11px;
+  background:rgba(255,255,255,.96);
+  border:1px solid #cfd8df;
+  box-shadow:0 2px 8px rgba(0,0,0,.16);
+  color:#1c3344;
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+  pointer-events:none;
+}
+.population-area-spinner{
+  width:13px;
+  height:13px;
+  box-sizing:border-box;
+  border:2px solid #c8d1d8;
+  border-top-color:#47677d;
+  border-radius:50%;
+  animation:populationAreaSpin .75s linear infinite;
+}
+@keyframes populationAreaSpin{
+  to{transform:rotate(360deg);}
+}
+@media (max-width:760px){
+  .population-area-status{
+    top:10px;
+    max-width:calc(100% - 24px);
+  }
+}
