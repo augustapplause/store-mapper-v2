@@ -1,4 +1,4 @@
-/* Store Explorer - v1.149
+/* Store Explorer - v1.150
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -130,7 +130,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.148',
+        'CENSUS STATE DEBUG v1.150',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -170,11 +170,28 @@
   }
 
   function provinceCodeFromFeature(feature) {
-    const code = String(feature?.properties?.code || '').trim().toUpperCase();
-    if (code === 'CA') return 'CA';
-    if (CONFIG.prCodeByUid[code]) return CONFIG.prCodeByUid[code];
-    const uid = String(feature?.properties?.PRUID || feature?.properties?.PRUID3 || '').trim();
-    return CONFIG.prCodeByUid[uid] || null;
+    const p = feature?.properties || {};
+    const raw = [
+      p.code, p.province_code, p.PROV_CODE, p.PROV, p.pruid,
+      p.PRUID, p.PRUID3, p.province, p.Province, p.name, p.NAME,
+      p.PRNAME, p.PRENAME
+    ].map(v => String(v ?? '').trim()).find(Boolean) || '';
+    const v = raw.toUpperCase();
+    const direct = {
+      'AB':'AB','ALBERTA':'AB', 'BC':'BC','BRITISH COLUMBIA':'BC',
+      'MB':'MB','MANITOBA':'MB', 'NB':'NB','NEW BRUNSWICK':'NB',
+      'NL':'NL','NEWFOUNDLAND AND LABRADOR':'NL',
+      'NS':'NS','NOVA SCOTIA':'NS', 'NT':'NT','NORTHWEST TERRITORIES':'NT',
+      'NU':'NU','NUNAVUT':'NU', 'ON':'ON','ONTARIO':'ON',
+      'PE':'PE','PRINCE EDWARD ISLAND':'PE', 'QC':'QC','QUEBEC':'QC',
+      'SK':'SK','SASKATCHEWAN':'SK', 'YT':'YT','YUKON':'YT', 'CA':'CA','CANADA':'CA'
+    };
+    if (direct[v]) return direct[v];
+    if (CONFIG.prCodeByUid[v]) return CONFIG.prCodeByUid[v];
+    const uid = String(p.PRUID || p.PRUID3 || p.province_uid || '').trim();
+    if (CONFIG.prCodeByUid[uid]) return CONFIG.prCodeByUid[uid];
+    if (/^\d{2}$/.test(uid) && CONFIG.prCodeByUid[uid]) return CONFIG.prCodeByUid[uid];
+    return null;
   }
 
   function provinceCodeFromCsdFeature(feature) {
@@ -2499,7 +2516,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.148`,
+        `DA PERF v1.150`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
