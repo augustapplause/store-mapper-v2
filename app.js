@@ -1,4 +1,4 @@
-/* Store Explorer - v1.154
+/* Store Explorer - v1.155
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.154',
+        'CENSUS STATE DEBUG v1.155',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1046,6 +1046,10 @@
     const provinceModes=options.provinceModes || classifyCandidateProvinces(codes, hasCircle);
     setPopulationAreaBusy(true);
     try{
+      // Yield twice so the browser can paint the status message before the
+      // synchronous intersection engine monopolizes the main thread.
+      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
       return await DA_ENGINE.select(boundary, provinceModes, threshold, {
         shouldRender: !!options.shouldRender,
         indexedCandidatesByProvince: options.indexedCandidatesByProvince || {},
@@ -1066,7 +1070,7 @@
       }
     }
     if(!required.size)return {};
-    const threshold=Number(el('censusThreshold')?.value??15);
+    const threshold=Number(el('censusThreshold')?.value??10);
     const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
     if(lat===null||lng===null)return {};
     const storeId=state.columns.storeId?String(row[state.columns.storeId]??''):'';
@@ -3332,7 +3336,7 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    const threshold=Number(el('censusThreshold')?.value ?? 15);
+    const threshold=Number(el('censusThreshold')?.value ?? 10);
     const requestId=++state.censusRequestId;
     const scopeGeneration=expectedGeneration;
     state.daSelectionResult=null;
