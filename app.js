@@ -1,4 +1,4 @@
-/* Store Explorer - v1.159
+/* Store Explorer - v1.160
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.159',
+        'CENSUS STATE DEBUG v1.160',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -4231,6 +4231,8 @@
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'rectangle moved');
     });
+    let rectangleResizePending=false;
+    cornerHandle.on('dragstart',()=>{ rectangleResizePending=true; });
     cornerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4242,9 +4244,19 @@
       const east=Math.max(fixedNW.lng+minLngDelta,pointer.lng);
       const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
       rectangle.setBounds(nb);
-      centerHandle.setLatLng(nb.getCenter());
       cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
       updateCensusShapeStatus();
+      updateRectangleLabel();
+    });
+    cornerHandle.on('dragend',()=>{
+      if(!state.rectangleSelection)return;
+      rectangleResizePending=false;
+      const nb=rectangle.getBounds();
+      cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
+      updateCensusShapeStatus();
+      updateRectangleLabel();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'rectangle resized');
     });
