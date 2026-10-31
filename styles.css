@@ -414,6 +414,7 @@ button,
 .filter-dialog-footer #addFilterBtn{margin-right:4px;}
 .filter-diagnostic{padding:6px 10px 2px;color:var(--muted);font-size:10px;min-height:16px;}
 .filter-footer-spacer{flex:1 1 auto;}
+.filter-footer-note{font-size:12px;color:var(--muted);white-space:nowrap;margin-left:8px;}
 @media (max-width:900px){
   .filter-table-head{display:none;}
   .filter-line-main{grid-template-columns:1fr 1fr;}
@@ -991,7 +992,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 
 
-/* v1.157: consistent Go to geography controls */
+/* v1.158: consistent Go to geography controls */
+/* v1.159: box dimensions label */
+.rectangle-dimensions-label{background:transparent!important;border:0!important;pointer-events:none!important;z-index:1700!important;}
+.rectangle-dimensions-label span{display:block;box-sizing:border-box;width:94px;padding:3px 5px;text-align:center;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003;}
 .left-panel .store-jump{display:block;margin-top:8px;}
 .left-panel .store-jump label{display:block;margin:0 0 5px;color:var(--muted);font-size:12px;font-weight:600;}
 .left-panel .store-jump .inline-control{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:0;}

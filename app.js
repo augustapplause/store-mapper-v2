@@ -1,4 +1,4 @@
-/* Store Explorer - v1.157
+/* Store Explorer - v1.159
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.157',
+        'CENSUS STATE DEBUG v1.159',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -2282,16 +2282,12 @@
     if(!needed.length||!state.rows.length)return;
     const fields=needed.map(name=>({formula:name}));
     const total=state.rows.length;
-    for(let start=0;start<total;start+=12){
-        const end=Math.min(total,start+12);
-        for(let i=start;i<end;i++){
-          const row=state.rows[i];
-          const cached=state.filterCensusCache.get(row);
-          const values=await calculatePopupCensusForStore(row,fields);
-          state.filterCensusCache.set(row,{...(cached||{}),...(values||{})});
-        }
-        await new Promise(r=>setTimeout(r,0));
-      }
+    for(let i=0;i<total;i++){
+      const row=state.rows[i];
+      const cached=state.filterCensusCache.get(row);
+      const values=await calculatePopupCensusForStore(row,fields);
+      state.filterCensusCache.set(row,{...(cached||{}),...(values||{})});
+    }
   }
 
   function validateFilterDraft(draft,index){
@@ -4083,6 +4079,23 @@
     if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
   }
 
+  function rectangleDimensionsLabelText(bounds){
+    const dims=getRectangleDimensionsKm(bounds);
+    return `${dims.length.toFixed(2)} × ${dims.width.toFixed(2)} km`;
+  }
+  function makeRectangleDimensionsLabel(bounds){
+    return L.marker(bounds.getSouthEast(),{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'rectangle-dimensions-label',html:`<span>${rectangleDimensionsLabelText(bounds)}</span>`,iconSize:[94,24],iconAnchor:[47,-14]})});
+  }
+  function updateRectangleLabel(){
+    const rectangle=state.rectangleSelection?.rectangle;
+    const label=state.rectangleSelection?.label;
+    if(!rectangle||!label)return;
+    const bounds=rectangle.getBounds();
+    label.setLatLng(bounds.getSouthEast());
+    const node=label.getElement()?.querySelector('span');
+    if(node)node.textContent=rectangleDimensionsLabelText(bounds);
+  }
+
   // ---------- Selection circle interaction ----------
   function updateHeaderCensusIndicator(){
     const wrap=el('headerCensusStatus');
@@ -4172,6 +4185,7 @@
     const b=rectangle.getBounds();
     state.rectangleEditHandles[0].setLatLng(b.getCenter());
     state.rectangleEditHandles[1].setLatLng(b.getSouthEast());
+    updateRectangleLabel();
   }
   function showCircleHandles(){
     removeCircleHandles();
@@ -4250,6 +4264,7 @@
     state.censusRequestId++;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
@@ -4273,6 +4288,7 @@
     state.censusRequestId++;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
@@ -4304,7 +4320,8 @@
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
     rectangle.on('click',e=>{L.DomEvent.stopPropagation(e);showRectangleHandles();});
-    state.rectangleSelection={rectangle};
+    const label=makeRectangleDimensionsLabel(bounds).addTo(map);
+    state.rectangleSelection={rectangle,label};
     setCensusScope('box',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showRectangleHandles();
     scheduleCensusQuery(null,reason);
@@ -4341,8 +4358,11 @@
       const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
       state.censusShapeDrawing.temp=temp;state.censusShapeDrawing.label=label;
     }else{
-      const temp=L.rectangle(L.latLngBounds(e.latlng,e.latlng),{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      const bounds=L.latLngBounds(e.latlng,e.latlng);
+      const temp=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      const label=makeRectangleDimensionsLabel(bounds).addTo(map);
       state.censusShapeDrawing.temp=temp;
+      state.censusShapeDrawing.label=label;
     }
   });
   map.on('mousemove',e=>{
@@ -4352,7 +4372,11 @@
       draw.label.setLatLng(circleEdgeLatLng(draw.start,Math.max(1,r)));
       const node=draw.label.getElement()?.querySelector('span');if(node)node.textContent=circleRadiusLabelText(r);
     }else{
-      draw.temp.setBounds(L.latLngBounds(draw.start,e.latlng));
+      const bounds=L.latLngBounds(draw.start,e.latlng);
+      draw.temp.setBounds(bounds);
+      draw.label?.setLatLng(bounds.getSouthEast());
+      const node=draw.label?.getElement()?.querySelector('span');
+      if(node)node.textContent=rectangleDimensionsLabelText(bounds);
     }
   });
   map.on('mouseup',e=>{
@@ -4412,8 +4436,9 @@
       state.circleEditHandles[1].setLatLng(edge);
       updateCircleLabel();
     }
-    if(state.rectangleSelection?.rectangle && state.rectangleEditHandles.length){
+    if(state.rectangleSelection?.rectangle){
       updateRectangleHandles();
+      updateRectangleLabel();
     }
     const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
     if(programmatic){
