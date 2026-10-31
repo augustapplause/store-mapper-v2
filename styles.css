@@ -966,7 +966,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rectangle-query-shape{color:#d33e46;}
 
 
-/* v1.152: alternate readable configuration rows. */
+/* v1.153: alternate readable configuration rows. */
 .metric-config-row:nth-child(odd),
 .popup-ticker-config-row:nth-child(odd){background:#f8fbfd;}
 .metric-config-row:nth-child(even),
@@ -974,7 +974,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .filter-line:nth-child(odd){background:#f8fbfd;}
 .filter-line:nth-child(even){background:#fff9df;}
 
-/* v1.152: raised 3D Census Query Clear button, matching shape controls. */
+/* v1.153: raised 3D Census Query Clear button, matching shape controls. */
 .census-query-clear{
   background:#b51f2a !important;
   color:#fff !important;

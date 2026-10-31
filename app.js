@@ -1,4 +1,4 @@
-/* Store Explorer - v1.152
+/* Store Explorer - v1.153
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.152',
+        'CENSUS STATE DEBUG v1.153',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -2078,7 +2078,7 @@
     return headerTokens.every(h=>sample.some(row=>toNumber(row[h])!==null));
   }
   function evaluateRowFormula(formula,row){
-    const tokens=tokenizeTicker(String(formula??'').trim());
+    const tokens=tokenizePopup(String(formula??'').trim());
     if(!tokens||!tokens.length)return null;
     const operandValues=new Map();
     const virtuals=state.filterCensusCache.get(row)||{};
@@ -2088,7 +2088,7 @@
       if(value===null)return null;
       operandValues.set(t.value,value);
     }
-    const value=evaluateTickerExpression(formula,operandValues);
+    const value=evaluateTickerExpressionWithTokens(tokens,operandValues);
     return Number.isFinite(value)?value:null;
   }
   function filterDraftBlank(){return {connector:'AND',column:'',formula:'',operator:'=',value:'',values:[],wildcard:'',type:'numeric'};}
