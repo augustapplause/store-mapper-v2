@@ -1,4 +1,4 @@
-/* Store Explorer - v1.145
+/* Store Explorer - v1.147
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -47,6 +47,7 @@
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
     subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
+    censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
@@ -130,7 +131,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.145',
+        'CENSUS STATE DEBUG v1.147',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1716,17 +1717,13 @@
     return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
   }
   function getSelectedRows(){
-    // Census geography scope, when active, is the metric/aggregation scope.
-    // Census shapes are the next most specific scope. With neither active,
-    // the viewport governs marker selection. Filters always apply on top.
-    if(censusGeoScopeType()){
-      const scope=state.censusGeoSelection.code;
-      const base=scope==='CA'
-        ? state.rows
-        : state.rows.filter(row=>provinceCodeFromText(row[state.columns.province] || '')===scope);
+    const scope=censusScopeType();
+    if(scope==='province'||scope==='canada'){
+      const code=state.censusGeoSelection?.code;
+      const base=code==='CA' ? state.rows : state.rows.filter(row=>provinceCodeFromText(row[state.columns.province] || '')===code);
       return base.filter(filterRowPasses);
     }
-    if(censusShapeType()) return getCensusShapeRows();
+    if(scope==='circle'||scope==='box') return getCensusShapeRows();
     return getViewportRows({respectFilters:true});
   }
   function getViewportRows({respectFilters=true}={}){
@@ -2494,7 +2491,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.145`,
+        `DA PERF v1.147`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -3075,7 +3072,26 @@
   }
 
   function censusScopeType() {
-    return censusShapeType() || censusGeoScopeType();
+    return state.censusScope?.type || 'viewport';
+  }
+
+  function setCensusScope(type, meta={}) {
+    const previous=state.censusScope?.type || 'viewport';
+    state.censusScope={
+      type,
+      code:meta.code || null,
+      name:meta.name || null,
+      generation:meta.generation ?? (state.censusScope?.generation||0),
+      reason:meta.reason || null
+    };
+    CENSUS_DEBUG.log('scope:set',{from:previous,to:type,code:state.censusScope.code,name:state.censusScope.name,reason:state.censusScope.reason});
+  }
+
+  function clearActiveScopeToViewport(reason='scope reset') {
+    state.censusScopeGeneration++;
+    state.censusRequestId++;
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    setCensusScope('viewport',{reason,generation:state.censusScopeGeneration});
   }
 
   function clearCensusGeoSelection(){
@@ -3120,6 +3136,7 @@
     const select=el('censusGeoSelect');
     if(!scope){
       clearCensusGeoSelection();
+      setCensusScope('viewport',{reason:'geography cleared',generation:state.censusScopeGeneration});
       CENSUS_DEBUG.log('geoScope:cleared');
       resetCensusPopulationSummary();
       setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');
@@ -3129,6 +3146,7 @@
     }
     clearCensusShapeOnly({keepGeoScope:true});
     clearRightPanelHighlights();
+    setCensusScope('viewport',{reason:'preparing geography scope',generation:scopeGeneration});
     if(select) select.value=scope;
     if(!state.provinceGeo?.features?.length) await loadProvinces();
     const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
@@ -3141,6 +3159,7 @@
       state.censusGeoLayer=fitLayer;
     }
     state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,scopeGeneration};
+    setCensusScope(state.censusGeoSelection.type==='canada'?'canada':'province',{code:scope,name,generation:scopeGeneration,reason:'geography selected'});
     CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration});
     const aggregate=censusScopeAggregate(scope);
     updateCensusPopulationSummary(aggregate);
@@ -3372,7 +3391,9 @@
       showNavigationResult(lat,lng,'store',target,()=>{
         if(token!==state.searchToken)return;
         state.navigationDaSuppressed=false;
+        clearActiveScopeToViewport('store navigation complete');
         setDaTestStatus('Map navigation complete. Draw a Census Query shape to calculate Census data.');
+        updateSelection();
       });
     };
     map.once('moveend',finish);
@@ -4221,6 +4242,7 @@
     if(!keepDrawingMode)exitCensusDrawMode();
     resetCensusPopulationSummary();
     state.daSelectionResult=null;
+    setCensusScope('viewport',{reason:'Census shape cleared',generation:state.censusScopeGeneration});
     if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
     setDaTestStatus('Draw a Census Query circle or rectangle to calculate Census data.');
     if(state.rows.length) updateSelection();
@@ -4252,6 +4274,7 @@
     circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     state.circleSelection={circle,label};
+    setCensusScope('circle',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showCircleHandles();
     requestAnimationFrame(()=>{ if(state.circleSelection?.circle===circle) showCircleHandles(); });
     CENSUS_DEBUG.log('circle:create:handles',{count:state.circleEditHandles.length});
@@ -4263,6 +4286,7 @@
     const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
     rectangle.on('click',e=>{L.DomEvent.stopPropagation(e);showRectangleHandles();});
     state.rectangleSelection={rectangle};
+    setCensusScope('box',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showRectangleHandles();
     scheduleCensusQuery(null,reason);
   }
@@ -4385,8 +4409,8 @@
     clearOffscreenTransientVisuals();
     requestAnimationFrame(()=>showActiveCensusShapeHandles());
     updateHeaderGeography();
-    if(!censusShapeType()) updateSelection();
-    else { updateGroups(); updateDistribution(); }
+    if(censusScopeType()==='viewport') updateSelection();
+    else { updateGroups(); updateDistribution(); updateSelectionState(); refreshMarkerStyles(); }
     refreshMarkerStyles();
     refreshMunicipalityLabels();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
