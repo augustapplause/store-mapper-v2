@@ -964,3 +964,25 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rectangle-edit-handle span::before{content:'';position:absolute;inset:3px;border:3px solid #d33e46;background:#fff;border-radius:1px;}
 .rectangle-corner-handle span::after{content:'';position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:3px solid #d33e46;border-bottom:3px solid #d33e46;}
 .rectangle-query-shape{color:#d33e46;}
+
+
+/* v1.152: alternate readable configuration rows. */
+.metric-config-row:nth-child(odd),
+.popup-ticker-config-row:nth-child(odd){background:#f8fbfd;}
+.metric-config-row:nth-child(even),
+.popup-ticker-config-row:nth-child(even){background:#fff9df;}
+.filter-line:nth-child(odd){background:#f8fbfd;}
+.filter-line:nth-child(even){background:#fff9df;}
+
+/* v1.152: raised 3D Census Query Clear button, matching shape controls. */
+.census-query-clear{
+  background:#b51f2a !important;
+  color:#fff !important;
+  border:1px solid #951923 !important;
+  border-bottom:3px solid #7d111a !important;
+  box-shadow:0 2px 0 #7d111a;
+  transform:translateY(0);
+  transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
+}
+.census-query-clear:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #7d111a;filter:brightness(.98);}
+.census-query-clear:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #7d111a;}
