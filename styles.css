@@ -988,7 +988,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-query-clear:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #7d111a;}
 
 
-/* v1.155: in-map population-area calculation status */
+/* v1.156: in-map population-area calculation status */
 .population-area-status{
   position:absolute;
   top:12px;
