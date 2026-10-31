@@ -1,4 +1,4 @@
-/* Store Explorer - v1.156
+/* Store Explorer - v1.157
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -65,7 +65,7 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false,
-    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, populationAreaBusyCount:0, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
   const el = id => document.getElementById(id);
@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.156',
+        'CENSUS STATE DEBUG v1.157',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1032,12 +1032,6 @@
     return popupVirtualNames().map(name=>`<option value="${esc(name)}" ${selected===name?'selected':''}>${esc(name)}</option>`).join('');
   }
 
-  function setPopulationAreaBusy(active){
-    state.populationAreaBusyCount=Math.max(0,state.populationAreaBusyCount+(active?1:-1));
-    const pill=el('populationAreaStatus');
-    if(pill)pill.classList.toggle('hidden',state.populationAreaBusyCount===0);
-  }
-
   async function selectCensusBoundary(boundary, provinceCodes, threshold, options={}){
     const codes=[...new Set((provinceCodes||[]).filter(Boolean))].sort();
     if(!codes.length)return null;
@@ -1052,7 +1046,7 @@
     });
   }
 
-  async function calculatePopupCensusForStore(row, formulaFields=popupItems(), manageBusy=true){
+  async function calculatePopupCensusForStore(row, formulaFields=popupItems()){
     const required=new Set();
     for(const field of formulaFields){
       const tokens=tokenizePopup(field.formula)||[];
@@ -1070,26 +1064,17 @@
     const out={};
     const provinceCode=provinceCodeFromText(row[state.columns.province] || '');
     if(!provinceCode)return {};
-    if(manageBusy){
-      setPopulationAreaBusy(true);
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+    for(const radiusKm of neededRadii){
+      const cacheKey=`${cacheBase}|${radiusKm}`;
+      if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:360});
+      const result=await selectCensusBoundary(boundary,[provinceCode],threshold,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
+      const aggregate=result?.aggregate || {totalPopulation:0,population65Plus:0};
+      const radiusValues={[`Population ${radiusKm} km`]:aggregate.totalPopulation,[`Population 65+ ${radiusKm} km`]:aggregate.population65Plus};
+      state.popupCensusCache.set(cacheKey,radiusValues);
+      Object.assign(out,radiusValues);
     }
-    try{
-      for(const radiusKm of neededRadii){
-        const cacheKey=`${cacheBase}|${radiusKm}`;
-        if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
-        const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:360});
-        const result=await selectCensusBoundary(boundary,[provinceCode],threshold,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
-        const aggregate=result?.aggregate || {totalPopulation:0,population65Plus:0};
-        const radiusValues={[`Population ${radiusKm} km`]:aggregate.totalPopulation,[`Population 65+ ${radiusKm} km`]:aggregate.population65Plus};
-        state.popupCensusCache.set(cacheKey,radiusValues);
-        Object.assign(out,radiusValues);
-      }
-      return out;
-    }finally{
-      if(manageBusy)setPopulationAreaBusy(false);
-    }
+    return out;
   }
 
   function normalizePopupField(f){
@@ -2297,23 +2282,16 @@
     if(!needed.length||!state.rows.length)return;
     const fields=needed.map(name=>({formula:name}));
     const total=state.rows.length;
-    setPopulationAreaBusy(true);
-    try{
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
-      for(let start=0;start<total;start+=12){
+    for(let start=0;start<total;start+=12){
         const end=Math.min(total,start+12);
         for(let i=start;i<end;i++){
           const row=state.rows[i];
           const cached=state.filterCensusCache.get(row);
-          const values=await calculatePopupCensusForStore(row,fields,false);
+          const values=await calculatePopupCensusForStore(row,fields);
           state.filterCensusCache.set(row,{...(cached||{}),...(values||{})});
         }
         await new Promise(r=>setTimeout(r,0));
       }
-    }finally{
-      setPopulationAreaBusy(false);
-    }
   }
 
   function validateFilterDraft(draft,index){
@@ -3349,10 +3327,7 @@
     state.daSelectionResult=null;
     const shapeType=censusShapeType();
     setDaTestStatus(`Finding DAs inside the active ${shapeType} query…`);
-    setPopulationAreaBusy(true);
     try{
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
-      await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
       const boundary=activeCensusBoundary();
       const geoT0=DA_PERF_ENABLED?performance.now():0;
       const geoCandidates=candidateProvinceCodesFromGeography(boundary);
@@ -3394,8 +3369,6 @@
       if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
       clearDaOverlay();
       setDaTestStatus(`Census Query failed: ${err.message}`);
-    }finally{
-      setPopulationAreaBusy(false);
     }
   }
 

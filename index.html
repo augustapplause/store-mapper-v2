@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.156</title>
+  <title>Store Explorer v1.157</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.153.0.popup-filter" />
+      <link rel="stylesheet" href="styles.css?v=1.157.0.store-profile-ui" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.156</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.157</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -80,7 +80,13 @@
             <button type="submit">Go</button>
           </div>
         </form>
-        <form id="storeJumpForm" class="store-jump"><button id="storeNumberBtn" type="submit">Go to store #</button><input id="storeNumberInput" type="text" placeholder="Store Profile Number" autocomplete="off" /></form>
+        <form id="storeJumpForm" class="store-jump">
+          <label for="storeNumberInput">Store profile #</label>
+          <div class="inline-control">
+            <input id="storeNumberInput" type="text" placeholder="Store Profile Number" autocomplete="off" />
+            <button id="storeNumberBtn" type="submit">Go</button>
+          </div>
+        </form>
         <div id="storeJumpStatus" class="status muted"></div>
         <div id="geoStatus" class="status muted">Pan and zoom the map freely. Draw a Census Query shape to calculate Census data.</div>
       </section>
@@ -126,7 +132,6 @@
     <section class="map-panel">
       <div id="map"></div>
       <div id="mapLoading" class="map-loading hidden">Loading geography…</div>
-      <div id="populationAreaStatus" class="population-area-status hidden" role="status" aria-live="polite">Population-area calculating</div>
     </section>
 
     <aside class="right-panel">
@@ -361,7 +366,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.156.0.population-area-status"></script>
+  <script src="app.js?v=1.157.0.store-profile-ui"></script>
 
 
 </body>

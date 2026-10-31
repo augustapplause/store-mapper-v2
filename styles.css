@@ -988,30 +988,13 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-query-clear:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #7d111a;}
 
 
-/* v1.156: in-map population-area calculation status */
-.population-area-status{
-  position:absolute;
-  top:12px;
-  left:50%;
-  transform:translateX(-50%);
-  z-index:1200;
-  display:inline-flex;
-  align-items:center;
-  min-height:34px;
-  padding:7px 11px;
-  background:rgba(255,255,255,.96);
-  border:1px solid #cfd8df;
-  box-shadow:0 2px 8px rgba(0,0,0,.16);
-  color:#1c3344;
-  font-size:12px;
-  font-weight:700;
-  white-space:nowrap;
-  pointer-events:none;
-}
-@media (max-width:760px){
-  .population-area-status{
-    top:10px;
-    max-width:calc(100% - 24px);
-  }
-}
 
+
+
+/* v1.157: consistent Go to geography controls */
+.left-panel .store-jump{display:block;margin-top:8px;}
+.left-panel .store-jump label{display:block;margin:0 0 5px;color:var(--muted);font-size:12px;font-weight:600;}
+.left-panel .store-jump .inline-control{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:0;}
+.left-panel .store-jump input{width:100%;min-width:0;}
+.left-panel .store-jump button{width:auto;margin:0;}
+.left-panel .store-jump .inline-control button{font-size:13px;}
