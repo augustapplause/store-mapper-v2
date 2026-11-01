@@ -1,30 +1,74 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Store Explorer Rectangle Intersection Benchmark v0.6</title>
-<style>
-body{font-family:Arial,sans-serif;margin:24px;line-height:1.4;background:#f7f7f7;color:#222}h1{margin:0 0 8px;font-size:22px}.sub{margin-bottom:18px;color:#555}.panel{background:#fff;border:1px solid #ccc;border-radius:8px;padding:16px;margin:12px 0}label{display:block;margin:8px 0 4px;font-weight:600}input,select,button{font:inherit;padding:7px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.row>div{min-width:180px}.buttons{margin-top:12px;display:flex;gap:8px}button{cursor:pointer}.status{white-space:pre-wrap;background:#111;color:#eee;padding:12px;border-radius:6px;min-height:80px;font-family:Consolas,monospace;font-size:13px}table{border-collapse:collapse;width:100%;margin-top:14px;background:#fff}th,td{border:1px solid #ccc;padding:7px 8px;text-align:right}th:first-child,td:first-child{text-align:left}.good{font-weight:700}.bad{font-weight:700}.note{font-size:13px;color:#555}.mono{font-family:Consolas,monospace}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Census Population Benchmark</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:24px;max-width:920px;color:#222}
+    h1{margin:0 0 8px}
+    .muted{color:#666}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}
+    label{font-weight:700}
+    input,button{font:inherit;padding:8px 10px}
+    button{cursor:pointer}
+    button:disabled{cursor:not-allowed;opacity:.55}
+    .panel{border:1px solid #bbb;border-radius:8px;padding:16px;margin-top:16px}
+    .metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .metric{border:1px solid #ddd;border-radius:6px;padding:10px}
+    .metric strong{display:block;font-size:20px;margin-top:4px}
+    pre{white-space:pre-wrap;background:#f5f5f5;padding:12px;border-radius:6px;min-height:120px}
+    progress{width:100%;height:18px}
+  </style>
 </head>
 <body>
-<h1>Rectangle Intersection Benchmark v0.6</h1>
-<div class="sub">Benchmark-only prototype. Custom DA rectangle intersection vs Turf booleanIntersects(). No production Store Explorer code is modified.</div>
-<div class="panel">
-  <div class="row">
-    <div><label for="scope">Data scope</label><select id="scope"><option value="ON">Ontario</option><option value="QC">Quebec</option><option value="ONQC" selected>Ontario + Quebec</option><option value="ABBC">Alberta + BC</option><option value="MB SK">Manitoba + Saskatchewan</option><option value="all">All provinces</option></select></div>
-    <div><label for="rect">Viewport test set</label><select id="rect"><option value="wide" selected>Wide multi-province partial-intersection viewports</option><option value="random">Random viewports</option><option value="national">Canada-wide</option></select></div>
-    <div><label for="randomRects">Random rectangles</label><input id="randomRects" type="number" min="10" max="5000" value="500"></div>
-    <div><label for="targetedRects">Targeted rectangles</label><input id="targetedRects" type="number" min="10" max="1000" value="100"></div>
-    <div><label for="iterations">Warm benchmark iterations</label><input id="iterations" type="number" min="1" max="10" value="5"></div>
+  <h1>Census Population Benchmark</h1>
+  <div class="muted">Standalone benchmark of the v1.181 Circle Census path. No Store Explorer code is modified.</div>
+
+  <div class="panel">
+    <div class="row">
+      <label for="storeFile">Store list (Excel / CSV / JSON)</label>
+      <input id="storeFile" type="file" accept=".xlsx,.xls,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/json">
+    </div>
+    <div class="row">
+      <label for="overlap">Overlap %</label>
+      <input id="overlap" type="number" min="0" max="100" step="1" value="10" style="width:90px">
+      <button id="runBtn" type="button" disabled>Run benchmark</button>
+      <button id="warmBtn" type="button" disabled>Run warm benchmark</button>
+    </div>
+    <div id="fileStatus" class="muted">No store file loaded.</div>
+    <div class="row"><progress id="progress" value="0" max="1"></progress></div>
+    <div id="progressText" class="muted">Idle.</div>
   </div>
-  <div class="buttons"><button id="loadBtn">1. Load DA assets</button><button id="benchBtn" disabled>2. Run benchmark</button></div>
-  <div class="note">Serve this page from the same folder as the provincial DA asset JSON files. Turf 7.2.0 is loaded from jsDelivr. The custom routine and Turf operate on the same decoded DA geometry objects.</div>
-</div>
-<div class="panel"><div class="status" id="status">Ready.</div></div>
-<div class="panel" id="results"><div class="note">No benchmark has been run.</div></div>
-<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
-<script src="test.js?v=0.6.20261030"></script>
+
+  <div class="panel">
+    <h2>Results</h2>
+    <div class="metric-grid">
+      <div class="metric">Stores processed<strong id="storesProcessed">—</strong></div>
+      <div class="metric">Skipped rows<strong id="skippedRows">—</strong></div>
+      <div class="metric">Total elapsed<strong id="elapsed">—</strong></div>
+      <div class="metric">DA asset load<strong id="assetLoad">—</strong></div>
+      <div class="metric">Calculation time (excl. asset load)<strong id="calcTime">—</strong></div>
+      <div class="metric">Average / store<strong id="avgStore">—</strong></div>
+    </div>
+    <h3>Population totals</h3>
+    <div class="metric-grid">
+      <div class="metric">Population 1 km<strong id="pop1">—</strong></div>
+      <div class="metric">Population 2 km<strong id="pop2">—</strong></div>
+      <div class="metric">Population 65+ 1 km<strong id="pop651">—</strong></div>
+      <div class="metric">Population 65+ 2 km<strong id="pop652">—</strong></div>
+    </div>
+    <h3>Engine counters</h3>
+    <pre id="engineCounters">—</pre>
+  </div>
+
+  <div class="panel">
+    <h2>How to use</h2>
+    <div class="muted">
+      Place <code>test.html</code>, <code>test.js</code>, and the provincial DA JSON files in the same repository/folder. Load the same Excel/CSV/JSON store file used by Store Explorer, then run the benchmark. Excel files use SheetJS exactly like the main app: the first worksheet is read, the header row is detected, and rows are normalized before the benchmark runs.
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="test.js"></script>
 </body>
 </html>
