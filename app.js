@@ -1,4 +1,4 @@
-/* Store Explorer - v1.187
+/* Store Explorer - v1.189
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4273,7 +4273,7 @@
   }
   function formatCircleRadiusInputValue(radiusMeters){
     const km=radiusMeters/1000;
-    return km<1 ? km.toFixed(2) : km.toFixed(1);
+    return km.toFixed(2);
   }
   function applyCircleRadiusInput(){
     const input=el('censusShapeStatusValue');
@@ -4388,19 +4388,30 @@
     const centerHandle=L.marker(center,{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const moveHandle=L.marker(westMoveHandle,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const sizeHandle=L.marker(eastEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'circle-edit-handle circle-size-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    moveHandle.on('drag',e=>{
+    let circleMoveDragStartCenter=null;
+    let circleMoveDragStartHandle=null;
+    moveHandle.on('dragstart',()=>{
       if(!state.circleSelection)return;
-      const nextPoint=e.target.getLatLng();
-      const currentMoveHandle=state.circleEditHandles[1]?.getLatLng() || circleMoveHandleLatLng(circle);
-      const nextCenter=L.latLng(
-        circle.getLatLng().lat + (nextPoint.lat-currentMoveHandle.lat),
-        circle.getLatLng().lng + (nextPoint.lng-currentMoveHandle.lng)
-      );
+      circleMoveDragStartCenter=circle.getLatLng();
+      circleMoveDragStartHandle=moveHandle.getLatLng();
+    });
+    moveHandle.on('drag',e=>{
+      if(!state.circleSelection||!circleMoveDragStartCenter||!circleMoveDragStartHandle)return;
+      const startHandlePoint=map.latLngToContainerPoint(circleMoveDragStartHandle);
+      const nextPoint=map.latLngToContainerPoint(e.target.getLatLng());
+      const nextCenterPoint=map.latLngToContainerPoint(circleMoveDragStartCenter);
+      const dx=nextPoint.x-startHandlePoint.x;
+      const dy=nextPoint.y-startHandlePoint.y;
+      const nextCenter=map.containerPointToLatLng(L.point(nextCenterPoint.x+dx,nextCenterPoint.y+dy));
       circle.setLatLng(nextCenter);
       updateCircleHandlePositions();
       updateCensusShapeStatus();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'circle moved');
+    });
+    moveHandle.on('dragend',()=>{
+      circleMoveDragStartCenter=null;
+      circleMoveDragStartHandle=null;
     });
     sizeHandle.on('drag',e=>{
       if(!state.circleSelection)return;

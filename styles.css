@@ -584,6 +584,7 @@ button,
 .circle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
 .circle-move-handle span::after{display:none;}
 .circle-size-handle span::before{content:'< >';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:17px;line-height:20px;font-weight:700;color:#d33e46;letter-spacing:-1px;transform:translate(-50%,-54%);white-space:nowrap;}
+.circle-move-handle span::before,.circle-size-handle span::before{background:transparent!important;width:auto!important;height:auto!important;border-radius:0!important;}
 .circle-size-handle span::after{display:none;}
 .left-panel-toggle{position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:1200;width:20px;height:54px;padding:0;background:#eef3f6;color:var(--navy);border:1px solid var(--line);border-left:0;border-radius:0 7px 7px 0;font-size:25px;font-weight:700;line-height:1;box-shadow:2px 2px 0 #b9c7d1;display:flex;align-items:center;justify-content:center;}
 .left-panel-toggle:hover{background:#f8fbfd}
@@ -1002,4 +1003,4 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .marker-animation-configure-btn:active{transform:translateY(2px);border-bottom-width:1px!important;box-shadow:0 0 0 #0b4f85}
 .census-query-geo-column select{width:72%;min-width:0;padding:8px 8px;border:3px solid #ff9d2e;border-radius:2px;background:#fff;color:#000;font-family:inherit;font-size:12px;font-weight:500;line-height:1.2;}
 
-/* v1.187: circle move handle is positioned 14px outside the circle in screen space; its red outline is the existing crossed-arrow icon only. */
+/* v1.189: circle radius input displays two decimal places. */
