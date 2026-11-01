@@ -1088,31 +1088,45 @@
       return;
     }
     if(button)button.disabled=true;
-    if(resultNode)resultNode.textContent=`Running cold benchmark on ${rows.length.toLocaleString()} stores…`;
-    // Force a cold run so this answers the startup-precompute question.
+    if(resultNode)resultNode.innerHTML=`Running cold benchmark on ${rows.length.toLocaleString()} stores…`;
+    // This benchmark intentionally measures the existing one-pass-per-radius design.
+    // Each DA selection pass returns both total population and 65+ population together.
     state.popupCensusCache.clear();
     state.filterCensusCache=new WeakMap();
     state.popupQuartileDistributionCache.clear();
-    const fields=[
-      {formula:'Population 1 km'},
-      {formula:'Population 2 km'},
-      {formula:'Population 65+ 1 km'},
-      {formula:'Population 65+ 2 km'}
-    ];
-    const t0=performance.now();
+    const threshold=Number(el('censusThreshold')?.value??10);
+    const radiusRuns=[{radiusKm:1,ms:0,completed:0},{radiusKm:2,ms:0,completed:0}];
     let completed=0;
+    const t0=performance.now();
     await showPopulationCalcStatus();
     try{
-      for(const row of rows){
-        await calculatePopupCensusForStore(row,fields);
-        completed++;
+      for(const run of radiusRuns){
+        const radiusStart=performance.now();
+        for(const row of rows){
+          const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+          if(lat===null||lng===null){run.completed++;completed++;continue;}
+          const provinceCode=provinceCodeFromText(row[state.columns.province]||'');
+          if(!provinceCode){run.completed++;completed++;continue;}
+          const boundary=turf.circle([lng,lat],run.radiusKm,{units:'kilometers',steps:360});
+          // One DA intersection/clip pass produces both total population and 65+.
+          await selectCensusBoundary(boundary,[provinceCode],threshold,{
+            boundaryType:'circle',
+            targetCircle:{lat,lng,radiusMeters:run.radiusKm*1000},
+            shouldRender:false,
+            provinceModes:[{provinceCode,mode:'partial'}]
+          });
+          run.completed++;
+          completed++;
+        }
+        run.ms=performance.now()-radiusStart;
       }
       const totalMs=performance.now()-t0;
       const avgMs=completed?totalMs/completed:0;
-      const text=`${completed.toLocaleString()} stores • ${totalMs.toFixed(0)} ms (${(totalMs/1000).toFixed(2)} s) • ${avgMs.toFixed(2)} ms/store`;
+      const r1=radiusRuns[0],r2=radiusRuns[1];
+      const text=`${rows.length.toLocaleString()} stores • 1 km pass: ${(r1.ms/1000).toFixed(2)} s • 2 km pass: ${(r2.ms/1000).toFixed(2)} s • total: ${(totalMs/1000).toFixed(2)} s • ${avgMs.toFixed(2)} ms/store • 2 DA passes/store`;
       if(resultNode)resultNode.textContent=text;
       if(state.debugMode&&typeof debugEvent==='function'){
-        debugEvent('census:benchmark:done',{stores:completed,totalMs:Number(totalMs.toFixed(1)),avgMs:Number(avgMs.toFixed(3)),fields:fields.map(f=>f.formula)});
+        debugEvent('census:benchmark:done',{stores:rows.length,totalMs:Number(totalMs.toFixed(1)),avgMs:Number(avgMs.toFixed(3)),radius1Ms:Number(r1.ms.toFixed(1)),radius2Ms:Number(r2.ms.toFixed(1)),passesPerStore:2,metricsPerPass:2,overlap:Number(threshold)});
       }
     }catch(err){
       if(resultNode)resultNode.textContent=`Benchmark failed: ${err?.message||err}`;
