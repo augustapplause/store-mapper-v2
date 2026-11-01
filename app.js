@@ -8,6 +8,7 @@
 
   const CONFIG = {
     canadaBounds: [[41.6, -141.2], [83.2, -52.3]],
+    canadaView: {center:[56.5, -99.5], zoom:4},
     csdLayer: 9,
     geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
     daAssetBase: '.',
@@ -3177,6 +3178,15 @@
 
     if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
     state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,geometry:null,scopeGeneration};
+    if(scope==='CA') {
+      state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
+    } else {
+      state.selection={type:'province',name,feature:null,provinceCode:scope,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
+    }
     setCensusScope(state.censusGeoSelection.type==='canada'?'canada':'province',{code:scope,name,generation:scopeGeneration,reason:'geography selected'});
     CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration,currentScope:state.censusScope?.type});
 
@@ -3190,7 +3200,15 @@
     state.daActivationTrigger='geography scope';
     updateCensusShapeStatus();
 
-    if(bbox){
+    if(scope==='CA'){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-canada-view',center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom,selection:'national'});
+      state.programmaticMoveDepth+=1;
+      state.programmaticMoveUntil=Date.now()+3000;
+      state.userMapInteraction=false;
+      map.setView(CONFIG.canadaView.center,CONFIG.canadaView.zoom,{animate:false});
+      CENSUS_DEBUG.log('geoScope:fit',{scope,center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom});
+      setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth=0; },3200);
+    } else if(bbox){
       CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-bounds'});
       const fitBounds = L.latLngBounds([[bbox[1],bbox[0]],[bbox[3],bbox[2]]]);
       CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'bounds-resolved',valid:fitBounds.isValid(),bounds:fitBounds.isValid()?fitBounds.toBBoxString():null});
@@ -3469,8 +3487,11 @@
     el('markerAnimationFormula').addEventListener('input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
     el('markerAnimationCondition').addEventListener('change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
     el('markerAnimationValue').addEventListener('input',e=>{state.markerAnimation.value=e.target.value;el('markerAnimationStatus').textContent=markerAnimationConditionSummary();});
-    el('markerAnimationOperandInsert').addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
     el('markerAnimationValueButton').addEventListener('click',e=>{e.preventDefault();openMarkerAnimationValuePicker();});
+    const markerAnimationOperandInsert = el('markerAnimationOperandInsert');
+    if(markerAnimationOperandInsert){
+      markerAnimationOperandInsert.addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
+    }
     el('markerAnimationConfigureBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();populateMarkerAnimationControls();el('markerAnimationDialog').showModal();});
     el('markerAnimationApply').addEventListener('click',e=>{e.preventDefault();const a=state.markerAnimation;const formula=String(a.formula||'').trim();if(!formula){el('markerAnimationDialogStatus').textContent='Choose a column or enter a formula.';return;}if(a.typeMode==='numeric'&&!tickerFormulaValid(formula)){el('markerAnimationDialogStatus').textContent='Invalid formula. Use exact workbook column headings and (), +, -, *, /. ';return;}if(a.typeMode==='numeric'&&!Number.isFinite(Number(a.value))){el('markerAnimationDialogStatus').textContent='Enter a numeric comparison value.';return;}if(a.typeMode==='text'&&(!a.column||!a.values.length)){el('markerAnimationDialogStatus').textContent='Choose one or more values.';return;}saveMarkerAnimationConfig();rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();el('markerAnimationDialog').close();});
     el('markerAnimationSelectAll').addEventListener('click',e=>{const checks=[...document.querySelectorAll('.marker-animation-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);e.currentTarget.textContent=all?'Select all':'Clear all';});
