@@ -1,4 +1,4 @@
-/* Store Explorer - v1.175
+/* Store Explorer - v1.174
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -3093,7 +3093,7 @@
     return state.censusScope?.type || 'viewport';
   }
 
-  // v1.175: filteredRows branches into viewportSelectedRows and selectedRows.
+  // v1.174: filteredRows branches into viewportSelectedRows and selectedRows.
   // Navigation/selection visuals may still have their own state, but metrics
   // always follow this scope: viewport | circle | box | province | canada.
   function metricSelectionScope() {
@@ -4508,9 +4508,9 @@
     clearOffscreenTransientVisuals();
     requestAnimationFrame(()=>showActiveCensusShapeHandles());
     updateHeaderGeography();
-    state.viewportSelectedRows=getViewportSelectedRows();
     if(censusScopeType()==='viewport') updateSelection();
     else { updateGroups(); updateDistribution(); updateSelectionState(); refreshMarkerStyles(); }
+    refreshMarkerStyles();
     refreshMunicipalityLabels();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
     // can still follow the viewport when no Census shape is active.
