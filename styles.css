@@ -467,22 +467,22 @@ button,
 .marker-animation-dialog{width:min(980px,94vw);max-height:min(520px,82vh);}
 .marker-animation-dialog form{max-height:min(520px,82vh);display:flex;flex-direction:column;}
 .marker-animation-dialog-body{padding:14px 17px;overflow-x:hidden;overflow-y:auto;}
-.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(300px,2fr) 82px 140px 78px;gap:10px;align-items:end;overflow:visible;}
+.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(300px,2fr) 100px 160px;gap:10px;align-items:end;overflow:visible;}
 .marker-animation-dialog-grid>div{min-width:0;}
-.marker-animation-dialog-grid label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;font-weight:600;line-height:1.1;}
+.marker-animation-dialog-grid label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px;font-weight:600;line-height:1.1;}
 .marker-animation-dialog-grid>div:nth-child(1){grid-column:1;grid-row:1;}
 .marker-animation-dialog-grid .marker-animation-formula-wide{grid-column:2;grid-row:1;min-width:0;}
 .marker-animation-dialog-grid>div:nth-child(3){grid-column:3;grid-row:1;}
 .marker-animation-dialog-grid>div:nth-child(4){grid-column:4;grid-row:1;}
-.marker-animation-dialog-grid .marker-animation-value-cell{grid-column:5;grid-row:1;}
-.marker-animation-dialog-grid #markerAnimationValueButton{grid-column:5;grid-row:1;}
-.marker-animation-dialog-grid .marker-animation-control,.marker-animation-dialog-grid .marker-animation-value-button{font-size:11px;height:40px;min-height:40px;padding:8px 10px;box-sizing:border-box;}
+.marker-animation-dialog-grid .marker-animation-value-cell{grid-column:4;grid-row:1;}
+.marker-animation-dialog-grid #markerAnimationValueButton{grid-column:4;grid-row:1;}
+.marker-animation-dialog-grid .marker-animation-control,.marker-animation-dialog-grid .marker-animation-value-button{font-size:14px;height:40px;min-height:40px;padding:8px 10px;box-sizing:border-box;}
 .marker-animation-dialog-grid .marker-animation-value-button{width:100%;text-align:left;}
 .marker-animation-formula-help{margin-top:9px;padding:8px 9px;background:#f4f8fb;border:1px solid var(--line);border-radius:7px;color:var(--muted);font-size:11px;line-height:1.35;}
 .marker-animation-switch{font-weight:600;}
 .marker-animation-type-inline{font-weight:600;}
 @media (max-width:900px){
-  .marker-animation-dialog-grid{grid-template-columns:minmax(140px,1fr) minmax(220px,1.5fr) minmax(140px,1fr) 78px 120px;}
+  .marker-animation-dialog-grid{grid-template-columns:minmax(140px,1fr) minmax(220px,1.5fr) minmax(140px,1fr) 140px;}
 }
 @media (max-width:760px){
   .marker-animation-dialog-grid{grid-template-columns:1fr;}
