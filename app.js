@@ -1,4 +1,4 @@
-/* Store Explorer - v1.189
+/* Store Explorer - v1.190
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4318,45 +4318,59 @@
   function updateCensusShapeStatus(){
     const indicator=el('censusShapeIndicator');
     const label=el('censusShapeStatusLabel');
+    const sizeControl=el('censusShapeSizeControl');
     const value=el('censusShapeStatusValue');
+    const unit=el('censusShapeStatusUnit');
     const clearBtn=el('clearCensusShapeBtn');
     const type=censusShapeType();
-    if(!indicator||!label||!value||!clearBtn)return;
+    if(!indicator||!label||!sizeControl||!value||!unit||!clearBtn)return;
     if(type==='circle'){
+      sizeControl.classList.remove('hidden');
       const km=state.circleSelection.circle.getRadius()/1000;
       indicator.className='census-shape-indicator-circle';
       indicator.setAttribute('aria-label','Circle Census Query active');
       label.textContent='Circle';
       value.disabled=false;
+      value.readOnly=false;
       value.value=formatCircleRadiusInputValue(state.circleSelection.circle.getRadius());
       value.setAttribute('aria-label','Circle radius in kilometres');
       value.title='Set circle radius in kilometres';
+      unit.textContent='km radius';
       clearBtn.disabled=false;
     }else if(type==='rectangle'){
+      sizeControl.classList.remove('hidden');
       const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
       indicator.className='census-shape-indicator-rectangle';
       indicator.setAttribute('aria-label','Box Census Query active');
       label.textContent='Box';
       value.disabled=true;
-      value.value='';
-      value.setAttribute('aria-label','Circle radius in kilometres');
-      value.title='Available when a circle is active';
+      value.readOnly=true;
+      value.value=`${dims.length.toFixed(2)} × ${dims.width.toFixed(2)}`;
+      value.setAttribute('aria-label','Box dimensions in kilometres');
+      value.title='Box dimensions';
+      unit.textContent='km';
       clearBtn.disabled=false;
     }else if(censusGeoScopeType()){
+      sizeControl.classList.add('hidden');
       indicator.className='census-shape-indicator-rectangle';
       indicator.setAttribute('aria-label','Census population geography active');
       label.textContent=state.censusGeoSelection.code==='CA'?'Canada':state.censusGeoSelection.name;
       value.disabled=true;
+      value.readOnly=true;
       value.value='';
-      value.title='Available when a circle is active';
+      value.title='';
+      unit.textContent='';
       clearBtn.disabled=false;
     }else{
+      sizeControl.classList.add('hidden');
       indicator.className='census-shape-indicator-off';
       indicator.setAttribute('aria-label','No Census Query shape active');
       label.textContent='No shape';
       value.disabled=true;
+      value.readOnly=true;
       value.value='';
-      value.title='Available when a circle is active';
+      value.title='';
+      unit.textContent='';
       clearBtn.disabled=true;
     }
     updateHeaderCensusIndicator();

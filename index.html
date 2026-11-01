@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.189</title>
+  <title>Store Explorer v1.190</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.189.0.circle-radius-two-decimals" />
+      <link rel="stylesheet" href="styles.css?v=1.190.0.dynamic-shape-metric" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.186</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.190</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -66,7 +66,7 @@
           <div class="census-query-status-row">
             <span class="census-shape-indicator-off" id="censusShapeIndicator" aria-label="No Census query shape active"></span>
             <span id="censusShapeStatusLabel">No shape</span>
-            <div class="census-shape-size-control"><input id="censusShapeStatusValue" class="census-shape-size-input" type="number" min="0.01" step="0.01" inputmode="decimal" value="" aria-label="Circle radius in kilometres" disabled><span id="censusShapeStatusUnit">km radius</span></div>
+            <div id="censusShapeSizeControl" class="census-shape-size-control hidden"><input id="censusShapeStatusValue" class="census-shape-size-input" type="text" inputmode="decimal" value="" aria-label="Circle radius in kilometres" disabled><span id="censusShapeStatusUnit">km radius</span></div>
           </div>
         </div>
       </section>
@@ -367,7 +367,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.189.0.circle-radius-two-decimals"></script>
+  <script src="app.js?v=1.190.0.dynamic-shape-metric"></script>
 
 
 </body>

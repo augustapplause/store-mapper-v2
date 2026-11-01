@@ -581,7 +581,7 @@ button,
 /* v1.25: center handle is a plus; radius handle is a spaced inward/outward chevron pair. */
 .circle-center-handle span::before,.circle-center-handle span::after{width:16px;height:5px;transform:translate(-50%,-50%);transform-origin:center center}
 .circle-center-handle span::after{transform:translate(-50%,-50%) rotate(90deg)}
-.circle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
+.circle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:20px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
 .circle-move-handle span::after{display:none;}
 .circle-size-handle span::before{content:'< >';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:17px;line-height:20px;font-weight:700;color:#d33e46;letter-spacing:-1px;transform:translate(-50%,-54%);white-space:nowrap;}
 .circle-move-handle span::before,.circle-size-handle span::before{background:transparent!important;width:auto!important;height:auto!important;border-radius:0!important;}
@@ -946,7 +946,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rectangle-edit-handle span::before{content:'';position:absolute;inset:3px;border:3px solid #d33e46;background:#fff;border-radius:1px;}
 .rectangle-center-handle span::before,.rectangle-center-handle span::after{content:'';position:absolute;left:50%;top:50%;background:#d33e46;border:0;width:15px;height:3px;border-radius:2px;transform:translate(-50%,-50%);}
 .rectangle-center-handle span::after{transform:translate(-50%,-50%) rotate(90deg);}
-.rectangle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
+.rectangle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:20px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
 .rectangle-move-handle span::after{display:none;}
 .rectangle-corner-handle span::after{content:'';position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:3px solid #d33e46;border-bottom:3px solid #d33e46;}
 .rectangle-query-shape{color:#d33e46;}
