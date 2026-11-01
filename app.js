@@ -1,4 +1,4 @@
-/* Store Explorer - v1.150
+/* Store Explorer - v1.178
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -8,7 +8,7 @@
 
   const CONFIG = {
     canadaBounds: [[41.6, -141.2], [83.2, -52.3]],
-    provinceBoundaryFile: 'province_canada_boundaries_v1.json',
+    canadaView: {center:[56.5, -99.5], zoom:4},
     csdLayer: 9,
     geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
     daAssetBase: '.',
@@ -44,17 +44,17 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
-    selectedRows: [],
+    selectedRows: [], filteredRows: [], viewportSelectedRows: [],
     selectedGroupKey: null,
     selectedStoreRow: null,
-    provinceGeo: null, csdGeo: null, provinceLayer: null,
+    csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
     markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
@@ -77,7 +77,7 @@
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 
-  const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:3}).fitBounds(CONFIG.canadaBounds, {padding:[8,8]});
+  const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:2}).setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom);
   const daSelectionPane = map.createPane('daSelectionPane');
   daSelectionPane.style.zIndex = '450';
   daSelectionPane.style.pointerEvents = 'none';
@@ -127,10 +127,10 @@
       }
       const shape=censusShapeType?.()||null;
       const geo=censusGeoScopeType?.()||null;
-      const scope=geo||shape||'viewport';
+      const scope=censusScopeType();
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.150',
+        'CENSUS STATE DEBUG v1.165',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -150,8 +150,6 @@
   map.on('move zoom resize',requestStorePopupLayout);
   map.on('click',e=>{ if(e?.originalEvent?.target===map.getContainer() && state.openPopupMarker) closeStorePopup(); });
 
-  const provinceStyle = {color:'#47677d',weight:1.2,fillColor:'#dce8ef',fillOpacity:.10};
-  const provinceSelectedStyle = {color:'#086fb4',weight:3,fillColor:'#58a9d8',fillOpacity:.13};
   const daStyle = {color:'#298ac2',weight:.7,fillColor:'#45a3d4',fillOpacity:.12,interactive:false};
 
   async function fetchJson(url, options={}) {
@@ -441,49 +439,12 @@
 
 
 
-  async function loadProvinces() {
-    // Local province/Canada boundaries only. No external boundary service is used.
-    try {
-      state.provinceGeo = await fetchJson(`${CONFIG.daAssetBase}/${CONFIG.provinceBoundaryFile}`, {timeout:120000});
-      if (!state.provinceGeo?.features?.length) throw new Error('Local province boundary asset contains no features.');
-      if (state.provinceLayer) map.removeLayer(state.provinceLayer);
-      state.provinceLayer = L.geoJSON(state.provinceGeo, {
-        filter: feature => provinceCodeFromFeature(feature) !== 'CA',
-        style: provinceStyle,
-        onEachFeature:(feature,layer)=>{
-          const name=feature.properties?.name || feature.properties?.PRNAME || feature.properties?.PRENAME || provinceCodeFromFeature(feature) || 'Province';
-          layer.on('mouseover',()=>showUnifiedHover(layer,layer.getBounds().getCenter(),esc(name)));
-          layer.on('mouseout',()=>hideUnifiedHover(layer));
-          layer.on('click',e=>{L.DomEvent.stopPropagation(e);hideUnifiedHover(layer);selectProvince(feature,layer);});
-        }
-      }).addTo(map);
-    } catch(err) {
-      el('geoStatus').textContent=`Province visual boundaries unavailable: ${err.message}`;
-      state.provinceGeo = {type:'FeatureCollection',features:[]};
-    } finally {
-      setTimeout(()=>{ map.invalidateSize(false); },100);
-    }
-  }
-
   function fitMapProgrammatically(bounds, options){
     state.programmaticMoveDepth += 1;
     state.programmaticMoveUntil = Date.now() + 3000;
     state.userMapInteraction = false;
     map.fitBounds(bounds, options);
     setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth = 0; }, 3200);
-  }
-
-  function selectProvince(feature,layer){
-    clearCensusShape();clearDaOverlay();state.censusRequestId++;
-    if(state.provinceLayer)state.provinceLayer.resetStyle();layer.setStyle(provinceSelectedStyle);
-    const name=feature.properties.PRNAME||feature.properties.PRENAME||'Province';
-    const code=provinceCodeFromFeature(feature);
-    state.selection={type:'viewport',name:`${name} — map view`,feature:null,provinceCode:code,radius:null};
-    state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='province selection';
-    resetCensusPopulationSummary();
-    el('censusNote').textContent='Province selected. Draw a Census Query circle or rectangle to calculate Census data.';
-    fitMapProgrammatically(layer.getBounds(),{padding:[18,18]});
-    updateSelection();
   }
 
   async function geocodeAndRadius(query){
@@ -531,7 +492,6 @@
 
   function resetCanada(){
     closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
-    if(state.provinceLayer)state.provinceLayer.resetStyle();
     state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
     state.mapReadyForViewport=false;state.initialNationalView=true;
     resetCensusPopulationSummary();el('censusNote').textContent='Census Query is dormant until a circle or rectangle is drawn.';
@@ -578,7 +538,7 @@
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
   function afterWorkbookLoaded(file,parsed){
-    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);
+    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
     const c=state.columns;
     const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
     if(!tickerReady){
@@ -590,12 +550,12 @@
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
-    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setTimeout(()=>updateSelection(),0);
+    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1096,7 +1056,7 @@
       }
     }
     if(!required.size)return {};
-    const threshold=Number(el('censusThreshold')?.value??15);
+    const threshold=Number(el('censusThreshold')?.value??10);
     const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
     if(lat===null||lng===null)return {};
     const storeId=state.columns.storeId?String(row[state.columns.storeId]??''):'';
@@ -1245,36 +1205,59 @@
     const midRank=(a+b-1)/2;
     return Math.max(0,Math.min(1,midRank/(n-1)));
   }
+  function popupQuartileCacheKey(field){
+    const threshold=Number(el('censusThreshold')?.value??10);
+    return `${threshold}|${String(field?.formula||'').trim()}`;
+  }
+  async function ensurePopulationCalcStatusPainted(){
+    if(state.populationCalcStatusFrame) cancelAnimationFrame(state.populationCalcStatusFrame);
+    return new Promise(resolve=>{
+      state.populationCalcStatusFrame=requestAnimationFrame(()=>{
+        state.populationCalcStatusFrame=0;
+        requestAnimationFrame(resolve);
+      });
+    });
+  }
+  async function showPopulationCalcStatus(){
+    state.populationCalcStatusDepth++;
+    if(state.populationCalcStatusDepth!==1)return;
+    const node=el('populationCalcStatus');
+    if(node){node.classList.remove('hidden');}
+    await ensurePopulationCalcStatusPainted();
+  }
+  function hidePopulationCalcStatus(){
+    state.populationCalcStatusDepth=Math.max(0,state.populationCalcStatusDepth-1);
+    if(state.populationCalcStatusDepth!==0)return;
+    const node=el('populationCalcStatus');
+    if(node)node.classList.add('hidden');
+  }
   async function computePopupQuartiles(selectedRow){
     const fields=popupQuartileConfigFields();
     const result={};
     if(!fields.length||!state.rows.length){state.popupQuartileValues=result;return result;}
-    const virtualFields=new Set();
-    fields.forEach(f=>(tokenizePopup(f.formula)||[]).forEach(t=>{if(t.type==='operand'&&isPopupVirtualOperand(t.value))virtualFields.add(t.value);}));
-    const needsVirtual=virtualFields.size>0;
-    const valuesByField=new Map(fields.map(f=>[f,[]]));
-    const selectedValues=new Map();
-    const chunk=20;
-    for(let start=0;start<state.rows.length;start+=chunk){
-      const end=Math.min(state.rows.length,start+chunk);
-      for(let i=start;i<end;i++){
-        const row=state.rows[i];
-        let census={};
-        if(needsVirtual)census=await calculatePopupCensusForStore(row,fields);
-        for(const field of fields){
-          const value=popupFieldNumericValue(field,row,census);
-          if(Number.isFinite(value)){
-            valuesByField.get(field).push(value);
-            if(row===selectedRow)selectedValues.set(field,value);
-          }
-        }
-      }
-      await new Promise(r=>setTimeout(r,0));
-    }
+    const selectedCensus=hasPopupVirtualFields()?await calculatePopupCensusForStore(selectedRow,fields):{};
     for(const field of fields){
-      const vals=valuesByField.get(field).sort((a,b)=>a-b);
-      const v=selectedValues.get(field);
-      result[field.formula]=Number.isFinite(v)?popupQuartileRank(vals,v):null;
+      const cacheKey=popupQuartileCacheKey(field);
+      let vals=state.popupQuartileDistributionCache.get(cacheKey);
+      if(!vals){
+        const virtualNeeded=!!(tokenizePopup(field.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value));
+        const computed=[];
+        const chunk=20;
+        for(let start=0;start<state.rows.length;start+=chunk){
+          const end=Math.min(state.rows.length,start+chunk);
+          for(let i=start;i<end;i++){
+            const row=state.rows[i];
+            const census=virtualNeeded?await calculatePopupCensusForStore(row,[field]):{};
+            const value=popupFieldNumericValue(field,row,census);
+            if(Number.isFinite(value))computed.push(value);
+          }
+          if(end<state.rows.length)await new Promise(r=>setTimeout(r,0));
+        }
+        vals=computed.sort((a,b)=>a-b);
+        state.popupQuartileDistributionCache.set(cacheKey,vals);
+      }
+      const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
+      result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
     }
     state.popupQuartileValues=result;return result;
   }
@@ -1329,11 +1312,14 @@
     const row=marker.__row;
     const token=++state.popupRenderToken;
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
-    const values=hasPopupVirtualFields()?await calculatePopupCensusForStore(row):{};
-    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-    await computePopupQuartiles(row);
-    if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-    storePopupCard.innerHTML=await popupCardContent(row,values);
+    const hasPopulationWork=hasPopupVirtualFields()||popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    if(hasPopulationWork)await showPopulationCalcStatus();
+    try{
+      const values=hasPopupVirtualFields()?await calculatePopupCensusForStore(row):{};
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      await computePopupQuartiles(row);
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      storePopupCard.innerHTML=await popupCardContent(row,values);
     wirePopupCardActions(marker);
     requestStorePopupLayout();
     requestAnimationFrame(()=>{
@@ -1344,7 +1330,10 @@
       });
     });
     setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
-    startPopupTicker();
+      startPopupTicker();
+    } finally {
+      if(hasPopulationWork)hidePopulationCalcStatus();
+    }
   }
   function wirePopupCardActions(marker){
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
@@ -1696,15 +1685,20 @@
     }
     return result;
   }
-  function rebuildFilterPassCache(filters=state.filters||[]){
-    const cache=new WeakMap();
+  function rebuildFilterPassCache(filters=state.filters||[], prebuiltCache=null){
+    const cache=prebuiltCache||new WeakMap();
     let count=0;
-    for(const row of state.rows){
-      const pass=filters.length?rowPassesFiltersWithFilters(row,filters):true;
-      cache.set(row,pass);
-      if(pass)count++;
+    if(prebuiltCache){
+      for(const row of state.rows){ if(cache.get(row)===true) count++; }
+    } else {
+      for(const row of state.rows){
+        const pass=filters.length?rowPassesFiltersWithFilters(row,filters):true;
+        cache.set(row,pass);
+        if(pass)count++;
+      }
     }
     state.filterPassCache=cache;
+    state.filteredRows = state.rows.filter(row=>cache.get(row)===true);
     return count;
   }
   function filterRowPasses(row){
@@ -1729,41 +1723,40 @@
     }
     return true;
   }
-  function getCensusShapeRows({respectFilters=true}={}){
-    if(!state.rows.length)return[];
-    if(!state.columns.lat||!state.columns.lon) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
-    if(!censusShapeType()) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
-    return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
+  function getCensusShapeRows(){
+    const rows=state.filteredRows||[];
+    if(!rows.length)return[];
+    if(!state.columns.lat||!state.columns.lon) return [...rows];
+    if(!censusShapeType()) return [...rows];
+    return rows.filter(rowInsideActiveCensusShape);
   }
   function getSelectedRows(){
-    const scope=censusScopeType();
-    if(scope==='province'||scope==='canada'){
-      const geometry=state.censusGeoSelection?.geometry || null;
-      if(!geometry) return [];
+    const rows=state.filteredRows||[];
+    if(!rows.length)return [];
+    const scope=metricSelectionScope();
+    if(scope==='canada') return [...rows];
+    if(scope==='province'){
       const c=state.columns;
-      if(!c.lat||!c.lon) return state.rows.filter(filterRowPasses);
-      return state.rows.filter(row=>{
-        if(!filterRowPasses(row)||!hasCoords(row)) return false;
-        const lat=toNumber(row[c.lat]), lon=toNumber(row[c.lon]);
-        return pointInPolygonGeometry(lon,lat,geometry);
-      });
+      const target=state.censusScope?.code || state.censusGeoSelection?.code || null;
+      if(!target || !c.province) return [];
+      return rows.filter(row=>provinceCodeFromText(row[c.province])===target);
     }
     if(scope==='circle'||scope==='box') return getCensusShapeRows();
-    return getViewportRows({respectFilters:true});
+    return state.viewportSelectedRows||[];
   }
-  function getViewportRows({respectFilters=true}={}){
-    if(!state.rows.length)return [];
+  function getViewportSelectedRows(){
+    const rows=state.filteredRows||[];
+    if(!rows.length)return [];
     const c=state.columns;
-    if(!c.lat||!c.lon)return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
+    if(!c.lat||!c.lon)return [...rows];
     const bounds=map.getBounds();
-    return state.rows.filter(r=>{
-      if(respectFilters&&!filterRowPasses(r))return false;
+    return rows.filter(r=>{
       if(!hasCoords(r))return false;
       const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
       return bounds.contains(ll);
     });
   }
-  function getFilteredRows(){return state.rows.filter(filterRowPasses);}
+  function getFilteredRows(){return [...(state.filteredRows||[])];}
   /* Deprecated: highlights are viewport-governed and are never cleared merely by panning. */
   function clearHighlightsOutsideVisibleShapeArea(){
     if(!censusShapeType())return false;
@@ -1808,11 +1801,16 @@
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
     const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
     const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
-    const selectionLabel=censusGeoScopeType()
-      ? (state.censusGeoSelection.code==='CA'?'Canada':'selected province')
-      : censusShapeType()
-        ? (circleVisible?'current Census circle':'current Census box')
-        : 'current map view';
+    const metricScope=metricSelectionScope();
+    const selectionLabel=metricScope==='canada'
+      ? 'Canada'
+      : metricScope==='province'
+        ? 'selected province'
+        : metricScope==='circle'
+          ? (circleVisible?'current Census circle':'current Census circle')
+          : metricScope==='box'
+            ? (rectangleVisible?'current Census box':'current Census box')
+            : 'current map view';
     el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
@@ -1828,6 +1826,7 @@
     updateKpis();updateSubjects();updateGroups();updateDistribution(bins1,bins2);updateSelectedStoresList();refreshMarkerStyles(dist1,dist2);renderTicker();
   }
   function updateSelection(){
+    state.viewportSelectedRows=getViewportSelectedRows();
     updateSelectionState();
     CENSUS_DEBUG.log('selection:update',{scope:censusScopeType(),selectedRows:state.selectedRows.length,filters:state.filters.length});
     updateSelectionPanels();
@@ -1948,15 +1947,13 @@
   function updateGroups(){
     const box=el('groupsSummary');
     if(!state.rows.length||!state.groups.length){box.innerHTML='<div class="empty-message">Choose one or more Groups to compare store segments.</div>';return;}
-    const viewportRows=getViewportRows({respectFilters:true});
-    const selectedSet=new Set(state.selectedRows);
+    const viewportSelectedRows=state.viewportSelectedRows||[];
     const groups=new Map();
-    for(const row of viewportRows){
+    for(const row of viewportSelectedRows){
       const parts=state.groups.map(g=>String(row[g]??'(blank)'));
       const key=JSON.stringify(parts);
-      if(!groups.has(key))groups.set(key,{parts,rows:[],selectedRows:[]});
+      if(!groups.has(key))groups.set(key,{parts,rows:[]});
       groups.get(key).rows.push(row);
-      if(selectedSet.has(row))groups.get(key).selectedRows.push(row);
     }
     const list=[...groups.entries()].sort((a,b)=>b[1].rows.length-a[1].rows.length).slice(0,100);
     const e=state.columns.ebit;
@@ -1964,8 +1961,8 @@
     let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectMetrics.map(m=>`<th>${esc(tickerMetricTitle(m))}</th>`).join('')+'</tr></thead><tbody>';
     for(const [key,g] of list){
       let success='';
-      if(e){const ev=g.selectedRows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
-      const metricRows=g.selectedRows;
+      if(e){const ev=g.rows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
+      const metricRows=g.rows;
       const subj=groupedSubjectMetrics.map(m=>{const v=metricRows.length?evaluateTickerFormula(m.formula,metricRows,m.aggregation||'average'):NaN;return `<td>${metricRows.length?esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces)):'—'}</td>`;}).join('');
       const active=state.selectedGroupKey===key;
       html+=`<tr class="group-select-row${active?' active-group':''}" data-group-key="${esc(key)}"><td><strong>${g.parts.map(esc).join(' / ')}</strong></td><td>${g.rows.length}</td>${success}${subj}</tr>`;
@@ -1994,7 +1991,7 @@
   function setDistributionBinKey(slot,key){if(slot===2)state.distributionBinKey2=key;else state.distributionBinKey=key;}
   function buildDistributionBins(slot=1){
     const h=getDistributionSubject(slot);
-    const scopeRows=getViewportRows({respectFilters:true});
+    const scopeRows=getViewportSelectedRows({respectFilters:true});
     if(!h||!scopeRows.length)return [];
     if(state.types[h]==='numeric'){
       const vals=scopeRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
@@ -2034,7 +2031,7 @@
     if(currentKey!==null&&!bins.some(b=>b.key===currentKey))setDistributionBinKey(slot,null);
     const activeKey=getDistributionBinKey(slot), maxCount=Math.max(...bins.map(b=>b.count),1);
     const label=slot===2?'Distribution 2':'Distribution';
-    const viewportCount=getViewportRows({respectFilters:true}).length;
+    const viewportCount=getViewportSelectedRows({respectFilters:true}).length;
     let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${viewportCount.toLocaleString()} visible stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of visible column">`;
     for(const b of bins){const active=activeKey===b.key;const width=Math.max(2,(b.count/maxCount)*100);html+=`<button type="button" class="distribution-bar${active?' active-distribution':''}" data-bin-key="${esc(b.key)}" title="${esc(b.label)}: ${b.count} stores"><span class="distribution-label">${esc(b.label)}</span><span class="distribution-track"><span class="distribution-fill" style="width:${width}%"></span></span><strong>${b.count}</strong></button>`;}
     html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
@@ -2101,7 +2098,7 @@
   }
   function uniqueColumnValues(column){
     // Filter-value availability follows the viewport, not the Census shape.
-    const scope=getViewportRows({respectFilters:false});
+    const scope=getViewportSelectedRows({respectFilters:false});
     return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
   }
   function exactFormulaTokens(formula){
@@ -2120,16 +2117,17 @@
     return headerTokens.every(h=>sample.some(row=>toNumber(row[h])!==null));
   }
   function evaluateRowFormula(formula,row){
-    const tokens=tokenizeTicker(String(formula??'').trim());
+    const tokens=tokenizePopup(String(formula??'').trim());
     if(!tokens||!tokens.length)return null;
     const operandValues=new Map();
+    const virtuals=state.filterCensusCache.get(row)||{};
     for(const t of tokens){
       if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
-      const value=toNumber(row[t.value]);
+      let value=isPopupVirtualOperand(t.value) ? toNumber(virtuals[t.value]) : toNumber(row[t.value]);
       if(value===null)return null;
       operandValues.set(t.value,value);
     }
-    const value=evaluateTickerExpression(formula,operandValues);
+    const value=evaluateTickerExpressionWithTokens(tokens,operandValues);
     return Number.isFinite(value)?value:null;
   }
   function filterDraftBlank(){return {connector:'AND',column:'',formula:'',operator:'=',value:'',values:[],wildcard:'',type:'numeric'};}
@@ -2242,7 +2240,7 @@
       const connector=`<select class="filter-connector" data-index="${i}">${FILTER_CONNECTORS.map(op=>`<option value="${op}" ${f.connector===op?'selected':''}>${op}</option>`).join('')}</select>`;
       return `<div class="filter-line" data-index="${i}">
         <div class="filter-line-main">
-          <select class="filter-column" data-index="${i}"><option value="">Choose column</option>${allCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</select>
+          <select class="filter-column" data-index="${i}"><option value="">Choose column</option><optgroup label="Workbook columns">${allCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup><optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup></select>
           <input class="filter-formula" data-index="${i}" type="text" placeholder="Variable or Formula" value="${esc(formula)}" autocomplete="off">
           ${condition}
           <div class="filter-value-cell">${valuePicker}</div>
@@ -2255,7 +2253,7 @@
     box.querySelectorAll('.filter-column').forEach(sel=>sel.addEventListener('change',e=>{
       const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;if(!h)return;
       const current=String(f.formula||'').trim();
-      const chosenType=state.types[h]==='text'?'text':'numeric';
+      const chosenType=isPopupVirtualOperand(h)?'numeric':(state.types[h]==='text'?'text':'numeric');
       if(!current){
         f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';
       }else{
@@ -2309,6 +2307,33 @@
     state.filterValuePickerIndex=null;
     renderFilterRows(); updateFilterDiagnostic();
   }
+  function filterVirtualFieldsUsed(filters){
+    const found=new Set();
+    for(const f of filters||[]){
+      for(const t of tokenizePopup(f.formula||'')||[]){
+        if(t.type==='operand'&&isPopupVirtualOperand(t.value))found.add(t.value);
+      }
+    }
+    return [...found];
+  }
+  async function ensureFilterCensusVirtuals(filters){
+    const needed=filterVirtualFieldsUsed(filters);
+    if(!needed.length||!state.rows.length)return;
+    const fields=needed.map(name=>({formula:name}));
+    const total=state.rows.length;
+    await showPopulationCalcStatus();
+    try{
+      for(let i=0;i<total;i++){
+        const row=state.rows[i];
+        const cached=state.filterCensusCache.get(row);
+        const values=await calculatePopupCensusForStore(row,fields);
+        state.filterCensusCache.set(row,{...(cached||{}),...(values||{})});
+      }
+    } finally {
+      hidePopulationCalcStatus();
+    }
+  }
+
   function validateFilterDraft(draft,index){
     const formula=String(draft.formula??'').trim();
     if(!formula)return null;
@@ -2382,7 +2407,7 @@
     renderFilterRows();
     el('filterDialog').showModal();
   }
-  function applyFilters(){
+  async function applyFilters(){
     const errorBox=el('filterError');
     const diag=el('filterDiagnostic');
     if(errorBox)errorBox.textContent='';
@@ -2400,6 +2425,7 @@
       }
       next.push(parsed);
     }
+    await ensureFilterCensusVirtuals(next);
     const candidateCache=new WeakMap();
     let passingCount=0;
     for(const row of state.rows){
@@ -2415,6 +2441,7 @@
     if(diag)diag.textContent=next.length?`Diagnostic: ${passingCount.toLocaleString()} of ${state.rows.length.toLocaleString()} loaded stores meet all filter lines.`:'';
     state.filters=next;
     state.filterPassCache=candidateCache;
+    state.filteredRows=state.rows.filter(row=>candidateCache.get(row)===true);
     if(state.storeJumpTarget && !rowPassesFilters(state.storeJumpTarget)){
       clearCircle();state.storeJumpTarget=null;
     }
@@ -3100,6 +3127,14 @@
     return state.censusScope?.type || 'viewport';
   }
 
+  // v1.175: filteredRows branches into viewportSelectedRows and selectedRows.
+  // Navigation/selection visuals may still have their own state, but metrics
+  // always follow this scope: viewport | circle | box | province | canada.
+  function metricSelectionScope() {
+    const type=censusScopeType();
+    return ['viewport','circle','box','province','canada'].includes(type) ? type : 'viewport';
+  }
+
   function setCensusScope(type, meta={}) {
     const previous=state.censusScope?.type || 'viewport';
     state.censusScope={
@@ -3155,6 +3190,9 @@
   }
 
   async function applyCensusGeoScope(scope){
+    // A new Province/Canada scope supersedes any pending address/store navigation
+    // completion callback so the previous navigation cannot reset us back to viewport.
+    ++state.searchToken;
     const scopeGeneration=++state.censusScopeGeneration;
     state.censusRequestId++;
     CENSUS_DEBUG.log('geoScope:start',{scope,scopeGeneration});
@@ -3170,39 +3208,37 @@
       return;
     }
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
+    clearNavigationResult();
+    state.storeJumpTarget=null;
+    state.navigationDaSuppressed=false;
     clearCensusShapeOnly({keepGeoScope:true});
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
     clearRightPanelHighlights();
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-viewport-reset'});
     setCensusScope('viewport',{reason:'preparing geography scope',generation:scopeGeneration});
-    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:state.censusSelectionScope});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:metricSelectionScope()});
     if(select) select.value=scope;
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'select-value-set',selectValue:select?.value||''});
-    if(!state.provinceGeo?.features?.length){
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-load-provinces'});
-      await loadProvinces();
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-load-provinces',featureCount:state.provinceGeo?.features?.length||0});
-    } else {
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'provinces-already-loaded',featureCount:state.provinceGeo.features.length});
-    }
+
     const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
-    const selectedFeature=state.provinceGeo?.features?.find(f=>provinceCodeFromFeature(f)===scope)||null;
-    const features=selectedFeature?[selectedFeature]:[];
+    const markerProvinceColumn=state.columns.province || null;
+    const bbox=scope==='CA' ? CONFIG.canadaBounds : PROVINCE_COVERAGE_BBOXES[scope];
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'marker-scope-ready',provinceColumn:markerProvinceColumn||null,bbox:bbox||null});
+
     if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
-    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'feature-resolution',name,selectedFeature:!!selectedFeature,featureCount:features.length});
-    let fitLayer=null;
-    if(features.length){
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-outline-add',featureCount:features.length});
-      fitLayer=L.geoJSON({type:'FeatureCollection',features},{style:{color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}}).addTo(map);
-      state.censusGeoLayer=fitLayer;
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-outline-add',layerReady:!!state.censusGeoLayer});
+    state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,geometry:null,scopeGeneration};
+    if(scope==='CA') {
+      state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
     } else {
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'no-features-for-outline'});
+      state.selection={type:'province',name,feature:null,provinceCode:scope,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
     }
-    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-activate'});
-    state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,geometry:selectedFeature?.geometry||null,scopeGeneration};
     setCensusScope(state.censusGeoSelection.type==='canada'?'canada':'province',{code:scope,name,generation:scopeGeneration,reason:'geography selected'});
-    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration,currentScope:state.censusSelectionScope});
+    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration,currentScope:state.censusScope?.type});
+
     const aggregate=censusScopeAggregate(scope);
     updateCensusPopulationSummary(aggregate);
     const storeScope=scope==='CA'?'Canada':name;
@@ -3212,14 +3248,23 @@
     state.daSelectionResult=null;
     state.daActivationTrigger='geography scope';
     updateCensusShapeStatus();
-    if(fitLayer){
+
+    if(scope==='CA'){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-canada-view',center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom,selection:'national'});
+      state.programmaticMoveDepth+=1;
+      state.programmaticMoveUntil=Date.now()+3000;
+      state.userMapInteraction=false;
+      map.setView(CONFIG.canadaView.center,CONFIG.canadaView.zoom,{animate:false});
+      CENSUS_DEBUG.log('geoScope:fit',{scope,center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom});
+      setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth=0; },3200);
+    } else if(bbox){
       CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-bounds'});
-      const bounds=fitLayer.getBounds();
-      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'bounds-resolved',valid:bounds.isValid(),bounds:bounds.isValid()?bounds.toBBoxString():null});
-      if(bounds.isValid()) {
-        CENSUS_DEBUG.log('geoScope:fit',{scope,bounds:bounds.toBBoxString()});
+      const fitBounds = L.latLngBounds([[bbox[1],bbox[0]],[bbox[3],bbox[2]]]);
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'bounds-resolved',valid:fitBounds.isValid(),bounds:fitBounds.isValid()?fitBounds.toBBoxString():null});
+      if(fitBounds.isValid()){
+        CENSUS_DEBUG.log('geoScope:fit',{scope,bounds:fitBounds.toBBoxString()});
         CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-map'});
-        fitMapProgrammatically(bounds,{padding:[22,22]});
+        fitMapProgrammatically(fitBounds,{padding:[22,22]});
         CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-fit-map-call'});
       }
     }
@@ -3348,7 +3393,7 @@
       setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
       return;
     }
-    const threshold=Number(el('censusThreshold')?.value ?? 15);
+    const threshold=Number(el('censusThreshold')?.value ?? 10);
     const requestId=++state.censusRequestId;
     const scopeGeneration=expectedGeneration;
     state.daSelectionResult=null;
@@ -3448,12 +3493,10 @@
   }
 
   function populateMarkerAnimationControls(){
-    const col=el('markerAnimationColumn'),ins=el('markerAnimationOperandInsert');
-    if(!col||!ins)return;
+    const col=el('markerAnimationColumn');
+    if(!col)return;
     const a=state.markerAnimation;
     col.innerHTML='<option value="">Choose column</option>'+state.headers.map(h=>`<option value="${esc(h)}" ${a.column===h?'selected':''}>${esc(h)}</option>`).join('');
-    const nums=state.headers.filter(h=>state.types[h]==='numeric');
-    ins.innerHTML='<option value="">Insert numeric column...</option>'+nums.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');
     const type=state.types[a.column]==='text'&&!markerAnimationFormulaIsValid()?'text':'numeric';
     a.typeMode=type;
     if(type==='text'&&a.formula===a.column){
@@ -3493,8 +3536,11 @@
     el('markerAnimationFormula').addEventListener('input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
     el('markerAnimationCondition').addEventListener('change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
     el('markerAnimationValue').addEventListener('input',e=>{state.markerAnimation.value=e.target.value;el('markerAnimationStatus').textContent=markerAnimationConditionSummary();});
-    el('markerAnimationOperandInsert').addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
     el('markerAnimationValueButton').addEventListener('click',e=>{e.preventDefault();openMarkerAnimationValuePicker();});
+    const markerAnimationOperandInsert = el('markerAnimationOperandInsert');
+    if(markerAnimationOperandInsert){
+      markerAnimationOperandInsert.addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
+    }
     el('markerAnimationConfigureBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();populateMarkerAnimationControls();el('markerAnimationDialog').showModal();});
     el('markerAnimationApply').addEventListener('click',e=>{e.preventDefault();const a=state.markerAnimation;const formula=String(a.formula||'').trim();if(!formula){el('markerAnimationDialogStatus').textContent='Choose a column or enter a formula.';return;}if(a.typeMode==='numeric'&&!tickerFormulaValid(formula)){el('markerAnimationDialogStatus').textContent='Invalid formula. Use exact workbook column headings and (), +, -, *, /. ';return;}if(a.typeMode==='numeric'&&!Number.isFinite(Number(a.value))){el('markerAnimationDialogStatus').textContent='Enter a numeric comparison value.';return;}if(a.typeMode==='text'&&(!a.column||!a.values.length)){el('markerAnimationDialogStatus').textContent='Choose one or more values.';return;}saveMarkerAnimationConfig();rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();el('markerAnimationDialog').close();});
     el('markerAnimationSelectAll').addEventListener('click',e=>{const checks=[...document.querySelectorAll('.marker-animation-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);e.currentTarget.textContent=all?'Select all':'Clear all';});
@@ -4050,6 +4096,7 @@
   async function applyPopupConfig(){
     const error=validatePopupDraft();if(error){alert(error);return;}
     state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
+    state.popupQuartileDistributionCache.clear();
     state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);
     savePopupConfig();
     savePopupHeaderConfig();
@@ -4108,6 +4155,23 @@
     label.setLatLng(circleEdgeLatLng(circle.getLatLng(),circle.getRadius()));
     const node=label.getElement()?.querySelector('span');
     if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
+  }
+
+  function rectangleDimensionsLabelText(bounds){
+    const dims=getRectangleDimensionsKm(bounds);
+    return `${dims.length.toFixed(2)} × ${dims.width.toFixed(2)} km`;
+  }
+  function makeRectangleDimensionsLabel(bounds){
+    return L.marker(bounds.getSouthEast(),{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'rectangle-dimensions-label',html:`<span>${rectangleDimensionsLabelText(bounds)}</span>`,iconSize:[94,24],iconAnchor:[47,-14]})});
+  }
+  function updateRectangleLabel(){
+    const rectangle=state.rectangleSelection?.rectangle;
+    const label=state.rectangleSelection?.label;
+    if(!rectangle||!label)return;
+    const bounds=rectangle.getBounds();
+    label.setLatLng(bounds.getSouthEast());
+    const node=label.getElement()?.querySelector('span');
+    if(node)node.textContent=rectangleDimensionsLabelText(bounds);
   }
 
   // ---------- Selection circle interaction ----------
@@ -4199,6 +4263,7 @@
     const b=rectangle.getBounds();
     state.rectangleEditHandles[0].setLatLng(b.getCenter());
     state.rectangleEditHandles[1].setLatLng(b.getSouthEast());
+    updateRectangleLabel();
   }
   function showCircleHandles(){
     removeCircleHandles();
@@ -4244,6 +4309,8 @@
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'rectangle moved');
     });
+    let rectangleResizePending=false;
+    cornerHandle.on('dragstart',()=>{ rectangleResizePending=true; });
     cornerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4255,9 +4322,19 @@
       const east=Math.max(fixedNW.lng+minLngDelta,pointer.lng);
       const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
       rectangle.setBounds(nb);
-      centerHandle.setLatLng(nb.getCenter());
       cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
       updateCensusShapeStatus();
+      updateRectangleLabel();
+    });
+    cornerHandle.on('dragend',()=>{
+      if(!state.rectangleSelection)return;
+      rectangleResizePending=false;
+      const nb=rectangle.getBounds();
+      cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
+      updateCensusShapeStatus();
+      updateRectangleLabel();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'rectangle resized');
     });
@@ -4277,6 +4354,7 @@
     state.censusRequestId++;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
@@ -4300,6 +4378,7 @@
     state.censusRequestId++;
     if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
     if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
@@ -4331,7 +4410,8 @@
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
     rectangle.on('click',e=>{L.DomEvent.stopPropagation(e);showRectangleHandles();});
-    state.rectangleSelection={rectangle};
+    const label=makeRectangleDimensionsLabel(bounds).addTo(map);
+    state.rectangleSelection={rectangle,label};
     setCensusScope('box',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showRectangleHandles();
     scheduleCensusQuery(null,reason);
@@ -4368,8 +4448,11 @@
       const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
       state.censusShapeDrawing.temp=temp;state.censusShapeDrawing.label=label;
     }else{
-      const temp=L.rectangle(L.latLngBounds(e.latlng,e.latlng),{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      const bounds=L.latLngBounds(e.latlng,e.latlng);
+      const temp=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
+      const label=makeRectangleDimensionsLabel(bounds).addTo(map);
       state.censusShapeDrawing.temp=temp;
+      state.censusShapeDrawing.label=label;
     }
   });
   map.on('mousemove',e=>{
@@ -4379,7 +4462,11 @@
       draw.label.setLatLng(circleEdgeLatLng(draw.start,Math.max(1,r)));
       const node=draw.label.getElement()?.querySelector('span');if(node)node.textContent=circleRadiusLabelText(r);
     }else{
-      draw.temp.setBounds(L.latLngBounds(draw.start,e.latlng));
+      const bounds=L.latLngBounds(draw.start,e.latlng);
+      draw.temp.setBounds(bounds);
+      draw.label?.setLatLng(bounds.getSouthEast());
+      const node=draw.label?.getElement()?.querySelector('span');
+      if(node)node.textContent=rectangleDimensionsLabelText(bounds);
     }
   });
   map.on('mouseup',e=>{
@@ -4439,8 +4526,9 @@
       state.circleEditHandles[1].setLatLng(edge);
       updateCircleLabel();
     }
-    if(state.rectangleSelection?.rectangle && state.rectangleEditHandles.length){
+    if(state.rectangleSelection?.rectangle){
       updateRectangleHandles();
+      updateRectangleLabel();
     }
     const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
     if(programmatic){
@@ -4455,9 +4543,9 @@
     clearOffscreenTransientVisuals();
     requestAnimationFrame(()=>showActiveCensusShapeHandles());
     updateHeaderGeography();
+    state.viewportSelectedRows=getViewportSelectedRows();
     if(censusScopeType()==='viewport') updateSelection();
     else { updateGroups(); updateDistribution(); updateSelectionState(); refreshMarkerStyles(); }
-    refreshMarkerStyles();
     refreshMunicipalityLabels();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
     // can still follow the viewport when no Census shape is active.
@@ -4484,10 +4572,10 @@
   el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
   el('filterBtn').addEventListener('click',()=>openFilterDialog());
   el('filterDiagnosticToggle').addEventListener('click',toggleFilterDiagnostic);
-  el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();redrawAfterFilterChange();updateSelection();updateFilterUI();});
+  el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();state.filteredRows=[...state.rows];redrawAfterFilterChange();updateSelection();updateFilterUI();});
   el('addFilterBtn').addEventListener('click',()=>{state.filterDraft.push(filterDraftBlank());renderFilterRows();});
   el('clearAllFilters').addEventListener('click',()=>{state.filterDraft=[filterDraftBlank(),filterDraftBlank(),filterDraftBlank()];const errorBox=el('filterError');if(errorBox)errorBox.textContent='';renderFilterRows();});
-  el('applyFiltersBtn').addEventListener('click',()=>{applyFilters();});
+  el('applyFiltersBtn').addEventListener('click',async e=>{e.preventDefault();await applyFilters();});
   el('filterPickerSelectAll').addEventListener('click',()=>{const list=el('filterValuePickerList');const checks=[...list.querySelectorAll('.filter-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);el('filterPickerSelectAll').textContent=all?'Select all':'Clear all';});
   el('filterPickerApply').addEventListener('click',e=>{e.preventDefault();applyFilterValuePicker();el('filterValueDialog').close();});
   el('filterPickerCancel').addEventListener('click',e=>{e.preventDefault();state.filterValuePickerIndex=null;el('filterValueDialog').close();});
@@ -4506,10 +4594,10 @@
   }
 
   el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
-  el('censusThreshold').addEventListener('change',()=>scheduleCensusQuery(null,'threshold change'));
+  el('censusThreshold').addEventListener('change',()=>{state.filterCensusCache=new WeakMap();state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();scheduleCensusQuery(null,'threshold change');});
   el('censusDelay')?.addEventListener('change',()=>{ state.daDelayMs=getDaDelayMs(); });
   el('censusDelay')?.addEventListener('input',()=>{ state.daDelayMs=getDaDelayMs(); });
-  el('censusThreshold').addEventListener('input',()=>{ clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleCensusQuery(0,'threshold change'),250); });
+  el('censusThreshold').addEventListener('input',()=>{ state.filterCensusCache=new WeakMap(); state.popupQuartileDistributionCache.clear(); state.popupCensusCache.clear(); clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleCensusQuery(0,'threshold change'),250); });
   el('showSelectedDAs')?.addEventListener('change',(event)=>{
     state.showDaOverlay = !!event.target.checked;
     clearDaOverlay();
@@ -4529,7 +4617,6 @@
   wireMarkerAnimationControls();
   setupTicker();
   loadHeaderCsdLookup();
-  loadProvinces();
   updateSelection();
   updateHeaderGeography();
 })();
