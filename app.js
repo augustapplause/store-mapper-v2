@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.160',
+        'CENSUS STATE DEBUG v1.163',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -3137,6 +3137,9 @@
   }
 
   async function applyCensusGeoScope(scope){
+    // A new Province/Canada scope supersedes any pending address/store navigation
+    // completion callback so the previous navigation cannot reset us back to viewport.
+    ++state.searchToken;
     const scopeGeneration=++state.censusScopeGeneration;
     state.censusRequestId++;
     CENSUS_DEBUG.log('geoScope:start',{scope,scopeGeneration});
