@@ -581,9 +581,8 @@ button,
 /* v1.25: center handle is a plus; radius handle is a spaced inward/outward chevron pair. */
 .circle-center-handle span::before,.circle-center-handle span::after{width:16px;height:5px;transform:translate(-50%,-50%);transform-origin:center center}
 .circle-center-handle span::after{transform:translate(-50%,-50%) rotate(90deg)}
-.circle-radius-handle span::before,.circle-radius-handle span::after{width:auto;height:auto;background:transparent;border-radius:0;top:50%;font-family:Arial,sans-serif;font-size:25px;line-height:20px;font-weight:700;color:#d33e46;transform:none}
-.circle-radius-handle span::before{content:'<';left:28%;transform:translate(-50%,-50%);}
-.circle-radius-handle span::after{content:'>';left:72%;transform:translate(-50%,-50%);}
+.circle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
+.circle-move-handle span::after{display:none;}
 .left-panel-toggle{position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:1200;width:20px;height:54px;padding:0;background:#eef3f6;color:var(--navy);border:1px solid var(--line);border-left:0;border-radius:0 7px 7px 0;font-size:25px;font-weight:700;line-height:1;box-shadow:2px 2px 0 #b9c7d1;display:flex;align-items:center;justify-content:center;}
 .left-panel-toggle:hover{background:#f8fbfd}
 body.left-panel-collapsed .app-shell{grid-template-columns:0 minmax(420px,1fr) 350px;}
@@ -599,6 +598,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .circle-radius-label{z-index:1700!important;}
 .circle-radius-counter{}
 
+
+.census-shape-size-control{margin-left:auto;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.census-shape-size-control span{font-size:11px;color:var(--muted)}.census-shape-size-input{width:78px!important;min-width:78px;box-sizing:border-box;text-align:right;font-size:12px;font-weight:700;color:var(--text);padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;}
+.census-shape-size-input:disabled{background:#f1f4f6;color:var(--muted);opacity:1;}
 .census-da-header{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0 5px;font-size:9px;color:var(--muted);font-weight:700;border-bottom:1px solid rgba(71,103,125,.18)}.census-da-header span:not(:first-child){text-align:right}.census-da-row{display:grid;grid-template-columns:1fr 75px 48px 58px 58px;gap:8px;padding:4px 0;border-bottom:1px solid rgba(71,103,125,.12);font-variant-numeric:tabular-nums}.census-da-row span:not(:first-child){text-align:right}.census-da-list{max-height:260px;overflow:auto}.census-da-row:last-child{border-bottom:0}
 
 /* v1.49 Census Catchment - authoritative layout */
@@ -926,7 +928,6 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-query-controls{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .census-query-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;align-items:stretch;}
 .census-query-buttons button,.census-query-clear{min-height:40px;padding:7px 9px;font-size:12px;font-weight:700;}
-.census-benchmark-row{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px}.census-benchmark-btn{font-size:11px;padding:6px 9px;white-space:nowrap}.census-benchmark-row .small{margin-top:0;}
 .census-query-geo-column{display:flex;justify-content:flex-start;min-width:0;margin-top:7px;}
 .census-query-geo-column select{width:72%;min-width:0;padding:8px 8px;border:1px solid var(--line);border-radius:2px;background:#fff;color:#000;font-family:inherit;font-size:12px;font-weight:500;line-height:1.2;}
 .census-query-clear{width:100%;margin-top:7px;background:#b51f2a!important;border-color:#b51f2a!important;color:#fff!important;}
@@ -940,6 +941,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rectangle-edit-handle{background:transparent!important;border:0!important;}
 .rectangle-edit-handle span{position:relative;display:block;width:20px;height:20px;box-sizing:border-box;filter:drop-shadow(0 1px 2px #0004);}
 .rectangle-edit-handle span::before{content:'';position:absolute;inset:3px;border:3px solid #d33e46;background:#fff;border-radius:1px;}
+.rectangle-center-handle span::before,.rectangle-center-handle span::after{content:'';position:absolute;left:50%;top:50%;background:#d33e46;border:0;width:15px;height:3px;border-radius:2px;transform:translate(-50%,-50%);}
+.rectangle-center-handle span::after{transform:translate(-50%,-50%) rotate(90deg);}
+.rectangle-move-handle span::before{content:'✥';position:absolute;left:50%;top:50%;font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;color:#d33e46;transform:translate(-50%,-52%);}
+.rectangle-move-handle span::after{display:none;}
 .rectangle-corner-handle span::after{content:'';position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:3px solid #d33e46;border-bottom:3px solid #d33e46;}
 .rectangle-query-shape{color:#d33e46;}
 
