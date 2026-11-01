@@ -927,7 +927,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-query-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;align-items:stretch;}
 .census-query-buttons button,.census-query-clear{min-height:40px;padding:7px 9px;font-size:12px;font-weight:700;}
 .census-query-geo-column{display:flex;justify-content:flex-start;min-width:0;margin-top:7px;}
-.census-query-geo-column select{width:72%;min-width:0;padding:8px 8px;border:1px solid var(--line);border-radius:2px;background:#fff;color:#000;font-family:inherit;font-size:12px;font-weight:500;line-height:1.2;}
+.census-query-geo-column select{width:72%;min-width:0;padding:8px 8px;border:3px solid #ff9d2e;border-radius:2px;background:#fff;color:#000;font-family:inherit;font-size:12px;font-weight:500;line-height:1.2;}
 .census-query-clear{width:100%;margin-top:7px;background:#b51f2a!important;border-color:#b51f2a!important;color:#fff!important;}
 .census-query-status-row{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;color:var(--muted);min-height:18px;}
 .census-query-status-row strong{font-size:12px;color:var(--text);margin-left:auto;text-align:right;white-space:nowrap;}
@@ -978,3 +978,17 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .left-panel .store-jump input{width:100%;min-width:0;}
 .left-panel .store-jump button{width:auto;margin:0;}
 .left-panel .store-jump .inline-control button{font-size:13px;}
+
+/* v1.176 Census/Animate UI refinements */
+.marker-animation-configure-btn{
+  font-size:11px;padding:6px 8px;white-space:nowrap;
+  background:var(--blue)!important;color:#fff!important;
+  border:1px solid #0e5f9f!important;
+  border-bottom:3px solid #0b4f85!important;
+  border-radius:0!important;
+  box-shadow:0 2px 0 #0b4f85;
+  transform:translateY(0);
+  transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
+}
+.marker-animation-configure-btn:hover{transform:translateY(-1px);box-shadow:0 3px 0 #0b4f85;filter:brightness(.98)}
+.marker-animation-configure-btn:active{transform:translateY(2px);border-bottom-width:1px!important;box-shadow:0 0 0 #0b4f85}

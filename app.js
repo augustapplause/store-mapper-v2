@@ -1,4 +1,4 @@
-/* Store Explorer - v1.175
+/* Store Explorer - v1.176
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4098,6 +4098,37 @@
   el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
   el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();goToStoreNumber();}});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
+  function getLeafletScaleKm(){
+    const node=document.querySelector('.leaflet-control-scale-line');
+    const text=String(node?.textContent||'').trim().replace(/\s+/g,' ');
+    const m=text.match(/([0-9]+(?:\.[0-9]+)?)\s*(km|m)\b/i);
+    if(m){
+      const value=Number(m[1]);
+      if(Number.isFinite(value)) return m[2].toLowerCase()==='m' ? value/1000 : value;
+    }
+    // Fallback: estimate the km represented by a 100px span at the map centre.
+    try{
+      const center=map.getCenter();
+      const p1=map.latLngToContainerPoint(center);
+      const p2=L.point(p1.x+100,p1.y);
+      const a=map.containerPointToLatLng(p1);
+      const b=map.containerPointToLatLng(p2);
+      const km=map.distance(a,b)/1000;
+      return Number.isFinite(km)&&km>0 ? km : 1;
+    }catch(_){ return 1; }
+  }
+  function defaultCircleRadiusMeters(){ return Math.max(10,getLeafletScaleKm()*1000); }
+  function defaultBoxBounds(center){
+    const km=Math.max(0.01,getLeafletScaleKm());
+    const halfKm=km/2;
+    const latDelta=halfKm/110.574;
+    const cosLat=Math.max(Math.cos(center.lat*Math.PI/180),0.05);
+    const lonDelta=halfKm/(111.320*cosLat);
+    return L.latLngBounds(
+      [center.lat-latDelta,center.lng-lonDelta],
+      [center.lat+latDelta,center.lng+lonDelta]
+    );
+  }
   function circleRadiusLabelText(radiusMeters){
     const km=radiusMeters/1000;
     return `${km.toFixed(2)} km`;
@@ -4384,12 +4415,12 @@
   function enterCircleDrawMode(){
     if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
     exitCensusDrawMode();state.circleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
-    el('drawCircleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Click map';removeAllCensusHandles();
   }
   function enterRectangleDrawMode(){
     if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
     exitCensusDrawMode();state.rectangleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
-    el('drawRectangleBtn').querySelector('span:last-child').textContent='Drawing… drag';removeAllCensusHandles();
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Click map';removeAllCensusHandles();
   }
   el('drawCircleBtn').addEventListener('click',()=>{if(state.circleDrawMode){exitCensusDrawMode();return;}enterCircleDrawMode();});
   el('drawRectangleBtn').addEventListener('click',()=>{if(state.rectangleDrawMode){exitCensusDrawMode();return;}enterRectangleDrawMode();});
@@ -4403,54 +4434,21 @@
     });
   });
 
-  map.on('mousedown',e=>{
-    if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing||!e.originalEvent)return;
-    const mode=state.circleDrawMode?'circle':'rectangle';
-    state.censusShapeDrawing={mode,start:e.latlng};
-    map.dragging.disable();
-    if(mode==='circle'){
-      const temp=L.circle(e.latlng,{pane:'selectionCirclePane',radius:1,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
-      const label=makeCircleRadiusLabel(circleEdgeLatLng(e.latlng,1),1).addTo(map);
-      state.censusShapeDrawing.temp=temp;state.censusShapeDrawing.label=label;
-    }else{
-      const bounds=L.latLngBounds(e.latlng,e.latlng);
-      const temp=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:false}).addTo(map);
-      const label=makeRectangleDimensionsLabel(bounds).addTo(map);
-      state.censusShapeDrawing.temp=temp;
-      state.censusShapeDrawing.label=label;
-    }
-  });
-  map.on('mousemove',e=>{
-    const draw=state.censusShapeDrawing;if(!draw?.temp)return;
-    if(draw.mode==='circle'){
-      const r=map.distance(draw.start,e.latlng);draw.temp.setRadius(Math.max(1,r));
-      draw.label.setLatLng(circleEdgeLatLng(draw.start,Math.max(1,r)));
-      const node=draw.label.getElement()?.querySelector('span');if(node)node.textContent=circleRadiusLabelText(r);
-    }else{
-      const bounds=L.latLngBounds(draw.start,e.latlng);
-      draw.temp.setBounds(bounds);
-      draw.label?.setLatLng(bounds.getSouthEast());
-      const node=draw.label?.getElement()?.querySelector('span');
-      if(node)node.textContent=rectangleDimensionsLabelText(bounds);
-    }
-  });
-  map.on('mouseup',e=>{
-    const draw=state.censusShapeDrawing;if(!draw?.temp)return;
+  map.on('click',e=>{
+    if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing)return;
     try{
-      if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);
-      state.censusShapeDrawing=null;
+      const center=e.latlng;
+      const mode=state.circleDrawMode?'circle':'rectangle';
       exitCensusDrawMode();
-      if(draw.mode==='circle'){
-        const r=map.distance(draw.start,e.latlng);createOrReplaceCircle(draw.start,Math.max(10,r));
+      if(mode==='circle'){
+        createOrReplaceCircle(center,defaultCircleRadiusMeters(),'circle default from map scale');
       }else{
-        const bounds=L.latLngBounds(draw.start,e.latlng);
-        if(map.distance(bounds.getSouthWest(),bounds.getNorthEast())<50) throw new Error('Rectangle is too small.');
-        createOrReplaceRectangle(bounds);
+        createOrReplaceRectangle(defaultBoxBounds(center),'box default from map scale');
       }
     }catch(err){
-      console.error('Census Query draw completion failed:',err);
-      if(draw.temp)map.removeLayer(draw.temp);if(draw.label)map.removeLayer(draw.label);state.censusShapeDrawing=null;exitCensusDrawMode();
-    }finally{map.dragging.enable();setTimeout(()=>{state.markerClickSuppressed=false;},100);}
+      console.error('Census Query default-shape creation failed:',err);
+      exitCensusDrawMode();
+    }
   });
 
   map.on('click',e=>{
