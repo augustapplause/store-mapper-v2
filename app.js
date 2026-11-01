@@ -555,7 +555,8 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){
+    if(el('censusBenchmarkResult'))el('censusBenchmarkResult').textContent='';closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1076,6 +1077,52 @@
       Object.assign(out,radiusValues);
     }
     return out;
+  }
+
+  async function runCensusFourFieldBenchmark(){
+    const rows=Array.isArray(state.rows)?state.rows:[];
+    const button=el('censusBenchmarkBtn');
+    const resultNode=el('censusBenchmarkResult');
+    if(!rows.length){
+      if(resultNode)resultNode.textContent='Load a workbook first.';
+      return;
+    }
+    if(button)button.disabled=true;
+    if(resultNode)resultNode.textContent=`Running cold benchmark on ${rows.length.toLocaleString()} stores…`;
+    // Force a cold run so this answers the startup-precompute question.
+    state.popupCensusCache.clear();
+    state.filterCensusCache=new WeakMap();
+    state.popupQuartileDistributionCache.clear();
+    const fields=[
+      {formula:'Population 1 km'},
+      {formula:'Population 2 km'},
+      {formula:'Population 65+ 1 km'},
+      {formula:'Population 65+ 2 km'}
+    ];
+    const t0=performance.now();
+    let completed=0;
+    await showPopulationCalcStatus();
+    try{
+      for(const row of rows){
+        await calculatePopupCensusForStore(row,fields);
+        completed++;
+      }
+      const totalMs=performance.now()-t0;
+      const avgMs=completed?totalMs/completed:0;
+      const text=`${completed.toLocaleString()} stores • ${totalMs.toFixed(0)} ms (${(totalMs/1000).toFixed(2)} s) • ${avgMs.toFixed(2)} ms/store`;
+      if(resultNode)resultNode.textContent=text;
+      if(state.debugMode&&typeof debugEvent==='function'){
+        debugEvent('census:benchmark:done',{stores:completed,totalMs:Number(totalMs.toFixed(1)),avgMs:Number(avgMs.toFixed(3)),fields:fields.map(f=>f.formula)});
+      }
+    }catch(err){
+      if(resultNode)resultNode.textContent=`Benchmark failed: ${err?.message||err}`;
+      if(state.debugMode&&typeof debugEvent==='function'){
+        debugEvent('census:benchmark:error',{completed,message:String(err?.message||err)});
+      }
+    }finally{
+      hidePopulationCalcStatus();
+      if(button)button.disabled=false;
+    }
   }
 
   function normalizePopupField(f){
@@ -2396,6 +2443,7 @@
   function updateFilterUI(){
     const btn=el('filterBtn');if(btn)btn.disabled=!state.rows.length;
     const clearBtn=el('clearFiltersBtn');if(clearBtn)clearBtn.disabled=!state.rows.length;
+    const benchmarkBtn=el('censusBenchmarkBtn');if(benchmarkBtn)benchmarkBtn.disabled=!state.rows.length;
   }
   function openFilterDialog(){
     const diag=el('filterDiagnostic');
@@ -4581,6 +4629,7 @@
   el('distributionClear').addEventListener('click',()=>{if(state.distributionDialogTarget===2){state.distributionSubject2=null;state.distributionBinKey2=null;}else{state.distributionSubject=null;state.distributionBinKey=null;}renderDistributionList(el('distributionSearch').value);updateDistribution();refreshConfigUI();refreshMarkerStyles();});
   el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
   el('filterBtn').addEventListener('click',()=>openFilterDialog());
+  el('censusBenchmarkBtn')?.addEventListener('click',runCensusFourFieldBenchmark);
   el('filterDiagnosticToggle').addEventListener('click',toggleFilterDiagnostic);
   el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();state.filteredRows=[...state.rows];redrawAfterFilterChange();updateSelection();updateFilterUI();});
   el('addFilterBtn').addEventListener('click',()=>{state.filterDraft.push(filterDraftBlank());renderFilterRows();});

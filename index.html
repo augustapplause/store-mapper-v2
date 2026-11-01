@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.181</title>
+  <title>Store Explorer v1.182</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.181.0.ui-scale-shapes" />
+      <link rel="stylesheet" href="styles.css?v=1.182.0.benchmark" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.181</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.182</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -67,6 +67,10 @@
             <span class="census-shape-indicator-off" id="censusShapeIndicator" aria-label="No Census query shape active"></span>
             <span id="censusShapeStatusLabel">No shape</span>
             <strong id="censusShapeStatusValue">—</strong>
+          </div>
+          <div class="census-benchmark-row">
+            <button id="censusBenchmarkBtn" type="button" class="secondary census-benchmark-btn" disabled>Benchmark 4 Census fields</button>
+            <div id="censusBenchmarkResult" class="small muted" aria-live="polite"></div>
           </div>
         </div>
       </section>
@@ -367,7 +371,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.181.0.quartile-cache-scale-shapes"></script>
+  <script src="app.js?v=1.182.0.benchmark"></script>
 
 
 </body>
