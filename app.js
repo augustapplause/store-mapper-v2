@@ -1,4 +1,4 @@
-/* Store Explorer - v1.174
+/* Store Explorer - v1.161
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -51,7 +51,7 @@
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
-    selectedRows: [], filteredRows: [], viewportSelectedRows: [],
+    selectedRows: [],
     selectedGroupKey: null,
     selectedStoreRow: null,
     csdGeo: null,
@@ -127,7 +127,7 @@
       }
       const shape=censusShapeType?.()||null;
       const geo=censusGeoScopeType?.()||null;
-      const scope=censusScopeType();
+      const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
         'CENSUS STATE DEBUG v1.165',
@@ -538,7 +538,7 @@
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
   function afterWorkbookLoaded(file,parsed){
-    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
+    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);
     const c=state.columns;
     const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
     if(!tickerReady){
@@ -555,7 +555,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1656,20 +1656,15 @@
     }
     return result;
   }
-  function rebuildFilterPassCache(filters=state.filters||[], prebuiltCache=null){
-    const cache=prebuiltCache||new WeakMap();
+  function rebuildFilterPassCache(filters=state.filters||[]){
+    const cache=new WeakMap();
     let count=0;
-    if(prebuiltCache){
-      for(const row of state.rows){ if(cache.get(row)===true) count++; }
-    } else {
-      for(const row of state.rows){
-        const pass=filters.length?rowPassesFiltersWithFilters(row,filters):true;
-        cache.set(row,pass);
-        if(pass)count++;
-      }
+    for(const row of state.rows){
+      const pass=filters.length?rowPassesFiltersWithFilters(row,filters):true;
+      cache.set(row,pass);
+      if(pass)count++;
     }
     state.filterPassCache=cache;
-    state.filteredRows = state.rows.filter(row=>cache.get(row)===true);
     return count;
   }
   function filterRowPasses(row){
@@ -1694,40 +1689,43 @@
     }
     return true;
   }
-  function getCensusShapeRows(){
-    const rows=state.filteredRows||[];
-    if(!rows.length)return[];
-    if(!state.columns.lat||!state.columns.lon) return [...rows];
-    if(!censusShapeType()) return [...rows];
-    return rows.filter(rowInsideActiveCensusShape);
+  function getCensusShapeRows({respectFilters=true}={}){
+    if(!state.rows.length)return[];
+    if(!state.columns.lat||!state.columns.lon) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
+    if(!censusShapeType()) return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
+    return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
   }
   function getSelectedRows(){
-    const rows=state.filteredRows||[];
-    if(!rows.length)return [];
-    const scope=metricSelectionScope();
-    if(scope==='canada') return [...rows];
-    if(scope==='province'){
+    const geoType=censusGeoScopeType();
+    const scope=censusScopeType();
+    if(geoType==='canada' || scope==='canada'){
+      return state.rows.filter(filterRowPasses);
+    }
+    if(geoType==='province' || scope==='province'){
       const c=state.columns;
-      const target=state.censusScope?.code || state.censusGeoSelection?.code || null;
+      const target=state.censusGeoSelection?.code || state.censusScope?.code || null;
       if(!target || !c.province) return [];
-      return rows.filter(row=>provinceCodeFromText(row[c.province])===target);
+      return state.rows.filter(row=>{
+        if(!filterRowPasses(row)) return false;
+        return provinceCodeFromText(row[c.province]) === target;
+      });
     }
     if(scope==='circle'||scope==='box') return getCensusShapeRows();
-    return state.viewportSelectedRows||[];
+    return getViewportRows({respectFilters:true});
   }
-  function getViewportSelectedRows(){
-    const rows=state.filteredRows||[];
-    if(!rows.length)return [];
+  function getViewportRows({respectFilters=true}={}){
+    if(!state.rows.length)return [];
     const c=state.columns;
-    if(!c.lat||!c.lon)return [...rows];
+    if(!c.lat||!c.lon)return respectFilters?state.rows.filter(filterRowPasses):[...state.rows];
     const bounds=map.getBounds();
-    return rows.filter(r=>{
+    return state.rows.filter(r=>{
+      if(respectFilters&&!filterRowPasses(r))return false;
       if(!hasCoords(r))return false;
       const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
       return bounds.contains(ll);
     });
   }
-  function getFilteredRows(){return [...(state.filteredRows||[])];}
+  function getFilteredRows(){return state.rows.filter(filterRowPasses);}
   /* Deprecated: highlights are viewport-governed and are never cleared merely by panning. */
   function clearHighlightsOutsideVisibleShapeArea(){
     if(!censusShapeType())return false;
@@ -1772,16 +1770,11 @@
     const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
     const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
     const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
-    const metricScope=metricSelectionScope();
-    const selectionLabel=metricScope==='canada'
-      ? 'Canada'
-      : metricScope==='province'
-        ? 'selected province'
-        : metricScope==='circle'
-          ? (circleVisible?'current Census circle':'current Census circle')
-          : metricScope==='box'
-            ? (rectangleVisible?'current Census box':'current Census box')
-            : 'current map view';
+    const selectionLabel=censusGeoScopeType()
+      ? (state.censusGeoSelection.code==='CA'?'Canada':'selected province')
+      : censusShapeType()
+        ? (circleVisible?'current Census circle':'current Census box')
+        : 'current map view';
     el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
     el('filterCount').textContent=state.filters.length;
     el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
@@ -1797,7 +1790,6 @@
     updateKpis();updateSubjects();updateGroups();updateDistribution(bins1,bins2);updateSelectedStoresList();refreshMarkerStyles(dist1,dist2);renderTicker();
   }
   function updateSelection(){
-    state.viewportSelectedRows=getViewportSelectedRows();
     updateSelectionState();
     CENSUS_DEBUG.log('selection:update',{scope:censusScopeType(),selectedRows:state.selectedRows.length,filters:state.filters.length});
     updateSelectionPanels();
@@ -1918,13 +1910,15 @@
   function updateGroups(){
     const box=el('groupsSummary');
     if(!state.rows.length||!state.groups.length){box.innerHTML='<div class="empty-message">Choose one or more Groups to compare store segments.</div>';return;}
-    const viewportSelectedRows=state.viewportSelectedRows||[];
+    const viewportRows=getViewportRows({respectFilters:true});
+    const selectedSet=new Set(state.selectedRows);
     const groups=new Map();
-    for(const row of viewportSelectedRows){
+    for(const row of viewportRows){
       const parts=state.groups.map(g=>String(row[g]??'(blank)'));
       const key=JSON.stringify(parts);
-      if(!groups.has(key))groups.set(key,{parts,rows:[]});
+      if(!groups.has(key))groups.set(key,{parts,rows:[],selectedRows:[]});
       groups.get(key).rows.push(row);
+      if(selectedSet.has(row))groups.get(key).selectedRows.push(row);
     }
     const list=[...groups.entries()].sort((a,b)=>b[1].rows.length-a[1].rows.length).slice(0,100);
     const e=state.columns.ebit;
@@ -1932,8 +1926,8 @@
     let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectMetrics.map(m=>`<th>${esc(tickerMetricTitle(m))}</th>`).join('')+'</tr></thead><tbody>';
     for(const [key,g] of list){
       let success='';
-      if(e){const ev=g.rows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
-      const metricRows=g.rows;
+      if(e){const ev=g.selectedRows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
+      const metricRows=g.selectedRows;
       const subj=groupedSubjectMetrics.map(m=>{const v=metricRows.length?evaluateTickerFormula(m.formula,metricRows,m.aggregation||'average'):NaN;return `<td>${metricRows.length?esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces)):'—'}</td>`;}).join('');
       const active=state.selectedGroupKey===key;
       html+=`<tr class="group-select-row${active?' active-group':''}" data-group-key="${esc(key)}"><td><strong>${g.parts.map(esc).join(' / ')}</strong></td><td>${g.rows.length}</td>${success}${subj}</tr>`;
@@ -1962,7 +1956,7 @@
   function setDistributionBinKey(slot,key){if(slot===2)state.distributionBinKey2=key;else state.distributionBinKey=key;}
   function buildDistributionBins(slot=1){
     const h=getDistributionSubject(slot);
-    const scopeRows=getViewportSelectedRows({respectFilters:true});
+    const scopeRows=getViewportRows({respectFilters:true});
     if(!h||!scopeRows.length)return [];
     if(state.types[h]==='numeric'){
       const vals=scopeRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
@@ -2002,7 +1996,7 @@
     if(currentKey!==null&&!bins.some(b=>b.key===currentKey))setDistributionBinKey(slot,null);
     const activeKey=getDistributionBinKey(slot), maxCount=Math.max(...bins.map(b=>b.count),1);
     const label=slot===2?'Distribution 2':'Distribution';
-    const viewportCount=getViewportSelectedRows({respectFilters:true}).length;
+    const viewportCount=getViewportRows({respectFilters:true}).length;
     let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${viewportCount.toLocaleString()} visible stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of visible column">`;
     for(const b of bins){const active=activeKey===b.key;const width=Math.max(2,(b.count/maxCount)*100);html+=`<button type="button" class="distribution-bar${active?' active-distribution':''}" data-bin-key="${esc(b.key)}" title="${esc(b.label)}: ${b.count} stores"><span class="distribution-label">${esc(b.label)}</span><span class="distribution-track"><span class="distribution-fill" style="width:${width}%"></span></span><strong>${b.count}</strong></button>`;}
     html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
@@ -2069,7 +2063,7 @@
   }
   function uniqueColumnValues(column){
     // Filter-value availability follows the viewport, not the Census shape.
-    const scope=getViewportSelectedRows({respectFilters:false});
+    const scope=getViewportRows({respectFilters:false});
     return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
   }
   function exactFormulaTokens(formula){
@@ -2407,7 +2401,6 @@
     if(diag)diag.textContent=next.length?`Diagnostic: ${passingCount.toLocaleString()} of ${state.rows.length.toLocaleString()} loaded stores meet all filter lines.`:'';
     state.filters=next;
     state.filterPassCache=candidateCache;
-    state.filteredRows=state.rows.filter(row=>candidateCache.get(row)===true);
     if(state.storeJumpTarget && !rowPassesFilters(state.storeJumpTarget)){
       clearCircle();state.storeJumpTarget=null;
     }
@@ -3093,14 +3086,6 @@
     return state.censusScope?.type || 'viewport';
   }
 
-  // v1.174: filteredRows branches into viewportSelectedRows and selectedRows.
-  // Navigation/selection visuals may still have their own state, but metrics
-  // always follow this scope: viewport | circle | box | province | canada.
-  function metricSelectionScope() {
-    const type=censusScopeType();
-    return ['viewport','circle','box','province','canada'].includes(type) ? type : 'viewport';
-  }
-
   function setCensusScope(type, meta={}) {
     const previous=state.censusScope?.type || 'viewport';
     state.censusScope={
@@ -3182,7 +3167,7 @@
     clearRightPanelHighlights();
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-viewport-reset'});
     setCensusScope('viewport',{reason:'preparing geography scope',generation:scopeGeneration});
-    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:metricSelectionScope()});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:state.censusSelectionScope});
     if(select) select.value=scope;
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'select-value-set',selectValue:select?.value||''});
 
@@ -4537,7 +4522,7 @@
   el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
   el('filterBtn').addEventListener('click',()=>openFilterDialog());
   el('filterDiagnosticToggle').addEventListener('click',toggleFilterDiagnostic);
-  el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();state.filteredRows=[...state.rows];redrawAfterFilterChange();updateSelection();updateFilterUI();});
+  el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();redrawAfterFilterChange();updateSelection();updateFilterUI();});
   el('addFilterBtn').addEventListener('click',()=>{state.filterDraft.push(filterDraftBlank());renderFilterRows();});
   el('clearAllFilters').addEventListener('click',()=>{state.filterDraft=[filterDraftBlank(),filterDraftBlank(),filterDraftBlank()];const errorBox=el('filterError');if(errorBox)errorBox.textContent='';renderFilterRows();});
   el('applyFiltersBtn').addEventListener('click',async e=>{e.preventDefault();await applyFilters();});
