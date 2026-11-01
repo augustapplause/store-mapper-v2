@@ -4196,7 +4196,7 @@
     return `${km.toFixed(2)} km`;
   }
   function makeCircleRadiusLabel(latlng,radiusMeters){
-    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,-14]})});
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,31]})});
   }
   // Keep the resize handle / radius label on the east side of the circle.
   // This is intentionally a lightweight local approximation because the visible
@@ -4297,9 +4297,9 @@
     if(!circle||state.circleEditHandles.length<3)return;
     const center=circle.getLatLng();
     const eastEdge=circleEdgeLatLng(center,circle.getRadius());
-    const westEdge=circleEdgeLatLng(center,-circle.getRadius());
+    const westMoveEdge=circleEdgeLatLng(center,-(circle.getRadius()+18));
     state.circleEditHandles[0].setLatLng(center);
-    state.circleEditHandles[1].setLatLng(westEdge);
+    state.circleEditHandles[1].setLatLng(westMoveEdge);
     state.circleEditHandles[2].setLatLng(eastEdge);
     updateCircleLabel();
   }
@@ -4371,15 +4371,15 @@
     const circle=state.circleSelection?.circle;if(!circle)return;
     const center=circle.getLatLng();
     const radius=circle.getRadius();
-    const westEdge=circleEdgeLatLng(center,-radius);
+    const westMoveEdge=circleEdgeLatLng(center,-(radius+18));
     const eastEdge=circleEdgeLatLng(center,radius);
     const centerHandle=L.marker(center,{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const moveHandle=L.marker(westEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const moveHandle=L.marker(westMoveEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const sizeHandle=L.marker(eastEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'circle-edit-handle circle-size-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     moveHandle.on('drag',e=>{
       if(!state.circleSelection)return;
       const nextPoint=e.target.getLatLng();
-      const currentWest=circleEdgeLatLng(circle.getLatLng(),-circle.getRadius());
+      const currentWest=circleEdgeLatLng(circle.getLatLng(),-(circle.getRadius()+18));
       const nextCenter=L.latLng(
         circle.getLatLng().lat + (nextPoint.lat-currentWest.lat),
         circle.getLatLng().lng + (nextPoint.lng-currentWest.lng)
