@@ -4153,15 +4153,27 @@
     }catch(_){ return 1; }
   }
   function defaultCircleRadiusMeters(){ return Math.max(10,getLeafletScaleKm()*1000); }
+  function destinationAtDistance(start, bearingDeg, distanceKm){
+    const radiusKm=6371.0088;
+    const delta=distanceKm/radiusKm;
+    const bearing=bearingDeg*Math.PI/180;
+    const lat1=start.lat*Math.PI/180;
+    const lon1=start.lng*Math.PI/180;
+    const sinLat2=Math.sin(lat1)*Math.cos(delta)+Math.cos(lat1)*Math.sin(delta)*Math.cos(bearing);
+    const lat2=Math.asin(Math.max(-1,Math.min(1,sinLat2)));
+    const lon2=lon1+Math.atan2(Math.sin(bearing)*Math.sin(delta)*Math.cos(lat1),Math.cos(delta)-Math.sin(lat1)*Math.sin(lat2));
+    return L.latLng(lat2*180/Math.PI,((lon2*180/Math.PI+540)%360)-180);
+  }
   function defaultBoxBounds(center){
     const km=Math.max(0.01,getLeafletScaleKm());
     const halfKm=km/2;
-    const latDelta=halfKm/110.574;
-    const cosLat=Math.max(Math.cos(center.lat*Math.PI/180),0.05);
-    const lonDelta=halfKm/(111.320*cosLat);
+    const north=destinationAtDistance(center,0,halfKm);
+    const south=destinationAtDistance(center,180,halfKm);
+    const east=destinationAtDistance(center,90,halfKm);
+    const west=destinationAtDistance(center,270,halfKm);
     return L.latLngBounds(
-      [center.lat-latDelta,center.lng-lonDelta],
-      [center.lat+latDelta,center.lng+lonDelta]
+      [south.lat,west.lng],
+      [north.lat,east.lng]
     );
   }
   function circleRadiusLabelText(radiusMeters){
