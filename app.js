@@ -129,7 +129,7 @@
       const scope=geo||shape||'viewport';
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.164',
+        'CENSUS STATE DEBUG v1.165',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1695,10 +1695,13 @@
     return state.rows.filter(r=>(!respectFilters||filterRowPasses(r))&&rowInsideActiveCensusShape(r));
   }
   function getSelectedRows(){
+    const geoType=censusGeoScopeType();
     const scope=censusScopeType();
-    if(scope==='province'||scope==='canada'){
+    if(geoType==='canada' || scope==='canada'){
+      return state.rows.filter(filterRowPasses);
+    }
+    if(geoType==='province' || scope==='province'){
       const c=state.columns;
-      if(scope==='canada') return state.rows.filter(filterRowPasses);
       const target=state.censusGeoSelection?.code || state.censusScope?.code || null;
       if(!target || !c.province) return [];
       return state.rows.filter(row=>{
@@ -3155,6 +3158,9 @@
       return;
     }
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
+    clearNavigationResult();
+    state.storeJumpTarget=null;
+    state.navigationDaSuppressed=false;
     clearCensusShapeOnly({keepGeoScope:true});
     CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
     clearRightPanelHighlights();
@@ -3420,12 +3426,10 @@
   }
 
   function populateMarkerAnimationControls(){
-    const col=el('markerAnimationColumn'),ins=el('markerAnimationOperandInsert');
-    if(!col||!ins)return;
+    const col=el('markerAnimationColumn');
+    if(!col)return;
     const a=state.markerAnimation;
     col.innerHTML='<option value="">Choose column</option>'+state.headers.map(h=>`<option value="${esc(h)}" ${a.column===h?'selected':''}>${esc(h)}</option>`).join('');
-    const nums=state.headers.filter(h=>state.types[h]==='numeric');
-    ins.innerHTML='<option value="">Insert numeric column...</option>'+nums.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');
     const type=state.types[a.column]==='text'&&!markerAnimationFormulaIsValid()?'text':'numeric';
     a.typeMode=type;
     if(type==='text'&&a.formula===a.column){

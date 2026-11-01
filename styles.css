@@ -467,7 +467,7 @@ button,
 .marker-animation-dialog{width:min(980px,94vw);max-height:min(520px,82vh);}
 .marker-animation-dialog form{max-height:min(520px,82vh);display:flex;flex-direction:column;}
 .marker-animation-dialog-body{padding:14px 17px;overflow-x:hidden;overflow-y:auto;}
-.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(160px,1.1fr) minmax(260px,2fr) minmax(150px,1.1fr) 82px 140px;gap:10px;align-items:end;overflow:visible;}
+.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(300px,2fr) 82px 140px 78px;gap:10px;align-items:end;overflow:visible;}
 .marker-animation-dialog-grid>div{min-width:0;}
 .marker-animation-dialog-grid label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;font-weight:600;line-height:1.1;}
 .marker-animation-dialog-grid>div:nth-child(1){grid-column:1;grid-row:1;}
