@@ -1,4 +1,4 @@
-/* Store Explorer - v1.176
+/* Store Explorer - v1.177
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -130,7 +130,7 @@
       const scope=censusScopeType();
       const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
       panel.textContent=[
-        'CENSUS STATE DEBUG v1.165',
+        'CENSUS STATE DEBUG v1.177',
         `scope: ${scope}`,
         `shape: ${shape||'none'} | geo: ${geo||'none'}`,
         `geoCode: ${state.censusGeoSelection?.code||'none'}`,
@@ -1288,10 +1288,15 @@
     const marker=state.openPopupMarker;if(!marker)return;
     const row=marker.__row;
     const token=++state.popupRenderToken;
+    const popupStart=performance.now();
+    CENSUS_DEBUG.log('popup:refresh:start',{token,store:String(row?.[state.columns?.storeId]??'')});
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
     const values=hasPopupVirtualFields()?await calculatePopupCensusForStore(row):{};
+    CENSUS_DEBUG.log('popup:census:done',{token,ms:Number((performance.now()-popupStart).toFixed(1)),virtual:hasPopupVirtualFields()});
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+    const quartileStart=performance.now();
     await computePopupQuartiles(row);
+    CENSUS_DEBUG.log('popup:quartiles:done',{token,ms:Number((performance.now()-quartileStart).toFixed(1)),totalMs:Number((performance.now()-popupStart).toFixed(1))});
     if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
     storePopupCard.innerHTML=await popupCardContent(row,values);
     wirePopupCardActions(marker);
@@ -1300,7 +1305,10 @@
       requestStorePopupLayout();
       requestAnimationFrame(()=>{
         requestStorePopupLayout();
-        if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
+        if(state.openPopupMarker===marker){
+          storePopupCard.style.visibility='visible';
+          CENSUS_DEBUG.log('popup:visible',{token,ms:Number((performance.now()-popupStart).toFixed(1))});
+        }
       });
     });
     setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
@@ -1477,6 +1485,8 @@
   }
 
   async function openStorePopup(marker){
+    const clickStart=performance.now();
+    CENSUS_DEBUG.log('popup:open:start',{store:String(marker?.__row?.[state.columns?.storeId]??'')});
     ensureStorePopupOverlay();
     if(state.openPopupMarker===marker && storePopupLayer.classList.contains('open')){ closeStorePopup(); return; }
     ++state.popupRenderToken;
@@ -1489,6 +1499,7 @@
     storePopupLayer.setAttribute('aria-hidden','false');
     requestStorePopupLayout();
     await refreshOpenPopupCard();
+    CENSUS_DEBUG.log('popup:open:returned',{ms:Number((performance.now()-clickStart).toFixed(1))});
   }
 
   function positionStorePopup(marker){
@@ -1502,7 +1513,10 @@
 
   function handleMarkerClick(marker){
     if(state.markerClickSuppressed)return;
+    const t=performance.now();
+    CENSUS_DEBUG.log('marker:click:start',{store:String(marker?.__row?.[state.columns?.storeId]??''),markers:state.markers.length});
     const nearby=getNearbyMarkers(marker,18);
+    CENSUS_DEBUG.log('marker:click:nearby',{count:nearby.length,ms:Number((performance.now()-t).toFixed(1))});
     if(nearby.length>1){
       if(state.spiderfyGroup && state.spiderfyGroup.includes(marker)){
         unspiderfyMarkers();
@@ -1514,6 +1528,7 @@
       return;
     }
     openStorePopup(marker);
+    CENSUS_DEBUG.log('marker:click:popup-called',{ms:Number((performance.now()-t).toFixed(1))});
   }
   function getNearbyMarkers(centerMarker,thresholdPx){
     const center=map.latLngToLayerPoint(centerMarker.getLatLng());
@@ -4436,6 +4451,7 @@
 
   map.on('click',e=>{
     if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing)return;
+    CENSUS_DEBUG.log('map:shape-click',{lat:e.latlng.lat,lng:e.latlng.lng,mode:state.circleDrawMode?'circle':'rectangle'});
     try{
       const center=e.latlng;
       const mode=state.circleDrawMode?'circle':'rectangle';

@@ -979,7 +979,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .left-panel .store-jump button{width:auto;margin:0;}
 .left-panel .store-jump .inline-control button{font-size:13px;}
 
-/* v1.176 Census/Animate UI refinements */
+/* v1.177 Census/Animate UI refinements */
 .marker-animation-configure-btn{
   font-size:11px;padding:6px 8px;white-space:nowrap;
   background:var(--blue)!important;color:#fff!important;
