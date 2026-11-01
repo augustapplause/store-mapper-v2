@@ -101,6 +101,9 @@
   const selectionCirclePane = map.createPane('selectionCirclePane');
   selectionCirclePane.style.zIndex = '550';
   selectionCirclePane.style.pointerEvents = 'auto';
+  const censusCenterPane = map.createPane('censusCenterPane');
+  censusCenterPane.style.zIndex = '590';
+  censusCenterPane.style.pointerEvents = 'none';
   const censusHandlePane = map.createPane('censusHandlePane');
   censusHandlePane.style.zIndex = '700';
   censusHandlePane.style.pointerEvents = 'auto';
@@ -4291,11 +4294,13 @@
   }
   function updateCircleHandlePositions(){
     const circle=state.circleSelection?.circle;
-    if(!circle||state.circleEditHandles.length<2)return;
+    if(!circle||state.circleEditHandles.length<3)return;
     const center=circle.getLatLng();
-    const edge=circleEdgeLatLng(center,circle.getRadius());
+    const eastEdge=circleEdgeLatLng(center,circle.getRadius());
+    const westEdge=circleEdgeLatLng(center,-circle.getRadius());
     state.circleEditHandles[0].setLatLng(center);
-    state.circleEditHandles[1].setLatLng(edge);
+    state.circleEditHandles[1].setLatLng(westEdge);
+    state.circleEditHandles[2].setLatLng(eastEdge);
     updateCircleLabel();
   }
   function updateCensusShapeStatus(){
@@ -4365,16 +4370,19 @@
     removeCircleHandles();
     const circle=state.circleSelection?.circle;if(!circle)return;
     const center=circle.getLatLng();
-    const edge=circleEdgeLatLng(center,circle.getRadius());
-    const centerHandle=L.marker(center,{pane:'censusHandlePane',draggable:false,interactive:false,zIndexOffset:1800,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const moveHandle=L.marker(edge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const radius=circle.getRadius();
+    const westEdge=circleEdgeLatLng(center,-radius);
+    const eastEdge=circleEdgeLatLng(center,radius);
+    const centerHandle=L.marker(center,{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const moveHandle=L.marker(westEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const sizeHandle=L.marker(eastEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'circle-edit-handle circle-size-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     moveHandle.on('drag',e=>{
       if(!state.circleSelection)return;
-      const nextEdge=e.target.getLatLng();
-      const currentCenter=circle.getLatLng();
+      const nextPoint=e.target.getLatLng();
+      const currentWest=circleEdgeLatLng(circle.getLatLng(),-circle.getRadius());
       const nextCenter=L.latLng(
-        currentCenter.lat + (nextEdge.lat - circleEdgeLatLng(currentCenter,circle.getRadius()).lat),
-        currentCenter.lng + (nextEdge.lng - circleEdgeLatLng(currentCenter,circle.getRadius()).lng)
+        circle.getLatLng().lat + (nextPoint.lat-currentWest.lat),
+        circle.getLatLng().lng + (nextPoint.lng-currentWest.lng)
       );
       circle.setLatLng(nextCenter);
       updateCircleHandlePositions();
@@ -4382,13 +4390,23 @@
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
       scheduleCensusQuery(null,'circle moved');
     });
-    state.circleEditHandles=[centerHandle,moveHandle];
+    sizeHandle.on('drag',e=>{
+      if(!state.circleSelection)return;
+      const centerNow=circle.getLatLng();
+      const nextRadius=Math.max(10,map.distance(centerNow,e.target.getLatLng()));
+      circle.setRadius(nextRadius);
+      updateCircleHandlePositions();
+      updateCensusShapeStatus();
+      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      scheduleCensusQuery(null,'circle resized by handle');
+    });
+    state.circleEditHandles=[centerHandle,moveHandle,sizeHandle];
   }
   function showRectangleHandles(){
     removeRectangleHandles();
     const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
     const b0=rectangle.getBounds();
-    const centerHandle=L.marker(b0.getCenter(),{pane:'censusHandlePane',draggable:false,interactive:false,zIndexOffset:1800,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const centerHandle=L.marker(b0.getCenter(),{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const moveStart=b0.getNorthEast();
     const moveHandle=L.marker(moveStart,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const cornerHandle=L.marker(b0.getSouthEast(),{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
