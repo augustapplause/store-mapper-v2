@@ -414,7 +414,6 @@ button,
 .filter-dialog-footer #addFilterBtn{margin-right:4px;}
 .filter-diagnostic{padding:6px 10px 2px;color:var(--muted);font-size:10px;min-height:16px;}
 .filter-footer-spacer{flex:1 1 auto;}
-.filter-footer-note{font-size:14px;color:var(--muted);white-space:nowrap;margin-left:8px;}
 @media (max-width:900px){
   .filter-table-head{display:none;}
   .filter-line-main{grid-template-columns:1fr 1fr;}
@@ -464,34 +463,58 @@ button,
 /* v0.86 marker animation popup and performance styling */
 .marker-animation-summary-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;margin-top:5px;}
 .marker-animation-configure-btn{font-size:11px;padding:6px 8px;white-space:nowrap;}
-.marker-animation-dialog{width:min(980px,94vw);max-height:min(520px,82vh);}
+.marker-animation-dialog{width:min(720px,92vw);max-height:min(520px,82vh);}
 .marker-animation-dialog form{max-height:min(520px,82vh);display:flex;flex-direction:column;}
-.marker-animation-dialog-body{padding:14px 17px;overflow-x:hidden;overflow-y:auto;}
-.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(180px,1.1fr) minmax(300px,2fr) 100px 160px;gap:10px;align-items:end;overflow:visible;}
+.marker-animation-dialog-body{padding:14px 17px;overflow:auto;}
+.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;}
 .marker-animation-dialog-grid>div{min-width:0;}
-.marker-animation-dialog-grid label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px;font-weight:600;line-height:1.1;}
+.marker-animation-dialog-grid label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;font-weight:800;}
+.marker-animation-formula-wide{grid-column:1 / -1;}
+.marker-animation-formula-help{margin-top:9px;padding:8px 9px;background:#f4f8fb;border:1px solid var(--line);border-radius:7px;color:var(--muted);font-size:11px;line-height:1.35;}
+@media (max-width:760px){.marker-animation-dialog-grid{grid-template-columns:1fr;}.marker-animation-formula-wide{grid-column:auto;}}
+/* v0.89 Animate When layout: one-line condition builder */
+.marker-animation-dialog-grid{display:grid;grid-template-columns:minmax(190px,1.15fr) minmax(280px,2.3fr) 72px 120px;gap:10px;align-items:end;}
+.marker-animation-dialog-grid>div{min-width:0;}
 .marker-animation-dialog-grid>div:nth-child(1){grid-column:1;grid-row:1;}
-.marker-animation-dialog-grid .marker-animation-formula-wide{grid-column:2;grid-row:1;min-width:0;}
-.marker-animation-dialog-grid>div:nth-child(3){grid-column:3;grid-row:1;}
-.marker-animation-dialog-grid>div:nth-child(4){grid-column:4;grid-row:1;}
+.marker-animation-dialog-grid .marker-animation-formula-wide{grid-column:2;grid-row:1;}
+.marker-animation-dialog-grid>div:nth-child(4){grid-column:3;grid-row:1;}
 .marker-animation-dialog-grid .marker-animation-value-cell{grid-column:4;grid-row:1;}
 .marker-animation-dialog-grid #markerAnimationValueButton{grid-column:4;grid-row:1;}
-.marker-animation-dialog-grid .marker-animation-control,.marker-animation-dialog-grid .marker-animation-value-button{font-size:14px;height:40px;min-height:40px;padding:8px 10px;box-sizing:border-box;}
-.marker-animation-dialog-grid .marker-animation-value-button{width:100%;text-align:left;}
-.marker-animation-formula-help{margin-top:9px;padding:8px 9px;background:#f4f8fb;border:1px solid var(--line);border-radius:7px;color:var(--muted);font-size:11px;line-height:1.35;}
+.marker-animation-dialog-grid>div:nth-child(3){grid-column:2;grid-row:2;}
+.marker-animation-dialog-grid label{font-weight:600;}
+.marker-animation-dialog-grid .marker-animation-control{font-size:11px;}
+.marker-animation-dialog-grid .marker-animation-formula-wide{min-width:0;}
 .marker-animation-switch{font-weight:600;}
 .marker-animation-type-inline{font-weight:600;}
 @media (max-width:900px){
-  .marker-animation-dialog-grid{grid-template-columns:minmax(140px,1fr) minmax(220px,1.5fr) minmax(140px,1fr) 140px;}
+  .marker-animation-dialog-grid{grid-template-columns:minmax(170px,1fr) minmax(240px,1.6fr) 72px 110px;}
 }
 @media (max-width:760px){
-  .marker-animation-dialog-grid{grid-template-columns:1fr;}
+  .marker-animation-dialog-grid{grid-template-columns:1fr 1fr;}
   .marker-animation-dialog-grid>div:nth-child(1),
   .marker-animation-dialog-grid .marker-animation-formula-wide,
-  .marker-animation-dialog-grid>div:nth-child(3),
   .marker-animation-dialog-grid>div:nth-child(4),
   .marker-animation-dialog-grid .marker-animation-value-cell,
-  .marker-animation-dialog-grid #markerAnimationValueButton{grid-column:auto;grid-row:auto;}
+  .marker-animation-dialog-grid #markerAnimationValueButton,
+  .marker-animation-dialog-grid>div:nth-child(3){grid-column:auto;grid-row:auto;}
+}
+
+/* v0.90 performance + Animate When refinements */
+.marker-animation-dialog{width:min(980px,94vw);max-height:min(520px,82vh);}
+.marker-animation-dialog form{max-height:min(520px,82vh);}
+.marker-animation-dialog-grid{grid-template-columns:minmax(220px,1.2fr) minmax(340px,2fr) 86px 150px !important;gap:10px;align-items:end;overflow:visible;}
+.marker-animation-dialog .marker-animation-control{height:40px;min-height:40px;padding:8px 10px;box-sizing:border-box;}
+.marker-animation-dialog .marker-animation-value-button{height:40px;min-height:40px;box-sizing:border-box;}
+.marker-animation-dialog-grid .marker-animation-control,
+.marker-animation-dialog-grid .marker-animation-value-button{height:40px;min-height:40px;box-sizing:border-box;}
+.marker-animation-dialog-grid label{font-weight:600 !important;line-height:1.1;}
+.marker-animation-dialog-grid>div:nth-child(3){grid-column:2 !important;grid-row:2 !important;}
+.marker-animation-dialog-body{overflow-x:hidden;overflow-y:auto;}
+@media (max-width:900px){
+  .marker-animation-dialog-grid{grid-template-columns:minmax(180px,1fr) minmax(260px,1.5fr) 78px 130px !important;}
+}
+@media (max-width:760px){
+  .marker-animation-dialog-grid{grid-template-columns:1fr 1fr !important;}
 }
 
 /* v1.01: compact marker animation selector and popup positioning support */
@@ -941,40 +964,3 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rectangle-edit-handle span::before{content:'';position:absolute;inset:3px;border:3px solid #d33e46;background:#fff;border-radius:1px;}
 .rectangle-corner-handle span::after{content:'';position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:3px solid #d33e46;border-bottom:3px solid #d33e46;}
 .rectangle-query-shape{color:#d33e46;}
-
-
-/* v1.153: alternate readable configuration rows. */
-.metric-config-row:nth-child(odd),
-.popup-ticker-config-row:nth-child(odd){background:#f8fbfd;}
-.metric-config-row:nth-child(even),
-.popup-ticker-config-row:nth-child(even){background:#fff9df;}
-.filter-line:nth-child(odd){background:#f8fbfd;}
-.filter-line:nth-child(even){background:#fff9df;}
-
-/* v1.153: raised 3D Census Query Clear button, matching shape controls. */
-.census-query-clear{
-  background:#b51f2a !important;
-  color:#fff !important;
-  border:1px solid #951923 !important;
-  border-bottom:3px solid #7d111a !important;
-  box-shadow:0 2px 0 #7d111a;
-  transform:translateY(0);
-  transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
-}
-.census-query-clear:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #7d111a;filter:brightness(.98);}
-.census-query-clear:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #7d111a;}
-
-
-
-
-
-/* v1.158: consistent Go to geography controls */
-/* v1.159: box dimensions label */
-.rectangle-dimensions-label{background:transparent!important;border:0!important;pointer-events:none!important;z-index:1700!important;}
-.rectangle-dimensions-label span{display:block;box-sizing:border-box;width:94px;padding:3px 5px;text-align:center;background:#fff;border:1px solid #d33e46;color:#8f1d25;font-size:11px;font-weight:700;line-height:16px;white-space:nowrap;box-shadow:0 1px 3px #0003;}
-.left-panel .store-jump{display:block;margin-top:8px;}
-.left-panel .store-jump label{display:block;margin:0 0 5px;color:var(--muted);font-size:12px;font-weight:600;}
-.left-panel .store-jump .inline-control{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:0;}
-.left-panel .store-jump input{width:100%;min-width:0;}
-.left-panel .store-jump button{width:auto;margin:0;}
-.left-panel .store-jump .inline-control button{font-size:13px;}
