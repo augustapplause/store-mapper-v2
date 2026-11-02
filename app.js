@@ -1,4 +1,4 @@
-/* Store Explorer - v1.197
+/* Store Explorer - v1.198
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4444,8 +4444,7 @@
     circle.setRadius(radius);
     updateCircleHandlePositions();
     updateCensusShapeStatus();
-    state.daProvinceCacheKey=null;
-    state.daProvinceCache=null;
+    invalidateCensusShapeCache();
     scheduleCensusQuery(null,'circle resized by input');
   }
   function circleMoveHandleLatLng(circle){
@@ -4531,13 +4530,22 @@
     }
     updateHeaderCensusIndicator();
   }
+  function createCensusEditHandle(latlng,{className,zIndexOffset,draggable=true,interactive=true}={}){
+    return L.marker(latlng,{
+      pane:draggable?'censusHandlePane':'censusCenterPane',
+      draggable,
+      interactive,
+      zIndexOffset,
+      icon:L.divIcon({className,html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})
+    }).addTo(map);
+  }
+  function invalidateCensusShapeCache(){
+    state.daProvinceCacheKey=null;
+    state.daProvinceCache=null;
+  }
   function removeCircleHandles(){ state.circleEditHandles.forEach(h=>map.removeLayer(h)); state.circleEditHandles=[]; }
   function removeRectangleHandles(){ state.rectangleEditHandles.forEach(h=>map.removeLayer(h)); state.rectangleEditHandles=[]; }
   function removeAllCensusHandles(){removeCircleHandles();removeRectangleHandles();}
-
-  function setCensusShapeIndicator(){ updateCensusShapeStatus(); }
-  function setCircleIndicator(active){ updateCensusShapeStatus(); }
-  function updateCircleRadiusCounter(){ updateCensusShapeStatus(); }
 
   function updateRectangleHandles(){
     const rectangle=state.rectangleSelection?.rectangle;
@@ -4555,9 +4563,9 @@
     const radius=circle.getRadius();
     const westMoveHandle=circleMoveHandleLatLng(circle);
     const eastEdge=circleEdgeLatLng(center,radius);
-    const centerHandle=L.marker(center,{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'circle-edit-handle circle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const moveHandle=L.marker(westMoveHandle,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'circle-edit-handle circle-move-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const sizeHandle=L.marker(eastEdge,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'circle-edit-handle circle-size-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const centerHandle=createCensusEditHandle(center,{className:'circle-edit-handle circle-center-handle',zIndexOffset:0,draggable:false,interactive:false});
+    const moveHandle=createCensusEditHandle(westMoveHandle,{className:'circle-edit-handle circle-move-handle rectangle-move-handle',zIndexOffset:1801});
+    const sizeHandle=createCensusEditHandle(eastEdge,{className:'circle-edit-handle circle-size-handle',zIndexOffset:1802});
     let circleMoveDragStartCenter=null;
     let circleMoveDragStartHandle=null;
     moveHandle.on('dragstart',()=>{
@@ -4577,7 +4585,7 @@
       circle.setLatLng(nextCenter);
       updateCircleHandlePositions();
       updateCensusShapeStatus();
-      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      invalidateCensusShapeCache();
     });
     moveHandle.on('dragend',()=>{
       circleMoveDragStartCenter=null;
@@ -4595,7 +4603,7 @@
       circle.setRadius(nextRadius);
       updateCircleHandlePositions();
       updateCensusShapeStatus();
-      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      invalidateCensusShapeCache();
     });
     sizeHandle.on('dragend',()=>{
       endCensusShapeHandleDrag('circle resized by handle');
@@ -4606,10 +4614,10 @@
     removeRectangleHandles();
     const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
     const b0=rectangle.getBounds();
-    const centerHandle=L.marker(b0.getCenter(),{pane:'censusCenterPane',draggable:false,interactive:false,zIndexOffset:0,icon:L.divIcon({className:'rectangle-edit-handle rectangle-center-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const centerHandle=createCensusEditHandle(b0.getCenter(),{className:'rectangle-edit-handle rectangle-center-handle',zIndexOffset:0,draggable:false,interactive:false});
     const moveStart=b0.getNorthEast();
-    const moveHandle=L.marker(moveStart,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
-    const cornerHandle=L.marker(b0.getSouthEast(),{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    const moveHandle=createCensusEditHandle(moveStart,{className:'rectangle-edit-handle rectangle-move-handle',zIndexOffset:1801});
+    const cornerHandle=createCensusEditHandle(b0.getSouthEast(),{className:'rectangle-edit-handle rectangle-corner-handle',zIndexOffset:1802});
     moveHandle.on('dragstart',()=>{
       if(!state.rectangleSelection)return;
       beginCensusShapeHandleDrag('rectangle moved');
@@ -4631,13 +4639,12 @@
       moveHandle.setLatLng(nb.getNorthEast());
       cornerHandle.setLatLng(nb.getSouthEast());
       updateCensusShapeStatus();
-      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      invalidateCensusShapeCache();
     });
     moveHandle.on('dragend',()=>{
       endCensusShapeHandleDrag('rectangle moved');
     });
-    let rectangleResizePending=false;
-    cornerHandle.on('dragstart',()=>{ rectangleResizePending=true; beginCensusShapeHandleDrag('rectangle resized'); });
+    cornerHandle.on('dragstart',()=>{ beginCensusShapeHandleDrag('rectangle resized'); });
     cornerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4650,7 +4657,6 @@
       const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
       rectangle.setBounds(nb);
       moveHandle.setLatLng(nb.getNorthEast());
-      moveHandle.setLatLng(nb.getNorthEast());
       cornerHandle.setLatLng(nb.getSouthEast());
       centerHandle.setLatLng(nb.getCenter());
       updateCensusShapeStatus();
@@ -4658,13 +4664,12 @@
     });
     cornerHandle.on('dragend',()=>{
       if(!state.rectangleSelection)return;
-      rectangleResizePending=false;
       const nb=rectangle.getBounds();
       cornerHandle.setLatLng(nb.getSouthEast());
       centerHandle.setLatLng(nb.getCenter());
       updateCensusShapeStatus();
       updateRectangleLabel();
-      state.daProvinceCacheKey=null;state.daProvinceCache=null;
+      invalidateCensusShapeCache();
       endCensusShapeHandleDrag('rectangle resized');
     });
     state.rectangleEditHandles=[centerHandle,moveHandle,cornerHandle];
