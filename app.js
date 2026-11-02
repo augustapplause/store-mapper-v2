@@ -1,4 +1,4 @@
-/* Store Explorer - v1.190
+/* Store Explorer - v1.191
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2546,7 +2546,7 @@
   };
   const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2558,12 +2558,16 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.150`,
+        `DA PERF v1.191`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
         `indexed ${d.indexed.toLocaleString()} | bbox candidates ${d.candidates.toLocaleString()}`,
         `full-contained ${d.full.toLocaleString()} | partial ${d.partial.toLocaleString()}`,
+        `candidate breakdown: bbox ${f(d.candidateBboxMs)} | load ${f(d.candidateLoadMs)} | rtree ${f(d.candidateRtreeMs)}`,
+        `select breakdown: contained ${f(d.containmentMs)} | full materialize ${f(d.fullMaterializeMs)} | partial materialize ${f(d.partialMaterializeMs)}`,
+        `select aggregate: full ${f(d.fullAggregateMs)} | partial ${f(d.partialAggregateMs)}`,
+        `circle intersection: ${d.circleIntersectionCalls} calls / ${f(d.circleIntersectionMs)}`,
         `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
@@ -2933,15 +2937,21 @@
     async function collectIndexedCandidates(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
       if(!boundary?.geometry) return {provinces:[],candidatesByProvince:{},candidateCount:0,indexedFeatures:0,boundaryBbox:null};
       const perfT0=DA_PERF_ENABLED?performance.now():0;
+      const bboxT0=DA_PERF_ENABLED?performance.now():0;
       const boundaryBbox=turf.bbox(boundary);
+      if(DA_PERF_ENABLED) DA_PERF.d.candidateBboxMs += performance.now()-bboxT0;
       const candidatesByProvince={};
       const provinces=[];
       let candidateCount=0;
       let indexedFeatures=0;
       for(const provinceCode of provinceCodes||[]){
         if(!CONFIG.daFiles[provinceCode]) continue;
+        const loadT0=DA_PERF_ENABLED?performance.now():0;
         const entry=await loadProvince(provinceCode);
+        if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
+        const rtreeT0=DA_PERF_ENABLED?performance.now():0;
         const candidates=bboxQuery(entry,boundaryBbox);
+        if(DA_PERF_ENABLED) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
         candidatesByProvince[provinceCode]=candidates;
         candidateCount+=candidates.length;
         indexedFeatures+=entry.featureCount||0;
@@ -2958,26 +2968,36 @@
       const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
       for(const index of candidates){
         try{
+          const containmentT0=DA_PERF_ENABLED?performance.now():0;
           const fullyContained=bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle);
+          if(DA_PERF_ENABLED) DA_PERF.d.containmentMs += performance.now()-containmentT0;
           if(fullyContained){
             if(DA_PERF_ENABLED) DA_PERF.d.full++;
+            const materializeT0=DA_PERF_ENABLED?performance.now():0;
             const feature=featureFromAsset(entry,index,true);
+            if(DA_PERF_ENABLED) DA_PERF.d.fullMaterializeMs += performance.now()-materializeT0;
             selected.push({feature,provinceCode:entry.provinceCode,overlapPct:100});
             if(includeAggregate){
+              const aggregateT0=DA_PERF_ENABLED?performance.now():0;
               const a=censusAttributes(feature);
               aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
               aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
               aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
+              if(DA_PERF_ENABLED) DA_PERF.d.fullAggregateMs += performance.now()-aggregateT0;
             }
             continue;
           }
+          const materializeT0=DA_PERF_ENABLED?performance.now():0;
           const feature=featureFromAsset(entry,index,true);
+          if(DA_PERF_ENABLED) DA_PERF.d.partialMaterializeMs += performance.now()-materializeT0;
           if(DA_PERF_ENABLED) DA_PERF.d.partial++;
           let overlapPct=0;
           if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
             const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if (!(daArea>0)) continue;
+            const circleT0=DA_PERF_ENABLED?performance.now():0;
             const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
+            if(DA_PERF_ENABLED){ DA_PERF.d.circleIntersectionMs += performance.now()-circleT0; DA_PERF.d.circleIntersectionCalls += 1; }
             if (!(intersectionArea>0)) continue;
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
@@ -3021,10 +3041,12 @@
           if(overlapPct<threshold)continue;
           selected.push({feature,provinceCode:entry.provinceCode,overlapPct});
           if(includeAggregate){
+            const aggregateT0=DA_PERF_ENABLED?performance.now():0;
             const a=censusAttributes(feature);
             aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
             aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
             aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
+            if(DA_PERF_ENABLED) DA_PERF.d.partialAggregateMs += performance.now()-aggregateT0;
           }
         }catch(_){ }
       }
@@ -3082,21 +3104,29 @@
           aggregate.population40Plus+=aggregateStub.population40Plus;aggregate.visibleMinorityPopulation+=aggregateStub.visibleMinorityPopulation;
           aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
           if(!shouldRender)continue;
+          const loadT0=DA_PERF_ENABLED?performance.now():0;
           const entry=await loadProvince(mode.provinceCode);
+          if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
           const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+          const rtreeT0=DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)?performance.now():0;
           const candidates = Array.isArray(precomputedCandidates)
             ? precomputedCandidates
             : bboxQuery(entry,boundaryBbox);
+          if(DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
           candidateCount+=candidates.length;
           actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
           continue;
         }
+        const loadT0=DA_PERF_ENABLED?performance.now():0;
         const entry=await loadProvince(mode.provinceCode);
+        if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
         partialProvinceCodes.push(mode.provinceCode);
         const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+        const rtreeT0=DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)?performance.now():0;
         const candidates = Array.isArray(precomputedCandidates)
           ? precomputedCandidates
           : bboxQuery(entry,boundaryBbox);
+        if(DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
         indexedFeatures+=entry.featureCount||0;
         candidateCount+=candidates.length;
         actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
