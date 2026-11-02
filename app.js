@@ -1,4 +1,4 @@
-/* Store Explorer - v1.191
+/* Store Explorer - v1.192
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2546,7 +2546,7 @@
   };
   const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0,circleProjectionMs:0,circleProjectionCalls:0,circleProjectionPoints:0,circleRingClipMs:0,circleRingClipCalls:0,circleEdgeMs:0,circleEdgeCalls:0,circleEdgeMsMax:0}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2558,7 +2558,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.191`,
+        `DA PERF v1.192`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2568,6 +2568,9 @@
         `select breakdown: contained ${f(d.containmentMs)} | full materialize ${f(d.fullMaterializeMs)} | partial materialize ${f(d.partialMaterializeMs)}`,
         `select aggregate: full ${f(d.fullAggregateMs)} | partial ${f(d.partialAggregateMs)}`,
         `circle intersection: ${d.circleIntersectionCalls} calls / ${f(d.circleIntersectionMs)}`,
+        `  projection: ${d.circleProjectionCalls} rings / ${d.circleProjectionPoints.toLocaleString()} pts / ${f(d.circleProjectionMs)}`,
+        `  ring clipping: ${d.circleRingClipCalls} rings / ${f(d.circleRingClipMs)}`,
+        `  edge clipping: ${d.circleEdgeCalls.toLocaleString()} edges / ${f(d.circleEdgeMs)} | max call ${f(d.circleEdgeMsMax)}`,
         `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
@@ -2732,13 +2735,21 @@
     }
 
     function projectRingToAeqd(ring, projector) {
-      return ring.map(([lng, lat]) => {
+      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
+      const projected = ring.map(([lng, lat]) => {
         const xy = projector.forward([lng, lat]);
         if (!Array.isArray(xy) || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
           throw new Error('Non-finite WGS84 AEQD coordinate encountered.');
         }
         return [xy[0], xy[1]];
       });
+      if (DA_PERF_ENABLED) {
+        const elapsed = performance.now() - perfT0;
+        DA_PERF.d.circleProjectionCalls += 1;
+        DA_PERF.d.circleProjectionPoints += ring.length;
+        DA_PERF.d.circleProjectionMs += elapsed;
+      }
+      return projected;
     }
 
     function signedRingArea(ring) {
@@ -2752,6 +2763,7 @@
     }
 
     function edgeCircleContribution(ax, ay, bx, by, radius) {
+      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
       const dx = bx - ax;
       const dy = by - ay;
       const A = dx * dx + dy * dy;
@@ -2786,15 +2798,26 @@
           contribution += radius * radius * Math.atan2(x0 * y1 - y0 * x1, x0 * x1 + y0 * y1) / 2;
         }
       }
+      if (DA_PERF_ENABLED) {
+        const elapsed = performance.now() - perfT0;
+        DA_PERF.d.circleEdgeCalls += 1;
+        DA_PERF.d.circleEdgeMs += elapsed;
+        if (elapsed > DA_PERF.d.circleEdgeMsMax) DA_PERF.d.circleEdgeMsMax = elapsed;
+      }
       return contribution;
     }
 
     function clippedRingArea(ring, radius) {
+      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
       let area = 0;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i];
         const b = ring[(i + 1) % ring.length];
         area += edgeCircleContribution(a[0], a[1], b[0], b[1], radius);
+      }
+      if (DA_PERF_ENABLED) {
+        DA_PERF.d.circleRingClipCalls += 1;
+        DA_PERF.d.circleRingClipMs += performance.now() - perfT0;
       }
       return area;
     }
