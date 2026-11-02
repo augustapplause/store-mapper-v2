@@ -1,4 +1,4 @@
-/* Store Explorer - v1.192
+/* Store Explorer - v1.193
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -3230,7 +3230,7 @@
     }
 
     function clearCache() { cache.clear(); }
-    return {select,clearCache,getId,collectIndexedCandidates};
+    return {select,clearCache,getId,collectIndexedCandidates,runProjectionBenchmark};
   })();
 
   function circleBoundary() {
@@ -3572,7 +3572,7 @@
       const provinceModes=classifyCandidateProvinces(candidates,boundaryType,targetCircle,rectangleBounds);
       const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:candidatePacket.candidatesByProvince,shouldRender:!!state.showDaOverlay,boundaryType,targetCircle});
       if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
-      if (DA_PROJ_BENCH_ENABLED && boundaryType === 'circle') runProjectionBenchmark(targetCircle);
+      if (DA_PROJ_BENCH_ENABLED && boundaryType === 'circle') DA_ENGINE.runProjectionBenchmark(targetCircle);
       renderDaSelection(result);
       if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
     }catch(err){
