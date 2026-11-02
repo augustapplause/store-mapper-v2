@@ -2544,9 +2544,11 @@
     SK: [-110.1, 48.9, -101.3, 60.2],
     YT: [-141.2, 59.3, -123.8, 69.8]
   };
-  const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
+  const DA_PARAMS = new URLSearchParams(location.search);
+  const DA_PERF_ENABLED = DA_PARAMS.get('perf') === '1';
+  const DA_PROJ_BENCH_ENABLED = DA_PARAMS.get('perfproj') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0,circleProjectionMs:0,circleProjectionCalls:0,circleProjectionPoints:0,circleRingClipMs:0,circleRingClipCalls:0,circleEdgeMs:0,circleEdgeCalls:0,circleEdgeMsMax:0}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0,circleProjectionMs:0,circleProjectionCalls:0,circleProjectionPoints:0,circleRingClipMs:0,circleRingClipCalls:0,circleEdgeMs:0,circleEdgeCalls:0,circleEdgeMsMax:0,projectionSamples:[],projectionBenchmark:null}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2558,7 +2560,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.192`,
+        `DA PERF v1.193`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2571,6 +2573,7 @@
         `  projection: ${d.circleProjectionCalls} rings / ${d.circleProjectionPoints.toLocaleString()} pts / ${f(d.circleProjectionMs)}`,
         `  ring clipping: ${d.circleRingClipCalls} rings / ${f(d.circleRingClipMs)}`,
         `  edge clipping: ${d.circleEdgeCalls.toLocaleString()} edges / ${f(d.circleEdgeMs)} | max call ${f(d.circleEdgeMsMax)}`,
+        d.projectionBenchmark ? `projection benchmark: ${d.projectionBenchmark.samples.toLocaleString()} pts | direct ${f(d.projectionBenchmark.directMs)} | proj4 ${f(d.projectionBenchmark.proj4Ms)} | speedup ${d.projectionBenchmark.speedup.toFixed(2)}x | max error ${d.projectionBenchmark.maxErrorM.toFixed(3)} m | RMS error ${d.projectionBenchmark.rmsErrorM.toFixed(3)} m` : (DA_PROJ_BENCH_ENABLED ? 'projection benchmark: collecting samples…' : 'projection benchmark: off (?perfproj=1)'),
         `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
@@ -2735,6 +2738,15 @@
     }
 
     function projectRingToAeqd(ring, projector) {
+      if (DA_PROJ_BENCH_ENABLED && DA_PERF.d.projectionSamples.length < 25000) {
+        const remaining = 25000 - DA_PERF.d.projectionSamples.length;
+        for (let i = 0; i < ring.length && i < remaining; i++) {
+          const pt = ring[i];
+          if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+            DA_PERF.d.projectionSamples.push([Number(pt[0]), Number(pt[1])]);
+          }
+        }
+      }
       const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
       const projected = ring.map(([lng, lat]) => {
         const xy = projector.forward([lng, lat]);
@@ -2750,6 +2762,63 @@
         DA_PERF.d.circleProjectionMs += elapsed;
       }
       return projected;
+    }
+
+    function directSphericalAeqd(lng, lat, lat0, lng0) {
+      const R = 6371008.8;
+      const phi = lat * Math.PI / 180;
+      const lam = lng * Math.PI / 180;
+      const phi0 = lat0 * Math.PI / 180;
+      const lam0 = lng0 * Math.PI / 180;
+      let dLam = lam - lam0;
+      if (dLam > Math.PI) dLam -= 2 * Math.PI;
+      else if (dLam < -Math.PI) dLam += 2 * Math.PI;
+      const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
+      const sinPhi0 = Math.sin(phi0), cosPhi0 = Math.cos(phi0);
+      const cosC0 = sinPhi0 * sinPhi + cosPhi0 * cosPhi * Math.cos(dLam);
+      const cosC = Math.max(-1, Math.min(1, cosC0));
+      const c = Math.acos(cosC);
+      const sinC = Math.sin(c);
+      const k = Math.abs(c) < 1e-12 ? 1 : c / sinC;
+      return [
+        R * k * cosPhi * Math.sin(dLam),
+        R * k * (cosPhi0 * sinPhi - sinPhi0 * cosPhi * Math.cos(dLam))
+      ];
+    }
+
+    function runProjectionBenchmark(targetCircle) {
+      if (!DA_PROJ_BENCH_ENABLED || !targetCircle) return;
+      const samples = DA_PERF.d.projectionSamples;
+      if (!samples.length) return;
+      const n = samples.length;
+      const directOut = new Array(n);
+      const t0 = performance.now();
+      for (let i = 0; i < n; i++) {
+        const p = samples[i];
+        directOut[i] = directSphericalAeqd(p[0], p[1], targetCircle.lat, targetCircle.lng);
+      }
+      const directMs = performance.now() - t0;
+
+      const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
+      const projector = proj4('EPSG:4326', definition);
+      let maxErr2 = 0, sumErr2 = 0;
+      const t1 = performance.now();
+      for (let i = 0; i < n; i++) {
+        const ref = projector.forward(samples[i]);
+        const d = directOut[i];
+        const dx = d[0] - ref[0];
+        const dy = d[1] - ref[1];
+        const err2 = dx * dx + dy * dy;
+        if (err2 > maxErr2) maxErr2 = err2;
+        sumErr2 += err2;
+      }
+      const proj4Ms = performance.now() - t1;
+      const speedup = directMs > 0 ? proj4Ms / directMs : 0;
+      DA_PERF.d.projectionBenchmark = {
+        samples:n, directMs, proj4Ms, speedup,
+        maxErrorM:Math.sqrt(maxErr2),
+        rmsErrorM:Math.sqrt(sumErr2 / n)
+      };
     }
 
     function signedRingArea(ring) {
@@ -3503,6 +3572,7 @@
       const provinceModes=classifyCandidateProvinces(candidates,boundaryType,targetCircle,rectangleBounds);
       const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:candidatePacket.candidatesByProvince,shouldRender:!!state.showDaOverlay,boundaryType,targetCircle});
       if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
+      if (DA_PROJ_BENCH_ENABLED && boundaryType === 'circle') runProjectionBenchmark(targetCircle);
       renderDaSelection(result);
       if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
     }catch(err){
