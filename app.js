@@ -2544,11 +2544,9 @@
     SK: [-110.1, 48.9, -101.3, 60.2],
     YT: [-141.2, 59.3, -123.8, 69.8]
   };
-  const QUERY_PARAMS = new URLSearchParams(location.search);
-  const DA_PERF_ENABLED = QUERY_PARAMS.get('perf') === '1';
-  const VALIDATE_AEQD_ENABLED = QUERY_PARAMS.get('validateaeqd') === '1';
+  const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],validateCalls:0,validateMs:0,validateMaxAreaDiff:0,validateMaxPctDiff:0,validateRmsPctDiff:0,validateAreaDiffSumSq:0,validateSelectionMismatch:0,validateDirectSelected:0,validateProj4Selected:0,validateDirectPositive:0,validateProj4Positive:0}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2560,7 +2558,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.195`,
+        `DA PERF v1.150`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2570,12 +2568,6 @@
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
         `actual intersections ${d.actual.toLocaleString()} | selected ${d.selected.toLocaleString()}`,
-        ...(VALIDATE_AEQD_ENABLED ? [
-          `AEQD validation: ${d.validateCalls} calls / ${f(d.validateMs)}`,
-          `area max diff ${d.validateMaxAreaDiff.toFixed(6)} m² | max % diff ${d.validateMaxPctDiff.toFixed(8)}% | RMS % diff ${d.validateRmsPctDiff.toFixed(8)}%`,
-          `threshold mismatch ${d.validateSelectionMismatch} | direct selected ${d.validateDirectSelected} | proj4 selected ${d.validateProj4Selected}`,
-          `positive areas direct ${d.validateDirectPositive} | proj4 ${d.validateProj4Positive}`
-        ] : []),
         `top intersect calls: DA_ID type points rings time`,
         ...lines,
         `full intersect detail is logged to console as [DA PERF INTERSECTIONS]`
@@ -2729,85 +2721,8 @@
       return true;
     }
 
-    // Circle projection experiment: default remains the production proj4/WGS84 AEQD path.
-    // Add ?directaeqd=1 to opt into the specialized direct WGS84 implementation for benchmarking.
-    const DIRECT_AEQD_ENABLED = new URLSearchParams(location.search).get('directaeqd') === '1';
-
-    function buildDirectWgs84AeqdProjector(targetCircle) {
-      const a = 6378137.0;
-      const f = 1 / 298.257223563;
-      const b = a * (1 - f);
-      const lat0 = targetCircle.lat * Math.PI / 180;
-      const lon0 = targetCircle.lng * Math.PI / 180;
-      const sinLat0 = Math.sin(lat0);
-      const cosLat0 = Math.cos(lat0);
-
-      function forward(point) {
-        const lon = point[0] * Math.PI / 180;
-        const lat = point[1] * Math.PI / 180;
-        let L = lon - lon0;
-        if (L > Math.PI) L -= 2 * Math.PI;
-        else if (L < -Math.PI) L += 2 * Math.PI;
-
-        // Vincenty inverse on WGS84. For Store Explorer's practical radii this
-        // converges rapidly and gives the ellipsoidal geodesic distance/azimuth
-        // used to form the local AEQD coordinates.
-        const U1 = Math.atan((1 - f) * Math.tan(lat));
-        const U2 = Math.atan((1 - f) * Math.tan(lat0));
-        const sinU1 = Math.sin(U1), cosU1 = Math.cos(U1);
-        const sinU2 = Math.sin(U2), cosU2 = Math.cos(U2);
-
-        let lambda = L;
-        let lambdaPrev = NaN;
-        let sinSigma = 0, cosSigma = 1, sigma = 0;
-        let sinAlpha = 0, cosSqAlpha = 1, cos2SigmaM = 0;
-        for (let iter = 0; iter < 20; iter++) {
-          const sinLambda = Math.sin(lambda);
-          const cosLambda = Math.cos(lambda);
-          const t1 = cosU2 * sinLambda;
-          const t2 = cosU1 * sinU2 - sinU1 * cosU2 * cosLambda;
-          sinSigma = Math.hypot(t1, t2);
-          if (sinSigma === 0) return [0, 0];
-          cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
-          sigma = Math.atan2(sinSigma, cosSigma);
-          sinAlpha = cosU1 * cosU2 * sinLambda / sinSigma;
-          cosSqAlpha = Math.max(0, 1 - sinAlpha * sinAlpha);
-          cos2SigmaM = cosSqAlpha > 1e-24 ? cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha : 0;
-          const C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha));
-          lambdaPrev = lambda;
-          lambda = L + (1 - C) * f * sinAlpha * (
-            sigma + C * sinSigma * (
-              cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)
-            )
-          );
-          if (Math.abs(lambda - lambdaPrev) < 1e-12) break;
-        }
-
-        const uSq = cosSqAlpha * (a * a - b * b) / (b * b);
-        const A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
-        const B = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
-        const deltaSigma = B * sinSigma * (
-          cos2SigmaM + B / 4 * (
-            cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM) -
-            B / 6 * cos2SigmaM * (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)
-          )
-        );
-        const distance = b * A * (sigma - deltaSigma);
-        const azimuth = Math.atan2(
-          cosU2 * Math.sin(lambda),
-          cosU1 * sinU2 - sinU1 * cosU2 * Math.cos(lambda)
-        );
-
-        return [distance * Math.sin(azimuth), distance * Math.cos(azimuth)];
-      }
-
-      return { forward };
-    }
-
     function buildAeqdProjector(targetCircle) {
-      if (!targetCircle) throw new Error('Circle projection target is missing.');
-      if (DIRECT_AEQD_ENABLED) return buildDirectWgs84AeqdProjector(targetCircle);
-      if (typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
+      if (!targetCircle || typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
       const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
       return proj4('EPSG:4326', definition);
     }
@@ -3063,31 +2978,6 @@
             const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if (!(daArea>0)) continue;
             const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
-            if (VALIDATE_AEQD_ENABLED) {
-              const validationT0=performance.now();
-              const directProjector=buildDirectWgs84AeqdProjector(targetCircle);
-              const proj4Definition=`+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
-              const proj4Projector=typeof proj4 === 'function' ? proj4('EPSG:4326', proj4Definition) : null;
-              const directArea=trueCircleIntersectionArea(feature,targetCircle,directProjector);
-              const proj4Area=proj4Projector ? trueCircleIntersectionArea(feature,targetCircle,proj4Projector) : directArea;
-              const diff=Math.abs(directArea-proj4Area);
-              const directPct=directArea/daArea*100;
-              const proj4Pct=proj4Area/daArea*100;
-              const pctDiff=Math.abs(directPct-proj4Pct);
-              DA_PERF.d.validateCalls++;
-              DA_PERF.d.validateMs += performance.now()-validationT0;
-              DA_PERF.d.validateMaxAreaDiff=Math.max(DA_PERF.d.validateMaxAreaDiff,diff);
-              DA_PERF.d.validateMaxPctDiff=Math.max(DA_PERF.d.validateMaxPctDiff,pctDiff);
-              DA_PERF.d.validateAreaDiffSumSq += pctDiff*pctDiff;
-              DA_PERF.d.validateRmsPctDiff=Math.sqrt(DA_PERF.d.validateAreaDiffSumSq/DA_PERF.d.validateCalls);
-              const directSelected=directPct>=threshold;
-              const proj4Selected=proj4Pct>=threshold;
-              if(directSelected) DA_PERF.d.validateDirectSelected++;
-              if(proj4Selected) DA_PERF.d.validateProj4Selected++;
-              if(directArea>0) DA_PERF.d.validateDirectPositive++;
-              if(proj4Area>0) DA_PERF.d.validateProj4Positive++;
-              if(directSelected!==proj4Selected) DA_PERF.d.validateSelectionMismatch++;
-            }
             if (!(intersectionArea>0)) continue;
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
