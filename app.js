@@ -2544,9 +2544,11 @@
     SK: [-110.1, 48.9, -101.3, 60.2],
     YT: [-141.2, 59.3, -123.8, 69.8]
   };
-  const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
+  const QUERY_PARAMS = new URLSearchParams(location.search);
+  const DA_PERF_ENABLED = QUERY_PARAMS.get('perf') === '1';
+  const VALIDATE_AEQD_ENABLED = QUERY_PARAMS.get('validateaeqd') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],validateCalls:0,validateMs:0,validateMaxAreaDiff:0,validateMaxPctDiff:0,validateRmsPctDiff:0,validateAreaDiffSumSq:0,validateSelectionMismatch:0,validateDirectSelected:0,validateProj4Selected:0,validateDirectPositive:0,validateProj4Positive:0}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2558,7 +2560,7 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.150`,
+        `DA PERF v1.195`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
@@ -2568,6 +2570,12 @@
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
         `actual intersections ${d.actual.toLocaleString()} | selected ${d.selected.toLocaleString()}`,
+        ...(VALIDATE_AEQD_ENABLED ? [
+          `AEQD validation: ${d.validateCalls} calls / ${f(d.validateMs)}`,
+          `area max diff ${d.validateMaxAreaDiff.toFixed(6)} m² | max % diff ${d.validateMaxPctDiff.toFixed(8)}% | RMS % diff ${d.validateRmsPctDiff.toFixed(8)}%`,
+          `threshold mismatch ${d.validateSelectionMismatch} | direct selected ${d.validateDirectSelected} | proj4 selected ${d.validateProj4Selected}`,
+          `positive areas direct ${d.validateDirectPositive} | proj4 ${d.validateProj4Positive}`
+        ] : []),
         `top intersect calls: DA_ID type points rings time`,
         ...lines,
         `full intersect detail is logged to console as [DA PERF INTERSECTIONS]`
@@ -3055,6 +3063,31 @@
             const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if (!(daArea>0)) continue;
             const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
+            if (VALIDATE_AEQD_ENABLED) {
+              const validationT0=performance.now();
+              const directProjector=buildDirectWgs84AeqdProjector(targetCircle);
+              const proj4Definition=`+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
+              const proj4Projector=typeof proj4 === 'function' ? proj4('EPSG:4326', proj4Definition) : null;
+              const directArea=trueCircleIntersectionArea(feature,targetCircle,directProjector);
+              const proj4Area=proj4Projector ? trueCircleIntersectionArea(feature,targetCircle,proj4Projector) : directArea;
+              const diff=Math.abs(directArea-proj4Area);
+              const directPct=directArea/daArea*100;
+              const proj4Pct=proj4Area/daArea*100;
+              const pctDiff=Math.abs(directPct-proj4Pct);
+              DA_PERF.d.validateCalls++;
+              DA_PERF.d.validateMs += performance.now()-validationT0;
+              DA_PERF.d.validateMaxAreaDiff=Math.max(DA_PERF.d.validateMaxAreaDiff,diff);
+              DA_PERF.d.validateMaxPctDiff=Math.max(DA_PERF.d.validateMaxPctDiff,pctDiff);
+              DA_PERF.d.validateAreaDiffSumSq += pctDiff*pctDiff;
+              DA_PERF.d.validateRmsPctDiff=Math.sqrt(DA_PERF.d.validateAreaDiffSumSq/DA_PERF.d.validateCalls);
+              const directSelected=directPct>=threshold;
+              const proj4Selected=proj4Pct>=threshold;
+              if(directSelected) DA_PERF.d.validateDirectSelected++;
+              if(proj4Selected) DA_PERF.d.validateProj4Selected++;
+              if(directArea>0) DA_PERF.d.validateDirectPositive++;
+              if(proj4Area>0) DA_PERF.d.validateProj4Positive++;
+              if(directSelected!==proj4Selected) DA_PERF.d.validateSelectionMismatch++;
+            }
             if (!(intersectionArea>0)) continue;
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
