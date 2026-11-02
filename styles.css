@@ -1006,11 +1006,11 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 /* v1.189: circle radius input displays two decimal places. */
 
 
-/* v1.196: start-here workbook button and configurable hover help */
+/* v1.197: start-here workbook button, configurable hover help, DA export, and shape-drag processing */
 .financial-upload-button{
   background:#4f9d55!important;color:#fff!important;border:1px solid #3f8145!important;border-bottom:3px solid #356e3b!important;
   border-radius:8px!important;box-shadow:0 2px 0 #356e3b;transform:translateY(0);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
-  font-weight:700!important;text-align:center;padding:10px 11px!important;
+  font-weight:600!important;text-align:center;padding:10px 11px!important;
 }
 .financial-upload-button:hover{transform:translateY(-1px);box-shadow:0 3px 0 #356e3b;filter:brightness(.98);}
 .financial-upload-button:active{transform:translateY(2px);border-bottom-width:1px!important;box-shadow:0 0 0 #356e3b;}

@@ -1,4 +1,4 @@
-/* Store Explorer - v1.196
+/* Store Explorer - v1.197
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -61,6 +61,7 @@
     'distribution2-config':'Choose the second workbook field used for the comparison distribution view.',
     'selected-config':'Choose which store columns appear in the Selected Stores list.',
     'selected-export':'Export the currently selected stores to a file.',
+    'selected-da-export':'Export the currently selected Census DAs with their displayed Census fields and overlap.',
     'ticker-config':'Configure the metrics shown in the header ticker.',
     'marker-red':'Set the default store marker colour to red.',
     'marker-blue':'Set the default store marker colour to royal blue.',
@@ -92,7 +93,7 @@
     programmaticMoveUntil: 0,
     userMapInteraction: false,
     daActivationTrigger: null,
-    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false,
+    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
     censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
@@ -585,7 +586,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true;refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1986,6 +1987,33 @@
     }
     XLSX.writeFile(wb,filename,{bookType:'biff8'});
   }
+  async function exportSelectedDAs(){
+    const selected=state.daSelectionResult?.selected||[];
+    if(!selected.length){alert('No Census DAs are currently selected.');return;}
+    if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
+    const data=selected.map(item=>{
+      const a=censusAttributes(item.feature);
+      return {
+        'DA ID':DA_ENGINE.getId(item.feature)||'',
+        'Population':a.totalPopulation,
+        '65+':a.population65Plus,
+        '40+':a.population40Plus,
+        'Overlap':`${Number(item.overlapPct||0).toFixed(1)}%`
+      };
+    });
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb,ws,'Selected Census DAs');
+    const filename='selected_census_DAs.xls';
+    if(typeof window.showSaveFilePicker==='function'){
+      try{
+        const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Excel 97-2003 workbook',accept:{'application/vnd.ms-excel':['.xls']}}]});
+        const bytes=XLSX.write(wb,{bookType:'biff8',type:'array'});
+        const writable=await handle.createWritable();await writable.write(bytes);await writable.close();return;
+      }catch(err){if(err?.name==='AbortError')return;}
+    }
+    XLSX.writeFile(wb,filename,{bookType:'biff8'});
+  }
   function updateGroups(){
     const box=el('groupsSummary');
     if(!state.rows.length||!state.groups.length){box.innerHTML='<div class="empty-message">Choose one or more Groups to compare store segments.</div>';return;}
@@ -3288,6 +3316,7 @@
     el('censusDaList').innerHTML=`<div class="empty-message">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
     setDaTestStatus(`${esc(storeScope)} population selected from precomputed Census totals. No DA spatial query was run.`);
     state.daSelectionResult=null;
+    updateSelectedDaExportButton();
     state.daActivationTrigger='geography scope';
     updateCensusShapeStatus();
 
@@ -3368,12 +3397,18 @@
     el('kpiSalesPerPopulation').textContent = '—';
   }
 
+  function updateSelectedDaExportButton(){
+    const btn=el('exportSelectedDABtn');
+    if(btn)btn.disabled=!(state.daSelectionResult?.selected?.length);
+  }
+
   // Renderer is a consumer only: geographic membership is decided exclusively by DA_ENGINE.select().
   // No renderer-side province/R-tree query is permitted here.
   function renderDaSelection(result) {
     const renderT0=DA_PERF_ENABLED?performance.now():0;
     clearDaOverlay();
     state.daSelectionResult = result;
+    updateSelectedDaExportButton();
     state.selectedRows=getCensusShapeRows();
     requestAnimationFrame(()=>showActiveCensusShapeHandles());
     CENSUS_DEBUG.log('da:rendered',{count:result?.selectedCount||0,shape:censusShapeType()});
@@ -3420,11 +3455,29 @@
 
   function scheduleCensusQuery(delay=null, reason='shape change') {
     if(state.navigationDaSuppressed || !censusShapeType()) return;
+    if(state.censusShapeHandleDragActive){
+      if(reason)state.censusShapeHandlePendingReason=reason;
+      if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+      return;
+    }
     const scopeGeneration=state.censusScopeGeneration;
     if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
     if(reason)state.daActivationTrigger=reason;
     const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
     state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshCensusQuery(scopeGeneration);},wait);
+  }
+
+  function beginCensusShapeHandleDrag(reason){
+    state.censusShapeHandleDragActive=true;
+    state.censusShapeHandlePendingReason=reason||'shape handle drag';
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+  }
+
+  function endCensusShapeHandleDrag(reason){
+    const pending=state.censusShapeHandlePendingReason||reason||'shape handle drag';
+    state.censusShapeHandleDragActive=false;
+    state.censusShapeHandlePendingReason=null;
+    scheduleCensusQuery(null,pending);
   }
 
   async function refreshCensusQuery(expectedGeneration=state.censusScopeGeneration) {
@@ -3467,6 +3520,7 @@
         clearDaOverlay();
         const empty={threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},fullProvinceCodes:[],partialProvinceCodes:[]};
         state.daSelectionResult=empty;
+        updateSelectedDaExportButton();
         updateCensusPopulationSummary(empty.aggregate);
         const list=el('censusDaList');if(list)list.innerHTML='<div class="empty-message">No Census DAs intersect the active Census Query shape.</div>';
         setDaTestStatus('No Census DAs intersect the active Census Query shape.');
@@ -3977,7 +4031,7 @@
       clearFileBtn:'clear-financial',drawCircleBtn:'circle',drawRectangleBtn:'box',clearCensusShapeBtn:'clear-census',
       filterBtn:'filter-config',clearFiltersBtn:'filter-clear',markerAnimationConfigureBtn:'animate-when',popupConfigBtn:'popup-config',
       subjectsBtn:'subjects-config',groupsBtn:'groups-config',distributionBtn:'distribution-config',distributionBtn2:'distribution2-config',
-      selectedStoresBtn:'selected-config',exportSelectedBtn:'selected-export',tickerConfigBtn:'ticker-config',helpConfigBtn:'help-config',
+      selectedStoresBtn:'selected-config',exportSelectedBtn:'selected-export',exportSelectedDABtn:'selected-da-export',tickerConfigBtn:'ticker-config',helpConfigBtn:'help-config',
       markerColorRed:'marker-red',searchGoBtn:'go-search',storeNumberBtn:'store-jump'
     };
     return preferred[id] || id || `button-${text.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`;
@@ -4508,6 +4562,7 @@
     let circleMoveDragStartHandle=null;
     moveHandle.on('dragstart',()=>{
       if(!state.circleSelection)return;
+      beginCensusShapeHandleDrag('circle moved');
       circleMoveDragStartCenter=circle.getLatLng();
       circleMoveDragStartHandle=moveHandle.getLatLng();
     });
@@ -4523,11 +4578,15 @@
       updateCircleHandlePositions();
       updateCensusShapeStatus();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
-      scheduleCensusQuery(null,'circle moved');
     });
     moveHandle.on('dragend',()=>{
       circleMoveDragStartCenter=null;
       circleMoveDragStartHandle=null;
+      endCensusShapeHandleDrag('circle moved');
+    });
+    sizeHandle.on('dragstart',()=>{
+      if(!state.circleSelection)return;
+      beginCensusShapeHandleDrag('circle resized by handle');
     });
     sizeHandle.on('drag',e=>{
       if(!state.circleSelection)return;
@@ -4537,7 +4596,9 @@
       updateCircleHandlePositions();
       updateCensusShapeStatus();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
-      scheduleCensusQuery(null,'circle resized by handle');
+    });
+    sizeHandle.on('dragend',()=>{
+      endCensusShapeHandleDrag('circle resized by handle');
     });
     state.circleEditHandles=[centerHandle,moveHandle,sizeHandle];
   }
@@ -4549,6 +4610,10 @@
     const moveStart=b0.getNorthEast();
     const moveHandle=L.marker(moveStart,{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1801,icon:L.divIcon({className:'rectangle-edit-handle rectangle-move-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
     const cornerHandle=L.marker(b0.getSouthEast(),{pane:'censusHandlePane',draggable:true,interactive:true,zIndexOffset:1802,icon:L.divIcon({className:'rectangle-edit-handle rectangle-corner-handle',html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+    moveHandle.on('dragstart',()=>{
+      if(!state.rectangleSelection)return;
+      beginCensusShapeHandleDrag('rectangle moved');
+    });
     moveHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4567,10 +4632,12 @@
       cornerHandle.setLatLng(nb.getSouthEast());
       updateCensusShapeStatus();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
-      scheduleCensusQuery(null,'rectangle moved');
+    });
+    moveHandle.on('dragend',()=>{
+      endCensusShapeHandleDrag('rectangle moved');
     });
     let rectangleResizePending=false;
-    cornerHandle.on('dragstart',()=>{ rectangleResizePending=true; });
+    cornerHandle.on('dragstart',()=>{ rectangleResizePending=true; beginCensusShapeHandleDrag('rectangle resized'); });
     cornerHandle.on('drag',e=>{
       if(!state.rectangleSelection)return;
       const current=rectangle.getBounds();
@@ -4598,7 +4665,7 @@
       updateCensusShapeStatus();
       updateRectangleLabel();
       state.daProvinceCacheKey=null;state.daProvinceCache=null;
-      scheduleCensusQuery(null,'rectangle resized');
+      endCensusShapeHandleDrag('rectangle resized');
     });
     state.rectangleEditHandles=[centerHandle,moveHandle,cornerHandle];
   }
@@ -4785,6 +4852,7 @@
   el('selectedStoresClear').addEventListener('click',()=>{renderSelectedStoresConfig('');});
   el('selectedStoresApply').addEventListener('click',()=>{state.selectedStoreColumns=selectedStoreCheckedValues();refreshConfigUI();updateSelectedStoresList();});
   el('exportSelectedBtn').addEventListener('click',exportSelectedStores);
+  el('exportSelectedDABtn').addEventListener('click',exportSelectedDAs);
   el('groupsBtn').addEventListener('click',()=>{renderChecklist('groupsList',state.groups,'group',el('groupSearch').value);el('groupsDialog').showModal();});
 
   el('groupSearch').addEventListener('input',e=>renderChecklist('groupsList',checkedValues('groupsList'),'group',e.target.value));
