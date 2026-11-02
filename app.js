@@ -1,4 +1,4 @@
-/* Store Explorer - v1.193
+/* Store Explorer - v1.190
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2544,11 +2544,9 @@
     SK: [-110.1, 48.9, -101.3, 60.2],
     YT: [-141.2, 59.3, -123.8, 69.8]
   };
-  const DA_PARAMS = new URLSearchParams(location.search);
-  const DA_PERF_ENABLED = DA_PARAMS.get('perf') === '1';
-  const DA_PROJ_BENCH_ENABLED = DA_PARAMS.get('perfproj') === '1';
+  const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
   const DA_PERF = {
-    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[],candidateBboxMs:0,candidateLoadMs:0,candidateRtreeMs:0,containmentMs:0,fullMaterializeMs:0,partialMaterializeMs:0,fullAggregateMs:0,partialAggregateMs:0,circleIntersectionMs:0,circleIntersectionCalls:0,circleProjectionMs:0,circleProjectionCalls:0,circleProjectionPoints:0,circleRingClipMs:0,circleRingClipCalls:0,circleEdgeMs:0,circleEdgeCalls:0,circleEdgeMsMax:0,projectionSamples:[],projectionBenchmark:null}; },
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
     show(){
       if(!DA_PERF_ENABLED)return;
       const d=this.d;
@@ -2560,20 +2558,12 @@
         ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
         : ['(none)'];
       el.textContent=[
-        `DA PERF v1.193`,
+        `DA PERF v1.150`,
         `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
         `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
         `cache hit: ${d.candidateCacheHit}`,
         `indexed ${d.indexed.toLocaleString()} | bbox candidates ${d.candidates.toLocaleString()}`,
         `full-contained ${d.full.toLocaleString()} | partial ${d.partial.toLocaleString()}`,
-        `candidate breakdown: bbox ${f(d.candidateBboxMs)} | load ${f(d.candidateLoadMs)} | rtree ${f(d.candidateRtreeMs)}`,
-        `select breakdown: contained ${f(d.containmentMs)} | full materialize ${f(d.fullMaterializeMs)} | partial materialize ${f(d.partialMaterializeMs)}`,
-        `select aggregate: full ${f(d.fullAggregateMs)} | partial ${f(d.partialAggregateMs)}`,
-        `circle intersection: ${d.circleIntersectionCalls} calls / ${f(d.circleIntersectionMs)}`,
-        `  projection: ${d.circleProjectionCalls} rings / ${d.circleProjectionPoints.toLocaleString()} pts / ${f(d.circleProjectionMs)}`,
-        `  ring clipping: ${d.circleRingClipCalls} rings / ${f(d.circleRingClipMs)}`,
-        `  edge clipping: ${d.circleEdgeCalls.toLocaleString()} edges / ${f(d.circleEdgeMs)} | max call ${f(d.circleEdgeMsMax)}`,
-        d.projectionBenchmark ? `projection benchmark: ${d.projectionBenchmark.samples.toLocaleString()} pts | direct ${f(d.projectionBenchmark.directMs)} | proj4 ${f(d.projectionBenchmark.proj4Ms)} | speedup ${d.projectionBenchmark.speedup.toFixed(2)}x | max error ${d.projectionBenchmark.maxErrorM.toFixed(3)} m | RMS error ${d.projectionBenchmark.rmsErrorM.toFixed(3)} m` : (DA_PROJ_BENCH_ENABLED ? 'projection benchmark: collecting samples…' : 'projection benchmark: off (?perfproj=1)'),
         `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
         `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
         `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
@@ -2731,94 +2721,97 @@
       return true;
     }
 
+    // Circle projection experiment: default remains the production proj4/WGS84 AEQD path.
+    // Add ?directaeqd=1 to opt into the specialized direct WGS84 implementation for benchmarking.
+    const DIRECT_AEQD_ENABLED = new URLSearchParams(location.search).get('directaeqd') === '1';
+
+    function buildDirectWgs84AeqdProjector(targetCircle) {
+      const a = 6378137.0;
+      const f = 1 / 298.257223563;
+      const b = a * (1 - f);
+      const lat0 = targetCircle.lat * Math.PI / 180;
+      const lon0 = targetCircle.lng * Math.PI / 180;
+      const sinLat0 = Math.sin(lat0);
+      const cosLat0 = Math.cos(lat0);
+
+      function forward(point) {
+        const lon = point[0] * Math.PI / 180;
+        const lat = point[1] * Math.PI / 180;
+        let L = lon - lon0;
+        if (L > Math.PI) L -= 2 * Math.PI;
+        else if (L < -Math.PI) L += 2 * Math.PI;
+
+        // Vincenty inverse on WGS84. For Store Explorer's practical radii this
+        // converges rapidly and gives the ellipsoidal geodesic distance/azimuth
+        // used to form the local AEQD coordinates.
+        const U1 = Math.atan((1 - f) * Math.tan(lat));
+        const U2 = Math.atan((1 - f) * Math.tan(lat0));
+        const sinU1 = Math.sin(U1), cosU1 = Math.cos(U1);
+        const sinU2 = Math.sin(U2), cosU2 = Math.cos(U2);
+
+        let lambda = L;
+        let lambdaPrev = NaN;
+        let sinSigma = 0, cosSigma = 1, sigma = 0;
+        let sinAlpha = 0, cosSqAlpha = 1, cos2SigmaM = 0;
+        for (let iter = 0; iter < 20; iter++) {
+          const sinLambda = Math.sin(lambda);
+          const cosLambda = Math.cos(lambda);
+          const t1 = cosU2 * sinLambda;
+          const t2 = cosU1 * sinU2 - sinU1 * cosU2 * cosLambda;
+          sinSigma = Math.hypot(t1, t2);
+          if (sinSigma === 0) return [0, 0];
+          cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
+          sigma = Math.atan2(sinSigma, cosSigma);
+          sinAlpha = cosU1 * cosU2 * sinLambda / sinSigma;
+          cosSqAlpha = Math.max(0, 1 - sinAlpha * sinAlpha);
+          cos2SigmaM = cosSqAlpha > 1e-24 ? cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha : 0;
+          const C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha));
+          lambdaPrev = lambda;
+          lambda = L + (1 - C) * f * sinAlpha * (
+            sigma + C * sinSigma * (
+              cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)
+            )
+          );
+          if (Math.abs(lambda - lambdaPrev) < 1e-12) break;
+        }
+
+        const uSq = cosSqAlpha * (a * a - b * b) / (b * b);
+        const A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
+        const B = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
+        const deltaSigma = B * sinSigma * (
+          cos2SigmaM + B / 4 * (
+            cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM) -
+            B / 6 * cos2SigmaM * (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)
+          )
+        );
+        const distance = b * A * (sigma - deltaSigma);
+        const azimuth = Math.atan2(
+          cosU2 * Math.sin(lambda),
+          cosU1 * sinU2 - sinU1 * cosU2 * Math.cos(lambda)
+        );
+
+        return [distance * Math.sin(azimuth), distance * Math.cos(azimuth)];
+      }
+
+      return { forward };
+    }
+
     function buildAeqdProjector(targetCircle) {
-      if (!targetCircle || typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
+      if (!targetCircle) throw new Error('Circle projection target is missing.');
+      if (DIRECT_AEQD_ENABLED) return buildDirectWgs84AeqdProjector(targetCircle);
+      if (typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
       const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
       return proj4('EPSG:4326', definition);
     }
 
     function projectRingToAeqd(ring, projector) {
-      if (DA_PROJ_BENCH_ENABLED && DA_PERF.d.projectionSamples.length < 25000) {
-        const remaining = 25000 - DA_PERF.d.projectionSamples.length;
-        for (let i = 0; i < ring.length && i < remaining; i++) {
-          const pt = ring[i];
-          if (Array.isArray(pt) && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
-            DA_PERF.d.projectionSamples.push([Number(pt[0]), Number(pt[1])]);
-          }
-        }
-      }
-      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
-      const projected = ring.map(([lng, lat]) => {
+      return ring.map(([lng, lat]) => {
         const xy = projector.forward([lng, lat]);
         if (!Array.isArray(xy) || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
           throw new Error('Non-finite WGS84 AEQD coordinate encountered.');
         }
         return [xy[0], xy[1]];
       });
-      if (DA_PERF_ENABLED) {
-        const elapsed = performance.now() - perfT0;
-        DA_PERF.d.circleProjectionCalls += 1;
-        DA_PERF.d.circleProjectionPoints += ring.length;
-        DA_PERF.d.circleProjectionMs += elapsed;
-      }
-      return projected;
-    }
-
-    function directSphericalAeqd(lng, lat, lat0, lng0) {
-      const R = 6371008.8;
-      const phi = lat * Math.PI / 180;
-      const lam = lng * Math.PI / 180;
-      const phi0 = lat0 * Math.PI / 180;
-      const lam0 = lng0 * Math.PI / 180;
-      let dLam = lam - lam0;
-      if (dLam > Math.PI) dLam -= 2 * Math.PI;
-      else if (dLam < -Math.PI) dLam += 2 * Math.PI;
-      const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
-      const sinPhi0 = Math.sin(phi0), cosPhi0 = Math.cos(phi0);
-      const cosC0 = sinPhi0 * sinPhi + cosPhi0 * cosPhi * Math.cos(dLam);
-      const cosC = Math.max(-1, Math.min(1, cosC0));
-      const c = Math.acos(cosC);
-      const sinC = Math.sin(c);
-      const k = Math.abs(c) < 1e-12 ? 1 : c / sinC;
-      return [
-        R * k * cosPhi * Math.sin(dLam),
-        R * k * (cosPhi0 * sinPhi - sinPhi0 * cosPhi * Math.cos(dLam))
-      ];
-    }
-
-    function runProjectionBenchmark(targetCircle) {
-      if (!DA_PROJ_BENCH_ENABLED || !targetCircle) return;
-      const samples = DA_PERF.d.projectionSamples;
-      if (!samples.length) return;
-      const n = samples.length;
-      const directOut = new Array(n);
-      const t0 = performance.now();
-      for (let i = 0; i < n; i++) {
-        const p = samples[i];
-        directOut[i] = directSphericalAeqd(p[0], p[1], targetCircle.lat, targetCircle.lng);
-      }
-      const directMs = performance.now() - t0;
-
-      const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
-      const projector = proj4('EPSG:4326', definition);
-      let maxErr2 = 0, sumErr2 = 0;
-      const t1 = performance.now();
-      for (let i = 0; i < n; i++) {
-        const ref = projector.forward(samples[i]);
-        const d = directOut[i];
-        const dx = d[0] - ref[0];
-        const dy = d[1] - ref[1];
-        const err2 = dx * dx + dy * dy;
-        if (err2 > maxErr2) maxErr2 = err2;
-        sumErr2 += err2;
-      }
-      const proj4Ms = performance.now() - t1;
-      const speedup = directMs > 0 ? proj4Ms / directMs : 0;
-      DA_PERF.d.projectionBenchmark = {
-        samples:n, directMs, proj4Ms, speedup,
-        maxErrorM:Math.sqrt(maxErr2),
-        rmsErrorM:Math.sqrt(sumErr2 / n)
-      };
     }
 
     function signedRingArea(ring) {
@@ -2832,7 +2825,6 @@
     }
 
     function edgeCircleContribution(ax, ay, bx, by, radius) {
-      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
       const dx = bx - ax;
       const dy = by - ay;
       const A = dx * dx + dy * dy;
@@ -2867,26 +2859,15 @@
           contribution += radius * radius * Math.atan2(x0 * y1 - y0 * x1, x0 * x1 + y0 * y1) / 2;
         }
       }
-      if (DA_PERF_ENABLED) {
-        const elapsed = performance.now() - perfT0;
-        DA_PERF.d.circleEdgeCalls += 1;
-        DA_PERF.d.circleEdgeMs += elapsed;
-        if (elapsed > DA_PERF.d.circleEdgeMsMax) DA_PERF.d.circleEdgeMsMax = elapsed;
-      }
       return contribution;
     }
 
     function clippedRingArea(ring, radius) {
-      const perfT0 = DA_PERF_ENABLED ? performance.now() : 0;
       let area = 0;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i];
         const b = ring[(i + 1) % ring.length];
         area += edgeCircleContribution(a[0], a[1], b[0], b[1], radius);
-      }
-      if (DA_PERF_ENABLED) {
-        DA_PERF.d.circleRingClipCalls += 1;
-        DA_PERF.d.circleRingClipMs += performance.now() - perfT0;
       }
       return area;
     }
@@ -3029,21 +3010,15 @@
     async function collectIndexedCandidates(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
       if(!boundary?.geometry) return {provinces:[],candidatesByProvince:{},candidateCount:0,indexedFeatures:0,boundaryBbox:null};
       const perfT0=DA_PERF_ENABLED?performance.now():0;
-      const bboxT0=DA_PERF_ENABLED?performance.now():0;
       const boundaryBbox=turf.bbox(boundary);
-      if(DA_PERF_ENABLED) DA_PERF.d.candidateBboxMs += performance.now()-bboxT0;
       const candidatesByProvince={};
       const provinces=[];
       let candidateCount=0;
       let indexedFeatures=0;
       for(const provinceCode of provinceCodes||[]){
         if(!CONFIG.daFiles[provinceCode]) continue;
-        const loadT0=DA_PERF_ENABLED?performance.now():0;
         const entry=await loadProvince(provinceCode);
-        if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
-        const rtreeT0=DA_PERF_ENABLED?performance.now():0;
         const candidates=bboxQuery(entry,boundaryBbox);
-        if(DA_PERF_ENABLED) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
         candidatesByProvince[provinceCode]=candidates;
         candidateCount+=candidates.length;
         indexedFeatures+=entry.featureCount||0;
@@ -3060,36 +3035,26 @@
       const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
       for(const index of candidates){
         try{
-          const containmentT0=DA_PERF_ENABLED?performance.now():0;
           const fullyContained=bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle);
-          if(DA_PERF_ENABLED) DA_PERF.d.containmentMs += performance.now()-containmentT0;
           if(fullyContained){
             if(DA_PERF_ENABLED) DA_PERF.d.full++;
-            const materializeT0=DA_PERF_ENABLED?performance.now():0;
             const feature=featureFromAsset(entry,index,true);
-            if(DA_PERF_ENABLED) DA_PERF.d.fullMaterializeMs += performance.now()-materializeT0;
             selected.push({feature,provinceCode:entry.provinceCode,overlapPct:100});
             if(includeAggregate){
-              const aggregateT0=DA_PERF_ENABLED?performance.now():0;
               const a=censusAttributes(feature);
               aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
               aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
               aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
-              if(DA_PERF_ENABLED) DA_PERF.d.fullAggregateMs += performance.now()-aggregateT0;
             }
             continue;
           }
-          const materializeT0=DA_PERF_ENABLED?performance.now():0;
           const feature=featureFromAsset(entry,index,true);
-          if(DA_PERF_ENABLED) DA_PERF.d.partialMaterializeMs += performance.now()-materializeT0;
           if(DA_PERF_ENABLED) DA_PERF.d.partial++;
           let overlapPct=0;
           if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
             const daArea=feature.properties && Number(feature.properties.DA_AREA);
             if (!(daArea>0)) continue;
-            const circleT0=DA_PERF_ENABLED?performance.now():0;
             const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
-            if(DA_PERF_ENABLED){ DA_PERF.d.circleIntersectionMs += performance.now()-circleT0; DA_PERF.d.circleIntersectionCalls += 1; }
             if (!(intersectionArea>0)) continue;
             actualIntersectionCount+=1;
             overlapPct=intersectionArea/daArea*100;
@@ -3133,12 +3098,10 @@
           if(overlapPct<threshold)continue;
           selected.push({feature,provinceCode:entry.provinceCode,overlapPct});
           if(includeAggregate){
-            const aggregateT0=DA_PERF_ENABLED?performance.now():0;
             const a=censusAttributes(feature);
             aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
             aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
             aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
-            if(DA_PERF_ENABLED) DA_PERF.d.partialAggregateMs += performance.now()-aggregateT0;
           }
         }catch(_){ }
       }
@@ -3196,29 +3159,21 @@
           aggregate.population40Plus+=aggregateStub.population40Plus;aggregate.visibleMinorityPopulation+=aggregateStub.visibleMinorityPopulation;
           aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
           if(!shouldRender)continue;
-          const loadT0=DA_PERF_ENABLED?performance.now():0;
           const entry=await loadProvince(mode.provinceCode);
-          if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
           const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
-          const rtreeT0=DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)?performance.now():0;
           const candidates = Array.isArray(precomputedCandidates)
             ? precomputedCandidates
             : bboxQuery(entry,boundaryBbox);
-          if(DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
           candidateCount+=candidates.length;
           actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
           continue;
         }
-        const loadT0=DA_PERF_ENABLED?performance.now():0;
         const entry=await loadProvince(mode.provinceCode);
-        if(DA_PERF_ENABLED) DA_PERF.d.candidateLoadMs += performance.now()-loadT0;
         partialProvinceCodes.push(mode.provinceCode);
         const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
-        const rtreeT0=DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)?performance.now():0;
         const candidates = Array.isArray(precomputedCandidates)
           ? precomputedCandidates
           : bboxQuery(entry,boundaryBbox);
-        if(DA_PERF_ENABLED&&!Array.isArray(precomputedCandidates)) DA_PERF.d.candidateRtreeMs += performance.now()-rtreeT0;
         indexedFeatures+=entry.featureCount||0;
         candidateCount+=candidates.length;
         actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
@@ -3230,7 +3185,7 @@
     }
 
     function clearCache() { cache.clear(); }
-    return {select,clearCache,getId,collectIndexedCandidates,runProjectionBenchmark};
+    return {select,clearCache,getId,collectIndexedCandidates};
   })();
 
   function circleBoundary() {
@@ -3572,7 +3527,6 @@
       const provinceModes=classifyCandidateProvinces(candidates,boundaryType,targetCircle,rectangleBounds);
       const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:candidatePacket.candidatesByProvince,shouldRender:!!state.showDaOverlay,boundaryType,targetCircle});
       if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
-      if (DA_PROJ_BENCH_ENABLED && boundaryType === 'circle') DA_ENGINE.runProjectionBenchmark(targetCircle);
       renderDaSelection(result);
       if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
     }catch(err){
