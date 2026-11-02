@@ -1,4 +1,4 @@
-/* Store Explorer - v1.190
+/* Store Explorer - v1.196
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -41,6 +41,33 @@
   };
 
   const CENSUS_PROVINCE_NAMES = {AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NL:'Newfoundland and Labrador',NS:'Nova Scotia',NT:'Northwest Territories',NU:'Nunavut',ON:'Ontario',PE:'Prince Edward Island',QC:'Quebec',SK:'Saskatchewan',YT:'Yukon'};
+
+  const HELP_STORAGE_KEY='storeExplorer.help.v1';
+  const HELP_DEFAULTS={
+    'financial-file':'Start here: load your Excel or CSV workbook to populate the store data and enable the analysis controls.',
+    'clear-financial':'Remove the current workbook and reset the store data. Census map tools remain available.',
+    'circle':'Draw a circular Census catchment. Click a map location or store marker to place its centre.',
+    'box':'Draw a rectangular Census catchment. Click a map location or store marker to place its centre.',
+    'clear-census':'Remove the active Census catchment and its calculated DA results.',
+    'go-search':'Jump the map to a city, postal code, or address.',
+    'store-jump':'Jump directly to a store using its Store Profile number.',
+    'filter-config':'Build and apply filters to the workbook data.',
+    'filter-clear':'Remove all active workbook filters.',
+    'animate-when':'Choose the workbook condition that controls marker animation.',
+    'popup-config':'Configure the information shown when a store marker popup opens.',
+    'subjects-config':'Configure workbook-based metrics shown in the Subjects panel.',
+    'groups-config':'Choose workbook columns used to group stores for comparison.',
+    'distribution-config':'Choose the workbook field used for the distribution view.',
+    'distribution2-config':'Choose the second workbook field used for the comparison distribution view.',
+    'selected-config':'Choose which store columns appear in the Selected Stores list.',
+    'selected-export':'Export the currently selected stores to a file.',
+    'ticker-config':'Configure the metrics shown in the header ticker.',
+    'marker-red':'Set the default store marker colour to red.',
+    'marker-blue':'Set the default store marker colour to royal blue.',
+    'marker-purple':'Set the default store marker colour to purple.',
+    'marker-black':'Set the default store marker colour to black.',
+    'help-config':'Customize the short hover help shown for the main controls in this app.'
+  };
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
@@ -3931,6 +3958,81 @@
     if(vp)vp.classList.toggle('paused',!state.tickerPlaying);
     if(vp)vp.setAttribute('aria-label',state.tickerPlaying?'Ticker metrics — click to pause':'Ticker metrics — click to resume; drag while paused');
   }
+  function loadHelpConfig(){
+    try{
+      const raw=localStorage.getItem(HELP_STORAGE_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw);
+        state.helpConfig={...HELP_DEFAULTS,...(parsed&&typeof parsed==='object'?parsed:{})};
+      }else state.helpConfig={...HELP_DEFAULTS};
+    }catch(_){state.helpConfig={...HELP_DEFAULTS};}
+  }
+  function saveHelpConfig(){try{localStorage.setItem(HELP_STORAGE_KEY,JSON.stringify(state.helpConfig));}catch(_){} applyAllHelpTooltips();}
+  function helpButtonKey(btn){
+    if(btn.dataset.helpKey) return btn.dataset.helpKey;
+    if(btn.id==='tickerConfigBtn') return 'ticker-config';
+    const text=(btn.innerText||btn.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().toLowerCase();
+    const id=btn.id||'';
+    const preferred={
+      clearFileBtn:'clear-financial',drawCircleBtn:'circle',drawRectangleBtn:'box',clearCensusShapeBtn:'clear-census',
+      filterBtn:'filter-config',clearFiltersBtn:'filter-clear',markerAnimationConfigureBtn:'animate-when',popupConfigBtn:'popup-config',
+      subjectsBtn:'subjects-config',groupsBtn:'groups-config',distributionBtn:'distribution-config',distributionBtn2:'distribution2-config',
+      selectedStoresBtn:'selected-config',exportSelectedBtn:'selected-export',tickerConfigBtn:'ticker-config',helpConfigBtn:'help-config',
+      markerColorRed:'marker-red',searchGoBtn:'go-search',storeNumberBtn:'store-jump'
+    };
+    return preferred[id] || id || `button-${text.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`;
+  }
+  function helpButtonLabel(btn){
+    const label=(btn.innerText||btn.getAttribute('aria-label')||btn.getAttribute('title')||'Button').replace(/\s+/g,' ').trim();
+    return label || 'Button';
+  }
+  function getHelpButtons(){
+    return [...document.querySelectorAll('.left-panel button,.left-panel .file-button,.right-panel button,#tickerConfigBtn')];
+  }
+  let helpTooltip=null,helpHideTimer=null;
+  function hideHelpTooltip(){if(helpTooltip){helpTooltip.remove();helpTooltip=null;}clearTimeout(helpHideTimer);}
+  function showHelpTooltip(btn){
+    const key=helpButtonKey(btn); const message=String(state.helpConfig?.[key]||'').trim();
+    if(!message) return;
+    hideHelpTooltip();
+    const tip=document.createElement('div'); tip.className='help-hover-tooltip'; tip.textContent=message; tip.setAttribute('role','tooltip');
+    document.body.appendChild(tip); helpTooltip=tip;
+    const r=btn.getBoundingClientRect(); const pad=10; const gap=8;
+    let left=r.left; let top=r.bottom+gap;
+    const width=Math.min(300,Math.max(220,document.documentElement.clientWidth-2*pad));
+    tip.style.width=width+'px';
+    const t=tip.getBoundingClientRect();
+    if(left+t.width>window.innerWidth-pad) left=window.innerWidth-pad-t.width;
+    if(left<pad) left=pad;
+    if(top+t.height>window.innerHeight-pad) top=r.top-gap-t.height;
+    if(top<pad) top=pad;
+    tip.style.left=Math.round(left)+'px'; tip.style.top=Math.round(top)+'px';
+  }
+  function applyHelpTooltipToButton(btn){
+    const key=helpButtonKey(btn); btn.dataset.helpKey=key;
+    btn.removeEventListener('mouseenter',btn._helpEnter); btn.removeEventListener('mouseleave',btn._helpLeave); btn.removeEventListener('focus',btn._helpFocus); btn.removeEventListener('blur',btn._helpBlur);
+    btn._helpEnter=()=>showHelpTooltip(btn); btn._helpLeave=()=>{helpHideTimer=setTimeout(hideHelpTooltip,80);}; btn._helpFocus=()=>showHelpTooltip(btn); btn._helpBlur=hideHelpTooltip;
+    btn.addEventListener('mouseenter',btn._helpEnter); btn.addEventListener('mouseleave',btn._helpLeave); btn.addEventListener('focus',btn._helpFocus); btn.addEventListener('blur',btn._helpBlur);
+  }
+  function applyAllHelpTooltips(){getHelpButtons().forEach(applyHelpTooltipToButton);}
+  function renderHelpConfig(){
+    const list=el('helpConfigList'); if(!list)return;
+    list.innerHTML='';
+    const seen=new Set();
+    getHelpButtons().forEach(btn=>{
+      const key=helpButtonKey(btn); if(seen.has(key))return; seen.add(key);
+      const row=document.createElement('label'); row.className='help-config-row';
+      const title=document.createElement('span'); title.className='help-config-label'; title.textContent=helpButtonLabel(btn);
+      const input=document.createElement('textarea'); input.rows=2; input.maxLength=220; input.value=state.helpConfig?.[key]||''; input.dataset.helpKey=key; input.placeholder='One or two short sentences.';
+      row.append(title,input); list.appendChild(row);
+    });
+  }
+  function openHelpConfig(){renderHelpConfig();el('helpConfigDialog').showModal();}
+  function applyHelpConfig(){
+    document.querySelectorAll('#helpConfigList textarea[data-help-key]').forEach(input=>{state.helpConfig[input.dataset.helpKey]=input.value.trim();});
+    saveHelpConfig(); el('helpConfigDialog').close();
+  }
+
   function setupTicker(){
     loadTickerConfig();
     renderTicker();
@@ -4741,6 +4843,12 @@
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();
   setupTicker();
+  loadHelpConfig();
+  document.querySelectorAll('.marker-color-swatch').forEach((b,i)=>{b.dataset.helpKey=['marker-red','marker-blue','marker-purple','marker-black'][i]||'marker-red';});
+  el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
+  el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
+  el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
+  applyAllHelpTooltips();
   loadHeaderCsdLookup();
   updateSelection();
   updateHeaderGeography();
