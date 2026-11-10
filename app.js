@@ -1,4 +1,4 @@
-/* Store Explorer - v1.201
+/* Store Explorer - v1.202
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -86,7 +86,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryHitRadiusPx: 10, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -116,9 +116,61 @@
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
   secondaryMarkerPane.style.zIndex = '620';
-  secondaryMarkerPane.style.pointerEvents = 'auto';
-  state.secondaryLocationLayer = L.layerGroup().addTo(map);
+  secondaryMarkerPane.style.pointerEvents = 'none';
+
+  class SecondaryCanvasLayer extends L.Layer {
+    onAdd(mapInstance){
+      this._map=mapInstance;
+      this._canvas=L.DomUtil.create('canvas','secondary-canvas-layer');
+      this._pane=mapInstance.getPane('secondaryMarkerPane');
+      this._pane.appendChild(this._canvas);
+      mapInstance.on('move zoomend resize',this._reset,this);
+      this._reset();
+    }
+    onRemove(mapInstance){
+      mapInstance.off('move zoomend resize',this._reset,this);
+      if(this._canvas?.parentNode)this._canvas.parentNode.removeChild(this._canvas);
+      this._canvas=null;
+      this._map=null;
+    }
+    _reset(){
+      if(!this._map||!this._canvas)return;
+      const size=this._map.getSize();
+      const dpr=Math.max(1,window.devicePixelRatio||1);
+      this._canvas.width=Math.max(1,Math.round(size.x*dpr));
+      this._canvas.height=Math.max(1,Math.round(size.y*dpr));
+      this._canvas.style.width=`${size.x}px`;
+      this._canvas.style.height=`${size.y}px`;
+      L.DomUtil.setPosition(this._canvas,L.point(0,0));
+      this.redraw();
+    }
+    redraw(){
+      if(!this._canvas||!this._map)return;
+      const ctx=this._canvas.getContext('2d');
+      const dpr=Math.max(1,window.devicePixelRatio||1);
+      const size=this._map.getSize();
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,size.x,size.y);
+      if(!state.secondaryVisible||!state.secondarySpatialIndex)return;
+      const b=this._map.getBounds();
+      const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
+      const items=state.secondarySpatialIndex.search(q);
+      ctx.save();
+      ctx.lineWidth=3;
+      ctx.strokeStyle='#2563eb';
+      ctx.fillStyle='#fff';
+      for(const item of items){
+        const p=this._map.latLngToContainerPoint([item.lat,item.lng]);
+        const r=6;
+        ctx.fillRect(p.x-r,p.y-r,r*2,r*2);
+        ctx.strokeRect(p.x-r+0.5,p.y-r+0.5,r*2-1,r*2-1);
+      }
+      ctx.restore();
+    }
+  }
+  state.secondaryCanvasLayer=new SecondaryCanvasLayer().addTo(map);
   const hoverTooltip = L.tooltip({direction:'top', opacity:0.95, offset:[0,-8], className:'unified-hover-tooltip'});
+  const secondaryHoverOwner = {secondary:true};
   let hoverTooltipOwner = null;
   function showUnifiedHover(owner, latlng, html){
     if (!html) return;
@@ -573,18 +625,20 @@
     const idCol=state.columns.storeId;if(!idCol)return true;const v=row[idCol];if(v===null||v===undefined||String(v).trim()==='')return false;const s=norm(v);
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
-  // ---------- Secondary Locations (isolated lightweight layer) ----------
+  // ---------- Secondary Locations (isolated, canvas-rendered layer) ----------
   const SECONDARY_POPUP_STORAGE_KEY='storeExplorer.secondaryPopup.v1';
   const SECONDARY_HOVER_STORAGE_KEY='storeExplorer.secondaryHover.v1';
   function secondaryColumnCandidates(headers, terms){
-    const lookup=headers.map(h=>({h,n:norm(h)}));
-    return lookup.find(x=>terms.some(t=>x.n===t||x.n.includes(t)))?.h||null;
+    const lower=headers.map(h=>({raw:h,key:norm(h)}));
+    for(const term of terms){const hit=lower.find(x=>x.key===norm(term));if(hit)return hit.raw;}
+    for(const term of terms){const t=norm(term);const hit=lower.find(x=>x.key.includes(t));if(hit)return hit.raw;}
+    return '';
   }
   function secondaryDefaultPopup(headers){
     const title=secondaryColumnCandidates(headers,['pharmacy name','name','account name']) || headers[0] || '';
     const subtitle=secondaryColumnCandidates(headers,['competitor banner','competitor chain','banner','chain','city']) || headers.find(h=>h!==title) || '';
-    const preferred=headers.filter(h=>![title,subtitle].includes(h)).slice(0,4);
-    return {title,subtitle,fields:preferred};
+    const fields=headers.filter(h=>h&&h!==title&&h!==subtitle).slice(0,4);
+    return {title,subtitle,fields};
   }
   function loadSecondaryConfigs(){
     const headers=state.secondaryHeaders||[]; const fallback=secondaryDefaultPopup(headers);
@@ -594,17 +648,16 @@
   function saveSecondaryConfigs(){try{localStorage.setItem(SECONDARY_POPUP_STORAGE_KEY,JSON.stringify(state.secondaryPopupConfig||{}));localStorage.setItem(SECONDARY_HOVER_STORAGE_KEY,state.secondaryHoverColumn||'');}catch(_){}
   }
   function renderSecondaryPopupConfig(){
-    const headers=state.secondaryHeaders||[], cfg=state.secondaryPopupConfig||secondaryDefaultPopup(headers);
-    const opts=(selected,blankLabel='—')=>`<option value="">${blankLabel}</option>`+headers.map(h=>`<option value="${esc(h)}" ${selected===h?'selected':''}>${esc(h)}</option>`).join('');
+    const headers=state.secondaryHeaders||[], cfg=state.secondaryPopupConfig||secondaryDefaultPopup(headers), opts=(selected='',placeholder='Choose field')=>`<option value="">${placeholder}</option>`+headers.map(h=>`<option value="${esc(h)}" ${selected===h?'selected':''}>${esc(h)}</option>`).join('');
     const title=el('secondaryPopupTitle'),sub=el('secondaryPopupSubtitle'),list=el('secondaryPopupFields'); if(!title||!sub||!list)return;
     title.innerHTML=opts(cfg.title,'Choose title column'); sub.innerHTML=opts(cfg.subtitle,'Choose subtitle column');
     list.innerHTML=(cfg.fields||[]).map((h,i)=>`<div class="secondary-popup-field-row"><span class="field-index">${i+1}</span><select data-secondary-popup-field="1">${opts(h,'Choose field')}</select><button type="button" class="secondary" data-secondary-popup-remove="${i}">×</button></div>`).join('');
   }
   function openSecondaryPopupConfig(){renderSecondaryPopupConfig();el('secondaryPopupDialog').showModal();}
   function applySecondaryPopupConfig(){
-    const title=el('secondaryPopupTitle')?.value||''; const subtitle=el('secondaryPopupSubtitle')?.value||'';
+    const title=el('secondaryPopupTitle')?.value||'', subtitle=el('secondaryPopupSubtitle')?.value||'';
     const fields=[...document.querySelectorAll('#secondaryPopupFields select[data-secondary-popup-field]')].map(n=>n.value).filter(Boolean);
-    state.secondaryPopupConfig={title,subtitle,fields:[...new Set(fields.filter(h=>h!==title&&h!==subtitle))]}; saveSecondaryConfigs(); renderSecondaryMarkers(); el('secondaryPopupDialog').close();
+    state.secondaryPopupConfig={title,subtitle,fields:[...new Set(fields.filter(h=>h!==title&&h!==subtitle))]}; saveSecondaryConfigs(); el('secondaryPopupDialog').close();
   }
   function resetSecondaryPopupConfig(){state.secondaryPopupConfig=secondaryDefaultPopup(state.secondaryHeaders||[]);renderSecondaryPopupConfig();}
   function renderSecondaryHoverConfig(){
@@ -612,34 +665,42 @@
     select.innerHTML=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}" ${state.secondaryHoverColumn===h?'selected':''}>${esc(h)}</option>`).join('');
   }
   function openSecondaryHoverConfig(){renderSecondaryHoverConfig();el('secondaryHoverDialog').showModal();}
-  function applySecondaryHoverConfig(){state.secondaryHoverColumn=el('secondaryHoverColumn')?.value||'';saveSecondaryConfigs();renderSecondaryMarkers();el('secondaryHoverDialog').close();}
+  function applySecondaryHoverConfig(){state.secondaryHoverColumn=el('secondaryHoverColumn')?.value||'';saveSecondaryConfigs();el('secondaryHoverDialog').close();}
   function resetSecondaryHoverConfig(){state.secondaryHoverColumn=secondaryColumnCandidates(state.secondaryHeaders||[],['pharmacy name','name','account name'])||(state.secondaryHeaders||[])[0]||'';renderSecondaryHoverConfig();}
   function secondaryPopupHtml(row){
     const cfg=state.secondaryPopupConfig||secondaryDefaultPopup(state.secondaryHeaders||[]);
-    const title=cfg.title?String(row[cfg.title]??'').trim():'Secondary location';
-    const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
+    const title=cfg.title?String(row[cfg.title]??'').trim():''; const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
     const fields=(cfg.fields||[]).filter(h=>h&&h!==cfg.title&&h!==cfg.subtitle).map(h=>`<div class="secondary-popup-field"><span>${esc(h)}</span><strong>${esc(row[h]??'—')}</strong></div>`).join('');
     return `<div class="secondary-location-popup"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}${fields}</div>`;
   }
-  function secondaryMarkerIcon(){return L.divIcon({className:'',html:'<div class="secondary-marker-wrap"><div class="secondary-marker" aria-hidden="true"></div></div>',iconSize:[18,18],iconAnchor:[9,9]});}
   function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
-  function renderSecondaryMarkers(){
-    if(!state.secondaryLocationLayer)return; state.secondaryLocationLayer.clearLayers(); if(!state.secondaryLocations.length)return;
-    const icon=secondaryMarkerIcon();
-    for(const row of state.secondaryLocations){
-      const lat=toNumber(row[state.secondaryLatColumn]),lng=toNumber(row[state.secondaryLonColumn]); if(lat===null||lng===null)continue;
-      const marker=L.marker([lat,lng],{icon,interactive:true,keyboard:true,pane:'secondaryMarkerPane',zIndexOffset:350});
-      marker.__secondaryRow=row; marker.bindPopup(secondaryPopupHtml(row),{className:'secondary-location-popup',closeButton:true,maxWidth:340});
-      marker.on('mouseover',()=>showUnifiedHover(marker,marker.getLatLng(),secondaryHoverHtml(row)));
-      marker.on('mouseout',()=>hideUnifiedHover(marker));
-      marker.on('click',e=>{if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);});
-      state.secondaryLocationLayer.addLayer(marker);
+  function buildSecondarySpatialIndex(){
+    if(typeof RBush==='undefined')throw new Error('Spatial-index library did not load. Refresh the page and try again.');
+    const items=[];
+    for(let i=0;i<state.secondaryLocations.length;i++){
+      const row=state.secondaryLocations[i]; const lat=toNumber(row[state.secondaryLatColumn]),lng=toNumber(row[state.secondaryLonColumn]);
+      if(lat===null||lng===null)continue;
+      items.push({minX:lng,minY:lat,maxX:lng,maxY:lat,lat,lng,index:i,row});
     }
+    const indexed=new RBush(); indexed.load(items); state.secondarySpatialIndex=indexed; state.secondarySpatialItems=items;
   }
+  function setSecondaryVisible(visible){
+    state.secondaryVisible=!!visible; const ctl=el('secondaryVisibilityToggle'); if(ctl&&ctl.checked!==state.secondaryVisible)ctl.checked=state.secondaryVisible;
+    state.secondaryCanvasLayer?.redraw(); if(!state.secondaryVisible){hideUnifiedHover();state.secondaryHoverRow=null;}
+  }
+  function secondaryHitTest(latlng,pixelRadius=10){
+    if(!state.secondaryVisible||!state.secondarySpatialIndex)return null;
+    const p=map.latLngToContainerPoint(latlng); const sw=map.containerPointToLatLng(L.point(p.x-pixelRadius,p.y+pixelRadius)); const ne=map.containerPointToLatLng(L.point(p.x+pixelRadius,p.y-pixelRadius));
+    const candidates=state.secondarySpatialIndex.search({minX:sw.lng,maxX:ne.lng,minY:sw.lat,maxY:ne.lat});
+    let best=null,bestPx=Infinity;
+    for(const item of candidates){const cp=map.latLngToContainerPoint([item.lat,item.lng]);const dx=cp.x-p.x,dy=cp.y-p.y;const dist=Math.hypot(dx,dy);if(dist<=pixelRadius&&dist<bestPx){best=item;bestPx=dist;}}
+    return best;
+  }
+  function showSecondaryPopup(item){if(!item)return; L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:340,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item.row)).openOn(map);}
+  function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
   async function readSecondaryLocationsFile(file){
     if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
-    const ext=file.name.toLowerCase().split('.').pop();
-    const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ext=file.name.toLowerCase().split('.').pop(); const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
     const ws=wb.Sheets[wb.SheetNames[0]]; if(!ws)throw new Error('The first worksheet is empty.');
     const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}); if(!matrix.length)throw new Error('The first worksheet is empty.');
     const headers=dedupeHeaders((matrix[0]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`)); const rows=[];
@@ -650,14 +711,16 @@
     return {headers,rows:valid,lat,lon};
   }
   function clearSecondaryLocations(){
-    if(state.secondaryLocationLayer)state.secondaryLocationLayer.clearLayers();state.secondaryLocations=[];state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;
-    if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
-    if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true;
+    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];
+    setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
   function afterSecondaryLoaded(file,parsed){
-    if(state.secondaryLocationLayer)state.secondaryLocationLayer.clearLayers(); state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;loadSecondaryConfigs();renderSecondaryMarkers();
+    state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;loadSecondaryConfigs();buildSecondarySpatialIndex();
     el('secondaryFileStatus').textContent=`Loaded • ${file.name} • ${state.secondaryLocations.length.toLocaleString()} locations`;
     el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
+    if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
+    renderSecondaryCanvas();
   }
 
   function afterWorkbookLoaded(file,parsed){
@@ -899,11 +962,12 @@
       marker.on('click',e=>{
         if(state.circleDrawMode||state.rectangleDrawMode){
           if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
-          const center=marker.getLatLng();
+          const secondaryHit=secondaryHitTest(marker.getLatLng(),11);
+          const center=secondaryHit?L.latLng(secondaryHit.lat,secondaryHit.lng):marker.getLatLng();
           const mode=state.circleDrawMode?'circle':'rectangle';
           exitCensusDrawMode();
-          if(mode==='circle') createOrReplaceCircle(center,defaultCircleRadiusMeters(),'circle centered on marker');
-          else createOrReplaceRectangle(defaultBoxBounds(center),'box centered on marker');
+          if(mode==='circle') createOrReplaceCircle(center,defaultCircleRadiusMeters(),secondaryHit?'circle centered on secondary location':'circle centered on marker');
+          else createOrReplaceRectangle(defaultBoxBounds(center),secondaryHit?'box centered on secondary location':'box centered on marker');
           return;
         }
         if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
@@ -4387,6 +4451,7 @@
 
   // ---------- UI wiring ----------
   el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
+  el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
   el('secondaryPopupConfigBtn').addEventListener('click',openSecondaryPopupConfig);
   el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
   el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
@@ -4871,6 +4936,28 @@
     });
   });
 
+  map.on('mousemove',e=>{
+    if(!state.secondaryVisible)return;
+    const hit=secondaryHitTest(e.latlng,10);
+    if(hit){showUnifiedHover(secondaryHoverOwner,L.latLng(hit.lat,hit.lng),secondaryHoverHtml(hit.row));state.secondaryHoverRow=hit;}
+    else if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+  });
+  map.on('click',e=>{
+    const hit=secondaryHitTest(e.latlng,11);
+    if(hit){
+      if((state.circleDrawMode||state.rectangleDrawMode)&&!state.censusShapeDrawing){
+        const mode=state.circleDrawMode?'circle':'rectangle';
+        exitCensusDrawMode();
+        if(mode==='circle') createOrReplaceCircle(L.latLng(hit.lat,hit.lng),defaultCircleRadiusMeters(),'circle centered on secondary location');
+        else createOrReplaceRectangle(defaultBoxBounds(L.latLng(hit.lat,hit.lng)),'box centered on secondary location');
+        if(e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);
+        return;
+      }
+      showSecondaryPopup(hit);
+      if(e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);
+      return;
+    }
+  });
   map.on('click',e=>{
     if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing)return;
     try{
