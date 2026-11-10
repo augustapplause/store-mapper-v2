@@ -1,4 +1,4 @@
-/* Store Explorer - v1.202
+/* Store Explorer - v1.203
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -124,24 +124,25 @@
       this._canvas=L.DomUtil.create('canvas','secondary-canvas-layer');
       this._pane=mapInstance.getPane('secondaryMarkerPane');
       this._pane.appendChild(this._canvas);
-      mapInstance.on('move zoomend resize',this._reset,this);
+      mapInstance.on('moveend zoomend resize',this._reset,this);
       this._reset();
     }
     onRemove(mapInstance){
-      mapInstance.off('move zoomend resize',this._reset,this);
+      mapInstance.off('moveend zoomend resize',this._reset,this);
       if(this._canvas?.parentNode)this._canvas.parentNode.removeChild(this._canvas);
       this._canvas=null;
       this._map=null;
     }
     _reset(){
       if(!this._map||!this._canvas)return;
-      const size=this._map.getSize();
+      const mapSize=this._map.getSize();
+      const topLeft=this._map.containerPointToLayerPoint([0,0]);
       const dpr=Math.max(1,window.devicePixelRatio||1);
-      this._canvas.width=Math.max(1,Math.round(size.x*dpr));
-      this._canvas.height=Math.max(1,Math.round(size.y*dpr));
-      this._canvas.style.width=`${size.x}px`;
-      this._canvas.style.height=`${size.y}px`;
-      L.DomUtil.setPosition(this._canvas,L.point(0,0));
+      this._canvas.width=Math.max(1,Math.round(mapSize.x*dpr));
+      this._canvas.height=Math.max(1,Math.round(mapSize.y*dpr));
+      this._canvas.style.width=`${mapSize.x}px`;
+      this._canvas.style.height=`${mapSize.y}px`;
+      L.DomUtil.setPosition(this._canvas,topLeft);
       this.redraw();
     }
     redraw(){
@@ -156,13 +157,12 @@
       const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
       const items=state.secondarySpatialIndex.search(q);
       ctx.save();
-      ctx.lineWidth=3;
+      ctx.lineWidth=2.5;
       ctx.strokeStyle='#2563eb';
-      ctx.fillStyle='#fff';
+      ctx.lineJoin='miter';
       for(const item of items){
-        const p=this._map.latLngToContainerPoint([item.lat,item.lng]);
-        const r=6;
-        ctx.fillRect(p.x-r,p.y-r,r*2,r*2);
+        const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
+        const r=5;
         ctx.strokeRect(p.x-r+0.5,p.y-r+0.5,r*2-1,r*2-1);
       }
       ctx.restore();
