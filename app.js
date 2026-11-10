@@ -115,7 +115,7 @@
   municipalityLabelPane.style.pointerEvents = 'none';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
-  secondaryMarkerPane.style.zIndex = '620';
+  secondaryMarkerPane.style.zIndex = '580';
   secondaryMarkerPane.style.pointerEvents = 'none';
 
   class SecondaryCanvasLayer extends L.Layer {
@@ -194,7 +194,7 @@
   censusCenterPane.style.zIndex = '590';
   censusCenterPane.style.pointerEvents = 'none';
   const censusHandlePane = map.createPane('censusHandlePane');
-  censusHandlePane.style.zIndex = '700';
+  censusHandlePane.style.zIndex = '680';
   censusHandlePane.style.pointerEvents = 'auto';
   const CENSUS_DEBUG_ENABLED = new URLSearchParams(location.search).get('debug') === '1';
   const CENSUS_DEBUG = {
