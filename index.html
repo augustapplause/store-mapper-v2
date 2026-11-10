@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.200</title>
+  <title>Store Explorer v1.201</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.200.0.popup-cleanup" />
+      <link rel="stylesheet" href="styles.css?v=1.201.0.secondary-locations" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.199</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.201</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -26,14 +26,31 @@
   <main class="app-shell">
     <button id="leftPanelToggle" type="button" class="left-panel-toggle" aria-label="Collapse controls" aria-expanded="true"><span aria-hidden="true">‹</span></button>
     <aside class="left-panel">
-      <section class="panel-card">
-        <h2>Financial workbook</h2>
-        <label class="file-button financial-upload-button" data-help-key="financial-file">
-          <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
-          Select Excel / CSV file
-        </label>
-        <div id="fileStatus" class="status muted">No financial file selected.</div>
-        <button id="clearFileBtn" class="secondary" disabled>Clear financial data</button>
+      <section class="panel-card data-sources-card">
+        <h2>Data sources</h2>
+        <div class="data-source-block primary-data-source">
+          <div class="data-source-title">Primary Store Data</div>
+          <label class="file-button financial-upload-button" data-help-key="financial-file">
+            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+            Select Excel / CSV file
+          </label>
+          <div id="fileStatus" class="status muted">No financial file selected.</div>
+          <button id="clearFileBtn" class="secondary" disabled>Clear primary data</button>
+        </div>
+        <div class="data-source-divider"></div>
+        <div class="data-source-block secondary-data-source">
+          <div class="data-source-title">Secondary Locations</div>
+          <label class="file-button secondary-upload-button" data-help-key="secondary-file">
+            <input id="secondaryFileInput" type="file" accept=".xlsx,.xls,.csv" />
+            Select Excel / CSV file
+          </label>
+          <div id="secondaryFileStatus" class="status muted">No secondary locations loaded.</div>
+          <div class="secondary-data-actions">
+            <button id="secondaryPopupConfigBtn" type="button" class="secondary" disabled>Popup config</button>
+            <button id="secondaryHoverConfigBtn" type="button" class="secondary" disabled>Hover config</button>
+            <button id="clearSecondaryBtn" type="button" class="secondary" disabled>Clear secondary</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel-card census-query-card">
@@ -275,6 +292,30 @@
     </form>
   </dialog>
 
+  <dialog id="secondaryPopupDialog" class="ticker-dialog secondary-config-dialog">
+    <form method="dialog" id="secondaryPopupForm">
+      <div class="ticker-dialog-head"><div><h2>Secondary Location Popup</h2><p>Choose the fields shown when a secondary location marker is clicked.</p></div><button value="cancel" class="dialog-close" aria-label="Close">×</button></div>
+      <div class="secondary-config-body">
+        <label>Title column<select id="secondaryPopupTitle"></select></label>
+        <label>Subtitle column<select id="secondaryPopupSubtitle"></select></label>
+        <div class="secondary-config-subtitle">Popup fields</div>
+        <div id="secondaryPopupFields" class="secondary-popup-fields"></div>
+        <button id="secondaryPopupAddField" type="button" class="secondary">Add field</button>
+      </div>
+      <div class="dialog-footer ticker-dialog-footer"><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="secondaryPopupReset" type="button" class="secondary">Reset defaults</button><button id="secondaryPopupApply" type="button">Save popup</button></div></div>
+    </form>
+  </dialog>
+
+  <dialog id="secondaryHoverDialog" class="ticker-dialog secondary-config-dialog">
+    <form method="dialog" id="secondaryHoverForm">
+      <div class="ticker-dialog-head"><div><h2>Secondary Location Hover</h2><p>Choose the short value shown when you hover a secondary location marker.</p></div><button value="cancel" class="dialog-close" aria-label="Close">×</button></div>
+      <div class="secondary-config-body">
+        <label>Hover column<select id="secondaryHoverColumn"></select></label>
+      </div>
+      <div class="dialog-footer ticker-dialog-footer"><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="secondaryHoverReset" type="button" class="secondary">Reset defaults</button><button id="secondaryHoverApply" type="button">Save hover</button></div></div>
+    </form>
+  </dialog>
+
   <dialog id="popupDialog" class="ticker-dialog popup-config-dialog">
     <form method="dialog" id="popupForm">
       <div class="dialog-header ticker-dialog-header">
@@ -386,7 +427,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.200.0.popup-cleanup"></script>
+  <script src="app.js?v=1.201.0.secondary-locations"></script>
 
 
 </body>

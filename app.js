@@ -1,4 +1,4 @@
-/* Store Explorer - v1.199
+/* Store Explorer - v1.201
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -45,6 +45,7 @@
   const HELP_STORAGE_KEY='storeExplorer.help.v1';
   const HELP_DEFAULTS={
     'financial-file':'Start here: load your Excel or CSV workbook to populate the store data and enable the analysis controls.',
+    'secondary-file':'Load a separate set of locations that remain independent of the primary store data and analysis.',
     'clear-financial':'Remove the current workbook and reset the store data. Census map tools remain available.',
     'circle':'Draw a circular Census catchment. Click a map location or store marker to place its centre.',
     'box':'Draw a rectangular Census catchment. Click a map location or store marker to place its centre.',
@@ -85,7 +86,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -113,6 +114,10 @@
   municipalityLabelPane.style.zIndex = '420';
   municipalityLabelPane.style.pointerEvents = 'none';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
+  const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
+  secondaryMarkerPane.style.zIndex = '620';
+  secondaryMarkerPane.style.pointerEvents = 'auto';
+  state.secondaryLocationLayer = L.layerGroup().addTo(map);
   const hoverTooltip = L.tooltip({direction:'top', opacity:0.95, offset:[0,-8], className:'unified-hover-tooltip'});
   let hoverTooltipOwner = null;
   function showUnifiedHover(owner, latlng, html){
@@ -568,6 +573,93 @@
     const idCol=state.columns.storeId;if(!idCol)return true;const v=row[idCol];if(v===null||v===undefined||String(v).trim()==='')return false;const s=norm(v);
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
+  // ---------- Secondary Locations (isolated lightweight layer) ----------
+  const SECONDARY_POPUP_STORAGE_KEY='storeExplorer.secondaryPopup.v1';
+  const SECONDARY_HOVER_STORAGE_KEY='storeExplorer.secondaryHover.v1';
+  function secondaryColumnCandidates(headers, terms){
+    const lookup=headers.map(h=>({h,n:norm(h)}));
+    return lookup.find(x=>terms.some(t=>x.n===t||x.n.includes(t)))?.h||null;
+  }
+  function secondaryDefaultPopup(headers){
+    const title=secondaryColumnCandidates(headers,['pharmacy name','name','account name']) || headers[0] || '';
+    const subtitle=secondaryColumnCandidates(headers,['competitor banner','competitor chain','banner','chain','city']) || headers.find(h=>h!==title) || '';
+    const preferred=headers.filter(h=>![title,subtitle].includes(h)).slice(0,4);
+    return {title,subtitle,fields:preferred};
+  }
+  function loadSecondaryConfigs(){
+    const headers=state.secondaryHeaders||[]; const fallback=secondaryDefaultPopup(headers);
+    try{const raw=localStorage.getItem(SECONDARY_POPUP_STORAGE_KEY);state.secondaryPopupConfig=raw?{...fallback,...JSON.parse(raw)}:fallback;}catch(_){state.secondaryPopupConfig=fallback;}
+    try{const raw=localStorage.getItem(SECONDARY_HOVER_STORAGE_KEY);state.secondaryHoverColumn=raw||secondaryColumnCandidates(headers,['pharmacy name','name','account name'])||headers[0]||'';}catch(_){state.secondaryHoverColumn=secondaryColumnCandidates(headers,['pharmacy name','name','account name'])||headers[0]||'';}
+  }
+  function saveSecondaryConfigs(){try{localStorage.setItem(SECONDARY_POPUP_STORAGE_KEY,JSON.stringify(state.secondaryPopupConfig||{}));localStorage.setItem(SECONDARY_HOVER_STORAGE_KEY,state.secondaryHoverColumn||'');}catch(_){}
+  }
+  function renderSecondaryPopupConfig(){
+    const headers=state.secondaryHeaders||[], cfg=state.secondaryPopupConfig||secondaryDefaultPopup(headers);
+    const opts=(selected,blankLabel='—')=>`<option value="">${blankLabel}</option>`+headers.map(h=>`<option value="${esc(h)}" ${selected===h?'selected':''}>${esc(h)}</option>`).join('');
+    const title=el('secondaryPopupTitle'),sub=el('secondaryPopupSubtitle'),list=el('secondaryPopupFields'); if(!title||!sub||!list)return;
+    title.innerHTML=opts(cfg.title,'Choose title column'); sub.innerHTML=opts(cfg.subtitle,'Choose subtitle column');
+    list.innerHTML=(cfg.fields||[]).map((h,i)=>`<div class="secondary-popup-field-row"><span class="field-index">${i+1}</span><select data-secondary-popup-field="1">${opts(h,'Choose field')}</select><button type="button" class="secondary" data-secondary-popup-remove="${i}">×</button></div>`).join('');
+  }
+  function openSecondaryPopupConfig(){renderSecondaryPopupConfig();el('secondaryPopupDialog').showModal();}
+  function applySecondaryPopupConfig(){
+    const title=el('secondaryPopupTitle')?.value||''; const subtitle=el('secondaryPopupSubtitle')?.value||'';
+    const fields=[...document.querySelectorAll('#secondaryPopupFields select[data-secondary-popup-field]')].map(n=>n.value).filter(Boolean);
+    state.secondaryPopupConfig={title,subtitle,fields:[...new Set(fields.filter(h=>h!==title&&h!==subtitle))]}; saveSecondaryConfigs(); renderSecondaryMarkers(); el('secondaryPopupDialog').close();
+  }
+  function resetSecondaryPopupConfig(){state.secondaryPopupConfig=secondaryDefaultPopup(state.secondaryHeaders||[]);renderSecondaryPopupConfig();}
+  function renderSecondaryHoverConfig(){
+    const select=el('secondaryHoverColumn');if(!select)return;
+    select.innerHTML=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}" ${state.secondaryHoverColumn===h?'selected':''}>${esc(h)}</option>`).join('');
+  }
+  function openSecondaryHoverConfig(){renderSecondaryHoverConfig();el('secondaryHoverDialog').showModal();}
+  function applySecondaryHoverConfig(){state.secondaryHoverColumn=el('secondaryHoverColumn')?.value||'';saveSecondaryConfigs();renderSecondaryMarkers();el('secondaryHoverDialog').close();}
+  function resetSecondaryHoverConfig(){state.secondaryHoverColumn=secondaryColumnCandidates(state.secondaryHeaders||[],['pharmacy name','name','account name'])||(state.secondaryHeaders||[])[0]||'';renderSecondaryHoverConfig();}
+  function secondaryPopupHtml(row){
+    const cfg=state.secondaryPopupConfig||secondaryDefaultPopup(state.secondaryHeaders||[]);
+    const title=cfg.title?String(row[cfg.title]??'').trim():'Secondary location';
+    const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
+    const fields=(cfg.fields||[]).filter(h=>h&&h!==cfg.title&&h!==cfg.subtitle).map(h=>`<div class="secondary-popup-field"><span>${esc(h)}</span><strong>${esc(row[h]??'—')}</strong></div>`).join('');
+    return `<div class="secondary-location-popup"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}${fields}</div>`;
+  }
+  function secondaryMarkerIcon(){return L.divIcon({className:'',html:'<div class="secondary-marker-wrap"><div class="secondary-marker" aria-hidden="true"></div></div>',iconSize:[18,18],iconAnchor:[9,9]});}
+  function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
+  function renderSecondaryMarkers(){
+    if(!state.secondaryLocationLayer)return; state.secondaryLocationLayer.clearLayers(); if(!state.secondaryLocations.length)return;
+    const icon=secondaryMarkerIcon();
+    for(const row of state.secondaryLocations){
+      const lat=toNumber(row[state.secondaryLatColumn]),lng=toNumber(row[state.secondaryLonColumn]); if(lat===null||lng===null)continue;
+      const marker=L.marker([lat,lng],{icon,interactive:true,keyboard:true,pane:'secondaryMarkerPane',zIndexOffset:350});
+      marker.__secondaryRow=row; marker.bindPopup(secondaryPopupHtml(row),{className:'secondary-location-popup',closeButton:true,maxWidth:340});
+      marker.on('mouseover',()=>showUnifiedHover(marker,marker.getLatLng(),secondaryHoverHtml(row)));
+      marker.on('mouseout',()=>hideUnifiedHover(marker));
+      marker.on('click',e=>{if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);});
+      state.secondaryLocationLayer.addLayer(marker);
+    }
+  }
+  async function readSecondaryLocationsFile(file){
+    if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
+    const ext=file.name.toLowerCase().split('.').pop();
+    const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]]; if(!ws)throw new Error('The first worksheet is empty.');
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}); if(!matrix.length)throw new Error('The first worksheet is empty.');
+    const headers=dedupeHeaders((matrix[0]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`)); const rows=[];
+    for(let r=1;r<matrix.length;r++){const arr=matrix[r]||[];if(arr.every(v=>v===null||v===''))continue;const obj={};headers.forEach((h,i)=>obj[h]=arr[i]??null);rows.push(obj);}
+    const lat=secondaryColumnCandidates(headers,['geo latitude','latitude','lat','geo lat']); const lon=secondaryColumnCandidates(headers,['geo longitude','longitude','lon','long','geo lon']);
+    if(!lat||!lon)throw new Error('Could not find latitude and longitude columns.');
+    const valid=rows.filter(row=>{const a=toNumber(row[lat]),b=toNumber(row[lon]);return a!==null&&b!==null&&a>=40&&a<=90&&b>=-150&&b<=-40;});
+    return {headers,rows:valid,lat,lon};
+  }
+  function clearSecondaryLocations(){
+    if(state.secondaryLocationLayer)state.secondaryLocationLayer.clearLayers();state.secondaryLocations=[];state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;
+    if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true;
+  }
+  function afterSecondaryLoaded(file,parsed){
+    if(state.secondaryLocationLayer)state.secondaryLocationLayer.clearLayers(); state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;loadSecondaryConfigs();renderSecondaryMarkers();
+    el('secondaryFileStatus').textContent=`Loaded • ${file.name} • ${state.secondaryLocations.length.toLocaleString()} locations`;
+    el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
+  }
+
   function afterWorkbookLoaded(file,parsed){
     
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
@@ -4294,6 +4386,16 @@
   function resetPopupDefaults(){const before=(state.popupConfigDraft||[]).map(normalizePopupField).map(f=>!!f.quartile);const next=popupDefaultFieldsFromSubjects().map(normalizePopupField);const after=next.map(f=>!!f.quartile);if(before.length!==after.length||before.some((v,i)=>v!==after[i]))state.popupQuartileDraftChanged=true;state.popupConfigDraft=next;renderPopupConfig();}
 
   // ---------- UI wiring ----------
+  el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
+  el('secondaryPopupConfigBtn').addEventListener('click',openSecondaryPopupConfig);
+  el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
+  el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
+  el('secondaryPopupFields').addEventListener('click',e=>{const btn=e.target.closest('[data-secondary-popup-remove]');if(!btn)return;btn.parentElement?.remove();});
+  el('secondaryPopupAddField').addEventListener('click',()=>{const list=el('secondaryPopupFields');const row=document.createElement('div');row.className='secondary-popup-field-row';const i=list.children.length+1;const opts=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');row.innerHTML=`<span class="field-index">${i}</span><select data-secondary-popup-field="1"><option value="">Choose field</option>${opts}</select><button type="button" class="secondary" data-secondary-popup-remove="${i-1}">×</button>`;list.appendChild(row);});
+  el('secondaryPopupApply').addEventListener('click',e=>{e.preventDefault();applySecondaryPopupConfig();});
+  el('secondaryPopupReset').addEventListener('click',e=>{e.preventDefault();resetSecondaryPopupConfig();});
+  el('secondaryHoverApply').addEventListener('click',e=>{e.preventDefault();applySecondaryHoverConfig();});
+  el('secondaryHoverReset').addEventListener('click',e=>{e.preventDefault();resetSecondaryHoverConfig();});
   el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
   el('clearFileBtn').addEventListener('click',clearFinancial);
   el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
