@@ -137,6 +137,7 @@
       if(!this._map||!this._canvas)return;
       const mapSize=this._map.getSize();
       const topLeft=this._map.containerPointToLayerPoint([0,0]);
+      this._layerOrigin=topLeft;
       const dpr=Math.max(1,window.devicePixelRatio||1);
       this._canvas.width=Math.max(1,Math.round(mapSize.x*dpr));
       this._canvas.height=Math.max(1,Math.round(mapSize.y*dpr));
@@ -162,8 +163,11 @@
       ctx.lineJoin='miter';
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
+        const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
+        const x=p.x-origin.x;
+        const y=p.y-origin.y;
         const r=5;
-        ctx.strokeRect(p.x-r+0.5,p.y-r+0.5,r*2-1,r*2-1);
+        ctx.strokeRect(x-r+0.5,y-r+0.5,r*2-1,r*2-1);
       }
       ctx.restore();
     }
