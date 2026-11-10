@@ -1,4 +1,4 @@
-/* Store Explorer - v1.198
+/* Store Explorer - v1.199
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -44,6 +44,9 @@
 
   const HELP_STORAGE_KEY='storeExplorer.help.v1';
   const HELP_DEFAULTS={
+    'trade-area-halo-config':'Configure the benchmark population radius and maximum halo radius used by Trade Area Halo.',
+    'estimate-trade-area-halo':'Estimate a static trade-area halo for each store currently visible in the viewport.',
+    'clear-trade-area-halo':'Remove the calculated Trade Area Halo circles and their labels.',
     'financial-file':'Start here: load your Excel or CSV workbook to populate the store data and enable the analysis controls.',
     'clear-financial':'Remove the current workbook and reset the store data. Census map tools remain available.',
     'circle':'Draw a circular Census catchment. Click a map location or store marker to place its centre.',
@@ -94,7 +97,7 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
-    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, tradeAreaHaloConfig:{benchmarkRadiusKm:2,maxRadiusKm:5}, tradeAreaHalos:[], tradeAreaHaloCalculating:false, tradeAreaHaloRunId:0, tradeAreaHaloPopulationCache:new Map(), tradeAreaHaloPopup:null, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
   };
 
   const el = id => document.getElementById(id);
@@ -112,6 +115,12 @@
   const municipalityLabelPane = map.createPane('municipalityLabelPane');
   municipalityLabelPane.style.zIndex = '420';
   municipalityLabelPane.style.pointerEvents = 'none';
+  const tradeAreaHaloPane = map.createPane('tradeAreaHaloPane');
+  tradeAreaHaloPane.style.zIndex = '430';
+  tradeAreaHaloPane.style.pointerEvents = 'none';
+  const tradeAreaHaloLabelPane = map.createPane('tradeAreaHaloLabelPane');
+  tradeAreaHaloLabelPane.style.zIndex = '760';
+  tradeAreaHaloLabelPane.style.pointerEvents = 'auto';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const hoverTooltip = L.tooltip({direction:'top', opacity:0.95, offset:[0,-8], className:'unified-hover-tooltip'});
   let hoverTooltipOwner = null;
@@ -569,6 +578,7 @@
     if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
   }
   function afterWorkbookLoaded(file,parsed){
+    if(typeof clearTradeAreaHalos==='function')clearTradeAreaHalos();
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
     const c=state.columns;
     const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
@@ -586,7 +596,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){if(typeof clearTradeAreaHalos==='function')clearTradeAreaHalos();closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1132,11 +1142,33 @@
     const type=state.headers.includes(formula)?'column':(isPopupVirtualOperand(formula)?'virtual':'formula');
     const title=String(f?.title??'').trim() || (type!=='formula'?formula:firstTickerOperand(formula));
     const quartile=!!f?.quartile;
-    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces,quartile};
+    const explicitNumerator=String(f?.numerator||'').trim();
+    const numerator=explicitNumerator && state.headers.includes(explicitNumerator) && state.types[explicitNumerator]==='numeric' ? explicitNumerator : popupNumeratorForField({formula});
+    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces,quartile,numerator};
   }
   function popupDirectColumn(field){
     const formula=String(field?.formula??'').trim();
     return state.headers.includes(formula)?formula:'';
+  }
+  function popupVirtualDenominator(formula){
+    const names=popupVirtualNames().filter(n=>String(formula||'').includes(n));
+    return names.sort((a,b)=>b.length-a.length)[0]||'';
+  }
+  function isPopupFormulaWithCensusVirtual(formula){ return !!popupVirtualDenominator(formula); }
+  function popupNumeratorForField(field){
+    const explicit=String(field?.numerator||'').trim();
+    if(explicit && state.headers.includes(explicit) && state.types[explicit]==='numeric') return explicit;
+    const tokens=tokenizePopup(String(field?.formula||''))||[];
+    const virtual=popupVirtualNames();
+    for(const t of tokens){
+      if(t.type==='operand' && !virtual.includes(t.value) && state.headers.includes(t.value) && state.types[t.value]==='numeric') return t.value;
+    }
+    return state.headers.find(h=>state.types[h]==='numeric'&&norm(h)==='total sales') || state.headers.find(h=>state.types[h]==='numeric') || '';
+  }
+  function buildPopupNumeratorFormula(numerator,formula){
+    const denominator=popupVirtualDenominator(formula);
+    if(!denominator || !numerator) return String(formula||'').trim();
+    return `${numerator} / ${denominator}`;
   }
   function popupDefaultFieldsFromSubjects(){
     const totalSales=state.headers.includes('Total Sales')?'Total Sales':(state.headers.find(h=>norm(h)==='total sales')||'');
@@ -1873,6 +1905,7 @@
     updateSelectionState();
     CENSUS_DEBUG.log('selection:update',{scope:censusScopeType(),selectedRows:state.selectedRows.length,filters:state.filters.length});
     updateSelectionPanels();
+    if(typeof updateTradeAreaHaloUI==='function')updateTradeAreaHaloUI();
   }
   function scheduleSelectionUpdate(){
     if(state.selectionUpdateFrame!==null)return;
@@ -3644,6 +3677,176 @@
     el('markerAnimationValueCancel').addEventListener('click',e=>{e.preventDefault();el('markerAnimationValueDialog').close();});
   }
 
+
+
+  // ---------- Trade Area Halo (standalone, on-demand analysis overlay) ----------
+  const TRADE_AREA_HALO_STORAGE_KEY='cse_trade_area_halo_config_v199';
+  function loadTradeAreaHaloConfig(){
+    try{
+      const raw=localStorage.getItem(TRADE_AREA_HALO_STORAGE_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw)||{};
+        const b=Number(parsed.benchmarkRadiusKm), m=Number(parsed.maxRadiusKm);
+        if(Number.isFinite(b)&&b>0)state.tradeAreaHaloConfig.benchmarkRadiusKm=b;
+        if(Number.isFinite(m)&&m>0)state.tradeAreaHaloConfig.maxRadiusKm=m;
+      }
+    }catch(_){ }
+    if(state.tradeAreaHaloConfig.maxRadiusKm < state.tradeAreaHaloConfig.benchmarkRadiusKm) state.tradeAreaHaloConfig.maxRadiusKm=state.tradeAreaHaloConfig.benchmarkRadiusKm;
+  }
+  function saveTradeAreaHaloConfig(){try{localStorage.setItem(TRADE_AREA_HALO_STORAGE_KEY,JSON.stringify(state.tradeAreaHaloConfig));}catch(_){} }
+  function getTradeAreaHaloVisibleStores(){
+    return getViewportSelectedRows().filter(row=>hasCoords(row));
+  }
+  function updateTradeAreaHaloUI(){
+    const visible=getTradeAreaHaloVisibleStores();
+    const hasVisible=visible.length>0;
+    const hasHalos=state.tradeAreaHalos.length>0;
+    const configBtn=el('tradeAreaHaloConfigBtn'), estimateBtn=el('estimateTradeAreaHaloBtn'), clearBtn=el('clearTradeAreaHaloBtn');
+    if(configBtn)configBtn.disabled=!hasVisible||!state.rows.length||state.tradeAreaHaloCalculating;
+    if(estimateBtn)estimateBtn.disabled=!hasVisible||!state.rows.length||state.tradeAreaHaloCalculating;
+    if(clearBtn)clearBtn.disabled=!hasHalos||state.tradeAreaHaloCalculating;
+    const status=el('tradeAreaHaloStatus');
+    if(!hasVisible&&!hasHalos) status.textContent='No store markers are visible in the current viewport.';
+    else if(state.tradeAreaHaloCalculating) status.textContent='Estimating trade area halos…';
+    else if(hasHalos) status.textContent=`${state.tradeAreaHalos.length.toLocaleString()} trade area halo${state.tradeAreaHalos.length===1?'':'s'} calculated. Results remain static until Estimate or Clear.`;
+    else status.textContent='Ready. Estimate halos for the stores currently in the viewport.';
+  }
+  function renderTradeAreaHaloConfig(){
+    const b=el('tradeAreaHaloBenchmarkRadius'),m=el('tradeAreaHaloMaxRadius');
+    if(b)b.value=Number(state.tradeAreaHaloConfig.benchmarkRadiusKm).toFixed(2);
+    if(m)m.value=Number(state.tradeAreaHaloConfig.maxRadiusKm).toFixed(2);
+  }
+  function openTradeAreaHaloConfig(){renderTradeAreaHaloConfig();el('tradeAreaHaloConfigDialog')?.showModal();}
+  function applyTradeAreaHaloConfig(){
+    const b=Math.max(0.1,Math.min(100,Number(el('tradeAreaHaloBenchmarkRadius')?.value)||2));
+    const m=Math.max(b,Math.min(500,Number(el('tradeAreaHaloMaxRadius')?.value)||5));
+    state.tradeAreaHaloConfig={benchmarkRadiusKm:b,maxRadiusKm:m};
+    saveTradeAreaHaloConfig();renderTradeAreaHaloConfig();el('tradeAreaHaloConfigDialog')?.close();updateTradeAreaHaloUI();
+  }
+  function tradeAreaHaloExpandedViewportBounds(bufferKm){
+    const bounds=map.getBounds();
+    const center=map.getCenter();
+    const dLat=bufferKm/110.574;
+    const cos=Math.max(Math.cos(center.lat*Math.PI/180),0.01);
+    const dLng=bufferKm/(111.320*cos);
+    return L.latLngBounds([[bounds.getSouth()-dLat,bounds.getWest()-dLng],[bounds.getNorth()+dLat,bounds.getEast()+dLng]]);
+  }
+  function getTradeAreaHaloBenchmarkStores(){
+    const bounds=tradeAreaHaloExpandedViewportBounds(state.tradeAreaHaloConfig.benchmarkRadiusKm);
+    const rows=state.filteredRows||[];
+    const c=state.columns;
+    return rows.filter(row=>hasCoords(row)&&bounds.contains(L.latLng(toNumber(row[c.lat]),toNumber(row[c.lon]))));
+  }
+  async function tradeAreaHaloPopulationAtRadius(row,radiusKm,threshold){
+    const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+    if(lat===null||lng===null||radiusKm<=0)return 0;
+    const key=`${lat.toFixed(6)}|${lng.toFixed(6)}|${radiusKm.toFixed(4)}|${threshold}`;
+    if(state.tradeAreaHaloPopulationCache.has(key))return state.tradeAreaHaloPopulationCache.get(key).population;
+    const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:96});
+    const targetCircle={lat,lng,radiusMeters:radiusKm*1000};
+    const provinceCodes=candidateProvinceCodesFromGeography(boundary);
+    if(!provinceCodes.length){state.tradeAreaHaloPopulationCache.set(key,{population:0,result:null});return 0;}
+    const packet=await DA_ENGINE.collectIndexedCandidates(boundary,provinceCodes,{boundaryType:'circle',targetCircle});
+    const candidates=packet.provinces||[];
+    if(!candidates.length){state.tradeAreaHaloPopulationCache.set(key,{population:0,result:null});return 0;}
+    const provinceModes=classifyCandidateProvinces(candidates,'circle',targetCircle,null);
+    const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:packet.candidatesByProvince,shouldRender:false,boundaryType:'circle',targetCircle});
+    const population=Number(result?.aggregate?.totalPopulation)||0;
+    state.tradeAreaHaloPopulationCache.set(key,{population,result});
+    return population;
+  }
+  function tradeAreaHaloLabelPoint(center,radiusKm){
+    const preferred=circleEdgeLatLng(center,radiusKm*1000);
+    const bounds=map.getBounds();
+    if(bounds.contains(preferred))return preferred;
+    const viewportCenter=map.getCenter();
+    let best=null,bestScore=Infinity;
+    for(let bearing=0;bearing<360;bearing+=5){
+      const point=destinationAtDistance(center,bearing,radiusKm);
+      if(!bounds.contains(point))continue;
+      const score=map.distance(point,viewportCenter);
+      if(score<bestScore){bestScore=score;best=point;}
+    }
+    return best||preferred;
+  }
+  function tradeAreaHaloPopupHtml(item){
+    const status=item.unexplained?'Potentially higher sales productivity':'Halo explains sales';
+    return `<div class="trade-area-halo-popup-content"><div class="trade-area-halo-popup-title">Trade Area Halo</div><div class="trade-area-halo-popup-grid"><span>Radius</span><strong>${item.radiusKm.toFixed(2)} km</strong><span>Benchmark</span><strong>${fmtMoney(item.benchmarkRatio)} / person</strong><span>Benchmark stores</span><strong>${item.benchmarkStoreCount.toLocaleString()}</strong><span>Population required</span><strong>${fmtInt(item.requiredPopulation)}</strong><span>Population captured</span><strong>${fmtInt(item.populationCaptured)}</strong><span>Halo explains</span><strong>${fmtMoney(item.salesExplained)}</strong><span>Sales remaining</span><strong>${fmtMoney(item.salesRemaining)}</strong>${item.unexplained?`<span>Potential productivity</span><strong>${item.productivityMultiple.toFixed(2)}× benchmark</strong>`:''}</div><div class="trade-area-halo-popup-status">${esc(status)}${item.unexplained?' within the maximum halo radius.':''}</div></div>`;
+  }
+  function clearTradeAreaHalos(){
+    if(state.tradeAreaHaloPopup){try{map.closePopup(state.tradeAreaHaloPopup);}catch(_){ }state.tradeAreaHaloPopup=null;}
+    state.tradeAreaHalos.forEach(item=>{try{map.removeLayer(item.circle);}catch(_){ }try{map.removeLayer(item.label);}catch(_){ }});
+    state.tradeAreaHalos=[];state.tradeAreaHaloPopulationCache.clear();state.tradeAreaHaloRunId++;
+    updateTradeAreaHaloUI();
+  }
+  function drawTradeAreaHalo(item){
+    const center=L.latLng(item.lat,item.lng);
+    const circle=L.circle(center,{pane:'tradeAreaHaloPane',radius:item.radiusKm*1000,color:'#6f4aa8',weight:2,opacity:0.7,fillOpacity:0.02,interactive:false}).addTo(map);
+    const labelPoint=tradeAreaHaloLabelPoint(center,item.radiusKm);
+    const label=L.marker(labelPoint,{pane:'tradeAreaHaloLabelPane',interactive:true,keyboard:true,zIndexOffset:1900,icon:L.divIcon({className:'trade-area-halo-distance-label',html:`<span>${item.radiusKm.toFixed(2)} km</span>`,iconSize:[68,26],iconAnchor:[34,33]})}).addTo(map);
+    label.on('click',e=>{L.DomEvent.stopPropagation(e);if(state.tradeAreaHaloPopup)try{map.closePopup(state.tradeAreaHaloPopup);}catch(_){ }state.tradeAreaHaloPopup=L.popup({className:'trade-area-halo-popup',closeButton:true,autoClose:true,closeOnClick:false,maxWidth:300,offset:[0,-8]}).setLatLng(labelPoint).setContent(tradeAreaHaloPopupHtml(item)).openOn(map);});
+    label.on('keydown',e=>{if(e.originalEvent?.key==='Enter'||e.originalEvent?.key===' '){e.originalEvent.preventDefault();label.fire('click');}});
+    item.circle=circle;item.label=label;item.labelPoint=labelPoint;
+  }
+  async function estimateTradeAreaHalos(){
+    if(state.tradeAreaHaloCalculating)return;
+    const targetRows=getTradeAreaHaloVisibleStores();
+    if(!targetRows.length){updateTradeAreaHaloUI();return;}
+    const salesColumn=state.columns.sales || state.headers.find(h=>norm(h)==='total sales') || '';
+    if(!salesColumn){alert('Total Sales is required to estimate Trade Area Halos.');return;}
+    const benchmarkRows=getTradeAreaHaloBenchmarkStores();
+    const threshold=Number(el('censusThreshold')?.value??10);
+    const benchmarkRadius=state.tradeAreaHaloConfig.benchmarkRadiusKm;
+    const maxRadius=state.tradeAreaHaloConfig.maxRadiusKm;
+    clearTradeAreaHalos();
+    state.tradeAreaHaloCalculating=true;state.tradeAreaHaloRunId++;const runId=state.tradeAreaHaloRunId;
+    updateTradeAreaHaloUI();
+    try{
+      const ratios=[];
+      const benchmarkStoreKeys=new Set();
+      for(const row of benchmarkRows){
+        if(runId!==state.tradeAreaHaloRunId) return;
+        const sales=toNumber(row[salesColumn]);
+        if(sales===null||sales<=0)continue;
+        const pop=await tradeAreaHaloPopulationAtRadius(row,benchmarkRadius,threshold);
+        if(pop<=0)continue;
+        ratios.push(sales/pop);benchmarkStoreKeys.add(row);
+      }
+      const benchmarkRatio=median(ratios);
+      if(!Number.isFinite(benchmarkRatio)||benchmarkRatio<=0){
+        el('tradeAreaHaloStatus').textContent='No valid benchmark stores with usable sales and population were found in the expanded viewport.';
+        state.tradeAreaHaloCalculating=false;updateTradeAreaHaloUI();return;
+      }
+      const items=[];
+      for(const row of targetRows){
+        if(runId!==state.tradeAreaHaloRunId)return;
+        const sales=toNumber(row[salesColumn]);
+        if(sales===null||sales<=0)continue;
+        const requiredPopulation=sales/benchmarkRatio;
+        const maxPopulation=await tradeAreaHaloPopulationAtRadius(row,maxRadius,threshold);
+        let radiusKm=maxRadius,populationCaptured=maxPopulation,unexplained=maxPopulation<requiredPopulation;
+        if(!unexplained){
+          let low=0,high=maxRadius,highPopulation=maxPopulation;
+          while(high-low>0.01){
+            const mid=(low+high)/2;
+            const pop=await tradeAreaHaloPopulationAtRadius(row,mid,threshold);
+            if(pop>=requiredPopulation){high=mid;highPopulation=pop;}else{low=mid;}
+          }
+          radiusKm=high;populationCaptured=highPopulation;
+        }
+        const salesExplained=Math.min(sales,populationCaptured*benchmarkRatio);
+        const salesRemaining=Math.max(0,sales-salesExplained);
+        const productivityMultiple=salesExplained>0?sales/salesExplained:NaN;
+        items.push({row,lat:toNumber(row[state.columns.lat]),lng:toNumber(row[state.columns.lon]),sales,benchmarkRatio,benchmarkStoreCount:ratios.length,requiredPopulation,populationCaptured,salesExplained,salesRemaining,productivityMultiple,radiusKm,unexplained});
+      }
+      state.tradeAreaHalos=items;items.forEach(drawTradeAreaHalo);
+      const unexplainedCount=items.filter(x=>x.unexplained).length;
+      el('tradeAreaHaloStatus').textContent=`${items.length.toLocaleString()} halos calculated from ${ratios.length.toLocaleString()} benchmark stores${unexplainedCount?`; ${unexplainedCount.toLocaleString()} reached the maximum radius`:'.'}`;
+    }catch(err){
+      console.error('[TRADE AREA HALO]',err);clearTradeAreaHalos();el('tradeAreaHaloStatus').textContent=`Trade Area Halo calculation failed: ${err.message||err}`;
+    }finally{state.tradeAreaHaloCalculating=false;updateTradeAreaHaloUI();}
+  }
+
   // ---------- Marker colour palette ----------
   const MARKER_COLORS = [
     {name:'Red', value:'#d34c4c'},
@@ -3924,7 +4127,7 @@
   }
   function metricConfigHeaderHTML({kind, idx, title, extraControls=''}){
     const titleClass = kind==='popup' ? 'popup-title-input' : (kind==='subject' ? 'subject-title-input' : 'ticker-title-input');
-    const titlePlaceholder = kind==='popup' ? 'Popup title' : (kind==='subject' ? 'Subject title' : 'Ticker title');
+    const titlePlaceholder = kind==='popup' ? 'Enter title' : (kind==='subject' ? 'Subject title' : 'Ticker title');
     const dragClass='ticker-drag-handle';
     const removeClass=kind==='popup'?'popup-remove':(kind==='subject'?'subject-remove':'ticker-remove');
     return `<div class="metric-row-head ${kind}-row-head"><strong>${kind==='popup'?'Field':'Metric'} ${idx+1}</strong><label class="metric-title-field"><span>Title</span><input class="${titleClass}" data-index="${idx}" value="${esc(title||'')}" placeholder="${titlePlaceholder}"></label>${extraControls}<span class="${dragClass}" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ${removeClass}" data-index="${idx}" aria-label="Remove ${kind==='popup'?'field':'metric'}">×</button></div>`;
@@ -3940,7 +4143,8 @@
     const aggregationMarkup = isPopup ? '' : `<label>Aggregation<select class="${aggregationClass}" data-index="${idx}"><option value="sum" ${aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${aggregation==='average'?'selected':''}>Average</option><option value="median" ${aggregation==='median'?'selected':''}>Median</option></select></label>`;
     const popupVirtualMarkup = isPopup ? `<optgroup label="Census virtual fields">${popupVirtualNames().map(name=>`<option value="${esc(name)}" ${directSelected===name?'selected':''}>${esc(name)}</option>`).join('')}</optgroup>` : '';
     const headerMarkup=headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('');
-    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${isPopup?`<optgroup label="Workbook columns">${headerMarkup}</optgroup>${popupVirtualMarkup}`:headerMarkup}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="Choose a column or combine columns with + - × / ( )" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
+    const formulaPlaceholder = isPopup ? 'Variable or formula' : 'Choose a column or combine columns with + - × / ( )';
+    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${isPopup?`<optgroup label="Workbook columns">${headerMarkup}</optgroup>${popupVirtualMarkup}`:headerMarkup}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="${formulaPlaceholder}" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
   }
   function attachMetricDragHandlers(wrap,stateArray,rerender){
     let dragFrom=-1;
@@ -4133,7 +4337,7 @@
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
   }
   el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
-  el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const column=state.headers[0]||'';state.popupConfigDraft.push({type:'column',column,formula:'',title:column,numberFormat:'auto',decimalPlaces:0});renderPopupConfig();});
+  el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const column=state.headers[0]||'';state.popupConfigDraft.push({type:'column',column,formula:'',title:'',numberFormat:'auto',decimalPlaces:0,numerator:state.headers.find(h=>state.types[h]==='numeric'&&norm(h)==='total sales')||state.headers.find(h=>state.types[h]==='numeric')||''});renderPopupConfig();});
   el('popupTickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupTickerConfig();});
   el('popupTickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupTickerConfig();});
   document.addEventListener('change',e=>{
@@ -4226,6 +4430,15 @@
       const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
       const row=document.createElement('div');row.className='metric-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
       row.innerHTML=metricConfigHeaderHTML({kind:'popup',idx,title:field.title,extraControls:'<label class="popup-quartile-check"><input type="checkbox" class="popup-quartile-input" data-index="'+idx+'" '+(field.quartile?'checked':'')+'><span>Quartile</span></label>'})+metricConfigSettingsHTML({kind:'popup',idx,headers:cols,formula:field.formula,numberFormat:field.numberFormat,decimalPlaces:field.decimalPlaces,directSelected:popupDirectColumn(field)});
+      if (isPopupFormulaWithCensusVirtual(field.formula)) {
+        const numerator = popupNumeratorForField(field);
+        const numericCols = state.headers.filter(h=>state.types[h]==='numeric');
+        const numeratorOptions = numericCols.map(h=>`<option value="${esc(h)}" ${numerator===h?'selected':''}>${esc(h)}</option>`).join('');
+        const settingsRow = row.querySelector('.metric-settings-row');
+        if(settingsRow){
+          const label=document.createElement('label'); label.className='popup-numerator-field'; label.innerHTML=`Numerator<select class="popup-numerator-select" data-index="${idx}"><option value="">Choose numeric column</option>${numeratorOptions}</select>`; settingsRow.insertBefore(label, settingsRow.firstElementChild);
+        }
+      }
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
@@ -4250,6 +4463,12 @@
     wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
     wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
+    wrap.querySelectorAll('.popup-numerator-select').forEach(select=>select.addEventListener('change',e=>{
+      const i=+e.target.dataset.index; const f=state.popupConfigDraft[i]; const chosen=e.target.value; if(!chosen)return;
+      f.numerator=chosen; const nextFormula=buildPopupNumeratorFormula(chosen,f.formula); f.formula=nextFormula; f.column=''; f.type='formula';
+      const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`); if(input)input.value=nextFormula;
+      updateFormulaValidation(input,input?.parentElement.querySelector('.formula-warning'),popupFormulaIssue);
+    }));
     attachMetricDragHandlers(wrap,state.popupConfigDraft,renderPopupConfig);
   }
   function validatePopupDraft(){
@@ -4846,6 +5065,7 @@
     if(censusScopeType()==='viewport') updateSelection();
     else { updateGroups(); updateDistribution(); updateSelectionState(); refreshMarkerStyles(); }
     refreshMunicipalityLabels();
+    if(typeof updateTradeAreaHaloUI==='function')updateTradeAreaHaloUI();
     // Viewport movement is navigation-only for Census DA selection; ordinary store selection
     // can still follow the viewport when no Census shape is active.
   });
@@ -4870,6 +5090,10 @@
   el('distributionSearch').addEventListener('input',e=>renderDistributionList(e.target.value));
   el('distributionClear').addEventListener('click',()=>{if(state.distributionDialogTarget===2){state.distributionSubject2=null;state.distributionBinKey2=null;}else{state.distributionSubject=null;state.distributionBinKey=null;}renderDistributionList(el('distributionSearch').value);updateDistribution();refreshConfigUI();refreshMarkerStyles();});
   el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
+  el('tradeAreaHaloConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openTradeAreaHaloConfig();});
+  el('tradeAreaHaloConfigApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTradeAreaHaloConfig();});
+  el('estimateTradeAreaHaloBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();estimateTradeAreaHalos();});
+  el('clearTradeAreaHaloBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();clearTradeAreaHalos();});
   el('filterBtn').addEventListener('click',()=>openFilterDialog());
   el('filterDiagnosticToggle').addEventListener('click',toggleFilterDiagnostic);
   el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();state.filteredRows=[...state.rows];redrawAfterFilterChange();updateSelection();updateFilterUI();});
@@ -4912,6 +5136,7 @@
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
   if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
+  loadTradeAreaHaloConfig();
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();
@@ -4922,6 +5147,7 @@
   el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
   applyAllHelpTooltips();
+  updateTradeAreaHaloUI();
   loadHeaderCsdLookup();
   updateSelection();
   updateHeaderGeography();

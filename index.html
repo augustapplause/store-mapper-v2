@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.198</title>
+  <title>Store Explorer v1.199</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.198.0.shape-query-controls" />
+      <link rel="stylesheet" href="styles.css?v=1.199.0.trade-area-halo" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.198</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.199</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -103,6 +103,16 @@
           </button>
         </div>
         <div id="filterStatus" class="status muted">No filters applied.</div>
+      </section>
+
+      <section class="panel-card trade-area-halo-card">
+        <h2>Trade Area Halo</h2>
+        <div class="trade-area-halo-actions">
+          <button id="tradeAreaHaloConfigBtn" type="button" class="trade-area-halo-button" disabled data-help-key="trade-area-halo-config">Configure</button>
+          <button id="estimateTradeAreaHaloBtn" type="button" class="trade-area-halo-button" disabled data-help-key="estimate-trade-area-halo">Estimate Trade Area Halo</button>
+          <button id="clearTradeAreaHaloBtn" type="button" class="trade-area-halo-button" disabled data-help-key="clear-trade-area-halo">Clear Halos</button>
+        </div>
+        <div id="tradeAreaHaloStatus" class="small muted">Load a workbook and keep at least one store marker in the viewport.</div>
       </section>
 
       <section class="panel-card legend-card">
@@ -272,6 +282,21 @@
       <div class="dialog-tools"><input id="groupSearch" type="search" placeholder="Find a column…" /><button id="groupsClear" type="button" class="secondary">Clear</button></div>
       <div id="groupsList" class="checkbox-list"></div>
       <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="groupsApply" value="default">Apply</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="tradeAreaHaloConfigDialog" class="ticker-dialog trade-area-halo-config-dialog">
+    <form method="dialog" id="tradeAreaHaloConfigForm">
+      <div class="dialog-header ticker-dialog-header">
+        <div><h2>Trade Area Halo Configuration</h2><p>Set the local benchmark population radius and the maximum halo radius used for on-demand trade-area estimates.</p></div>
+        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+      </div>
+      <div class="trade-area-halo-config-main">
+        <label class="trade-area-halo-config-row"><span>Benchmark radius km</span><input id="tradeAreaHaloBenchmarkRadius" type="number" min="0.1" max="100" step="0.01" value="2.00" inputmode="decimal"></label>
+        <label class="trade-area-halo-config-row"><span>Maximum halo radius km</span><input id="tradeAreaHaloMaxRadius" type="number" min="0.1" max="500" step="0.01" value="5.00" inputmode="decimal"></label>
+        <div class="trade-area-halo-config-note">Benchmark = median store sales ÷ population inside the benchmark radius, using valid stores in the expanded viewport.</div>
+      </div>
+      <div class="dialog-footer ticker-dialog-footer"><div></div><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="tradeAreaHaloConfigApply" type="button">Save configuration</button></div></div>
     </form>
   </dialog>
 
