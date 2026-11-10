@@ -166,7 +166,7 @@
         const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
         const x=p.x-origin.x;
         const y=p.y-origin.y;
-        const r=5;
+        const r=4;
         ctx.strokeRect(x-r+0.5,y-r+0.5,r*2-1,r*2-1);
       }
       ctx.restore();
@@ -4896,7 +4896,15 @@
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const radius=Math.max(10,radiusMeters);
     const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineCap:'round',lineJoin:'round'}).addTo(map);
-    circle.on('click',e=>{L.DomEvent.stopPropagation(e);showCircleHandles();});
+    circle.on('click',e=>{
+      const secondaryHit=state.secondaryVisible?secondaryHitTest(e.latlng,11):null;
+      if(secondaryHit){
+        L.DomEvent.stopPropagation(e);
+        showSecondaryPopup(secondaryHit);
+        return;
+      }
+      L.DomEvent.stopPropagation(e);showCircleHandles();
+    });
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     state.circleSelection={circle,label};
     setCensusScope('circle',{reason, generation:state.censusScopeGeneration});
@@ -4909,7 +4917,15 @@
     clearCensusShape();
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
     const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
-    rectangle.on('click',e=>{L.DomEvent.stopPropagation(e);showRectangleHandles();});
+    rectangle.on('click',e=>{
+      const secondaryHit=state.secondaryVisible?secondaryHitTest(e.latlng,11):null;
+      if(secondaryHit){
+        L.DomEvent.stopPropagation(e);
+        showSecondaryPopup(secondaryHit);
+        return;
+      }
+      L.DomEvent.stopPropagation(e);showRectangleHandles();
+    });
     const label=makeRectangleDimensionsLabel(bounds).addTo(map);
     state.rectangleSelection={rectangle,label};
     setCensusScope('box',{reason, generation:state.censusScopeGeneration});
@@ -4941,10 +4957,20 @@
   });
 
   map.on('mousemove',e=>{
-    if(!state.secondaryVisible)return;
+    if(!state.secondaryVisible){
+      if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='';
+      return;
+    }
     const hit=secondaryHitTest(e.latlng,10);
-    if(hit){showUnifiedHover(secondaryHoverOwner,L.latLng(hit.lat,hit.lng),secondaryHoverHtml(hit.row));state.secondaryHoverRow=hit;}
-    else if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+    if(hit){
+      showUnifiedHover(secondaryHoverOwner,L.latLng(hit.lat,hit.lng),secondaryHoverHtml(hit.row));
+      state.secondaryHoverRow=hit;
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='pointer';
+    }else{
+      if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='';
+    }
   });
   map.on('click',e=>{
     const hit=secondaryHitTest(e.latlng,11);
