@@ -1034,26 +1034,3 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:760px){.help-config-row{grid-template-columns:1fr;gap:5px;}.help-config-label{padding-top:0;}.help-hover-tooltip{max-width:calc(100vw - 20px);}}
 
 
-/* v1.199: Trade Area Halo */
-.trade-area-halo-actions{display:flex;flex-direction:column;gap:7px;}
-.trade-area-halo-button{width:100%;padding:9px 10px;background:var(--blue)!important;color:#fff!important;border:1px solid #0e5f9f!important;border-bottom:3px solid #0b4f85!important;border-radius:8px!important;box-shadow:0 2px 0 #0b4f85;transform:translateY(0);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;font-weight:700!important;cursor:pointer;}
-.trade-area-halo-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #0b4f85;filter:brightness(.98);}
-.trade-area-halo-button:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px!important;box-shadow:0 0 0 #0b4f85;}
-.trade-area-halo-button:disabled{opacity:.52;cursor:not-allowed;transform:none;box-shadow:0 2px 0 #0b4f85;}
-.trade-area-halo-config-dialog{width:min(520px,92vw);max-width:520px;}
-.trade-area-halo-config-main{padding:14px 17px;display:flex;flex-direction:column;gap:12px;}
-.trade-area-halo-config-row{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:12px;font-size:13px;font-weight:700;color:var(--navy);}
-.trade-area-halo-config-row input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font:inherit;font-size:13px;background:#fff;color:var(--text);}
-.trade-area-halo-config-note{font-size:11px;line-height:1.35;color:var(--muted);padding:9px 10px;background:#f8fbfd;border:1px solid var(--line);border-radius:7px;}
-.trade-area-halo-distance-label{background:transparent!important;border:0!important;}
-.trade-area-halo-distance-label span{display:inline-flex;align-items:center;justify-content:center;min-width:58px;height:24px;padding:0 7px;border:1px solid #6f4aa8;border-radius:4px;background:#fff;color:#6f2f63;font-size:12px;font-weight:700;line-height:1;box-shadow:0 1px 3px #0002;cursor:pointer;white-space:nowrap;}
-.trade-area-halo-popup .leaflet-popup-content-wrapper{border:1px solid #6f4aa8;border-radius:8px;}
-.trade-area-halo-popup-content{font-size:12px;line-height:1.35;min-width:230px;}
-.trade-area-halo-popup-title{font-weight:800;color:var(--navy);font-size:14px;margin-bottom:8px;}
-.trade-area-halo-popup-grid{display:grid;grid-template-columns:1fr auto;gap:5px 12px;}
-.trade-area-halo-popup-grid span{color:var(--muted);}
-.trade-area-halo-popup-grid strong{color:var(--text);text-align:right;}
-.trade-area-halo-popup-status{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);color:var(--navy);font-weight:600;}
-.popup-numerator-field{min-width:120px;}
-.popup-numerator-select{border:1px solid var(--line);border-radius:7px;padding:7px 8px;background:#fff;color:var(--text);font-size:11px;}
-@media (max-width:760px){.trade-area-halo-config-row{grid-template-columns:1fr;gap:5px;}}
