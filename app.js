@@ -159,7 +159,7 @@
       const items=state.secondarySpatialIndex.search(q);
       ctx.save();
       ctx.lineWidth=2.5;
-      ctx.strokeStyle='#2563eb';
+      ctx.strokeStyle='#7a3db8';
       ctx.lineJoin='miter';
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
