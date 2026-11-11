@@ -1097,8 +1097,8 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .right-panel .right-census-box .census-delay-control span,
 .right-panel .right-census-box .census-threshold-control-value span{font-size:12px!important;}
 .census-title-row .box-title{font-size:12px!important;}
-.census-settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px;}
-.census-setting-item{display:flex;align-items:center;gap:8px;white-space:nowrap;color:#111;font-size:12px;font-weight:700;margin:0;}
+.census-settings-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;width:100%;box-sizing:border-box;}
+.census-setting-item{display:flex;align-items:center;gap:6px;white-space:nowrap;color:#111;font-size:12px;font-weight:400;margin:0;flex:1;min-width:0;}
 .census-threshold-control.census-setting-item{display:flex;align-items:center;gap:8px;}
 .census-threshold-control-value{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
-.census-settings-row .census-delay-control{margin:0;}
+.census-settings-row .census-delay-control{margin:0;flex:0 0 auto}.census-settings-row .census-delay-control input,.census-settings-row .census-threshold-control-value input{width:56px!important;min-width:56px!important;max-width:56px!important;box-sizing:border-box;text-align:center;font-size:12px!important;font-weight:400!important}.census-settings-row .census-threshold-control-value{flex:0 0 auto}.census-settings-row .census-delay-control span,.census-settings-row .census-threshold-control-value span{font-size:12px!important;font-weight:400!important}.census-settings-row .census-threshold-control{min-width:0;}
