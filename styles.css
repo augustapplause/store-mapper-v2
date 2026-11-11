@@ -1071,7 +1071,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .left-panel .file-button{font-size:13px!important;}
 .secondary-upload-button{font-size:13px!important;font-weight:700!important;}
 
-/* v1.210: right-panel section separation and hierarchy */
+/* v1.211: right-panel section separation and hierarchy */
 .right-panel .results-card,
 .right-panel .right-section-box{margin:0 0 11px;border-radius:10px;background:var(--card);padding:12px;}
 .right-panel .right-kpi-box{border:2px solid #7a3db8!important;}
@@ -1085,3 +1085,20 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .right-panel .right-distribution-box .distribution-box + .distribution-box{margin-top:8px;}
 .right-panel .right-distribution-box .distribution-instruction{margin-top:0;}
 .secondary-upload-button{font-weight:600!important;}
+
+
+/* v1.211: compact right-panel KPI and census settings */
+.right-panel .right-kpi-box{min-height:0!important;height:auto!important;}
+.right-panel .right-kpi-box .kpi-grid{margin-bottom:0;}
+.right-panel .right-census-box{font-size:12px!important;}
+.right-panel .right-census-box .box-title,
+.right-panel .right-census-box label,
+.right-panel .right-census-box input,
+.right-panel .right-census-box .census-delay-control span,
+.right-panel .right-census-box .census-threshold-control-value span{font-size:12px!important;}
+.census-title-row .box-title{font-size:12px!important;}
+.census-settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px;}
+.census-setting-item{display:flex;align-items:center;gap:8px;white-space:nowrap;color:#111;font-size:12px;font-weight:700;margin:0;}
+.census-threshold-control.census-setting-item{display:flex;align-items:center;gap:8px;}
+.census-threshold-control-value{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+.census-settings-row .census-delay-control{margin:0;}
