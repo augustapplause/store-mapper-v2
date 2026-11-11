@@ -1,4 +1,4 @@
-/* Store Explorer - v1.207
+/* Store Explorer - v1.208
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2710,7 +2710,7 @@
     const next=[];
     for(let i=0;i<state.filterDraft.length;i++){
       const draft=state.filterDraft[i];
-      if(!String(draft.formula??'').trim())continue;
+      if(draft.type!=='proximity' && !String(draft.formula??'').trim())continue;
       const parsed=validateFilterDraft(draft,i);
       if(typeof parsed==='string'){
         if(errorBox)errorBox.textContent=parsed;
