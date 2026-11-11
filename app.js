@@ -1,4 +1,4 @@
-/* Store Explorer - v1.213
+/* Store Explorer - v1.214
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -86,7 +86,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryHitRadiusPx: 10, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -675,13 +675,27 @@
   function openSecondaryHoverConfig(){renderSecondaryHoverConfig();el('secondaryHoverDialog').showModal();}
   function applySecondaryHoverConfig(){state.secondaryHoverColumn=el('secondaryHoverColumn')?.value||'';saveSecondaryConfigs();el('secondaryHoverDialog').close();}
   function resetSecondaryHoverConfig(){state.secondaryHoverColumn=secondaryColumnCandidates(state.secondaryHeaders||[],['pharmacy name','name','account name'])||(state.secondaryHeaders||[])[0]||'';renderSecondaryHoverConfig();}
-  function secondaryPopupHtml(row){
+  function secondaryPopupHtml(item){
+    const row=item?.row||{};
     const cfg=state.secondaryPopupConfig||secondaryDefaultPopup(state.secondaryHeaders||[]);
-    const title=cfg.title?String(row[cfg.title]??'').trim():''; const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
-    const fields=(cfg.fields||[]).filter(h=>h&&h!==cfg.title&&h!==cfg.subtitle).map(h=>`<div class="secondary-popup-field"><span>${esc(h)}</span><strong>${esc(row[h]??'—')}</strong></div>`).join('');
-    return `<div class="secondary-location-popup"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}${fields}</div>`;
+    const title=cfg.title?String(row[cfg.title]??'').trim():'';
+    const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
+    const editValues=state.secondaryEdits?.[item.index]||{};
+    const lat=Number.isFinite(item.lat)?item.lat:null,lng=Number.isFinite(item.lng)?item.lng:null;
+    const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
+    const fields=(cfg.fields||[]).filter(h=>h&&h!==cfg.title&&h!==cfg.subtitle).map(h=>{
+      const value=editValues[h]??row[h]??'';
+      return `<label class="secondary-popup-edit-field"><span>${esc(h)}</span><input type="text" data-secondary-edit-field="${esc(h)}" value="${esc(String(value))}"></label>`;
+    }).join('');
+    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}</div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div><div class="secondary-popup-actions"><button type="button" class="secondary-popup-save" data-secondary-popup-save="1">Save</button></div></div>`;
   }
   function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
+  function secondarySaveEditsFromPopup(root){
+    const idx=Number(root?.dataset?.secondaryPopupIndex); if(!Number.isInteger(idx))return;
+    const edits={...(state.secondaryEdits?.[idx]||{})};
+    root.querySelectorAll('[data-secondary-edit-field]').forEach(input=>{edits[input.dataset.secondaryEditField]=input.value;});
+    state.secondaryEdits=state.secondaryEdits||{}; state.secondaryEdits[idx]=edits;
+  }
   function buildSecondarySpatialIndex(){
     if(typeof RBush==='undefined')throw new Error('Spatial-index library did not load. Refresh the page and try again.');
     const items=[];
@@ -704,7 +718,11 @@
     for(const item of candidates){const cp=map.latLngToContainerPoint([item.lat,item.lng]);const dx=cp.x-p.x,dy=cp.y-p.y;const dist=Math.hypot(dx,dy);if(dist<=pixelRadius&&dist<bestPx){best=item;bestPx=dist;}}
     return best;
   }
-  function showSecondaryPopup(item){if(!item)return; L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:340,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item.row)).openOn(map);}
+  function showSecondaryPopup(item){
+    if(!item)return;
+    const popup=L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:360,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item));
+    popup.openOn(map);
+  }
   function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
   async function readSecondaryLocationsFile(file){
     if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
@@ -719,7 +737,7 @@
     return {headers,rows:valid,lat,lon};
   }
   function clearSecondaryLocations(){
-    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];
+    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
     setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
@@ -4535,6 +4553,8 @@
   el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
   el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
   el('secondaryPopupFields').addEventListener('click',e=>{const btn=e.target.closest('[data-secondary-popup-remove]');if(!btn)return;btn.parentElement?.remove();});
+  document.addEventListener('click',e=>{const save=e.target.closest('[data-secondary-popup-save]');if(!save)return;const root=save.closest('[data-secondary-popup-index]');if(!root)return;secondarySaveEditsFromPopup(root);save.textContent='Saved';setTimeout(()=>{if(save.isConnected)save.textContent='Save';},700);});
+
   el('secondaryPopupAddField').addEventListener('click',()=>{const list=el('secondaryPopupFields');const row=document.createElement('div');row.className='secondary-popup-field-row';const i=list.children.length+1;const opts=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');row.innerHTML=`<span class="field-index">${i}</span><select data-secondary-popup-field="1"><option value="">Choose field</option>${opts}</select><button type="button" class="secondary" data-secondary-popup-remove="${i-1}">×</button>`;list.appendChild(row);});
   el('secondaryPopupApply').addEventListener('click',e=>{e.preventDefault();applySecondaryPopupConfig();});
   el('secondaryPopupReset').addEventListener('click',e=>{e.preventDefault();resetSecondaryPopupConfig();});
