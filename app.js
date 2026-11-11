@@ -1,4 +1,4 @@
-/* Store Explorer - v1.212
+/* Store Explorer - v1.213
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -741,11 +741,11 @@
       saveTickerConfig();
     }
     const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
-    const exactDefaultGroupNames=['location type'];
+    const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('distributionBtn').disabled=false;el('distributionBtn2').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
@@ -2091,6 +2091,10 @@
     el('subjectsSummary').innerHTML=html+'</table>';
   }
 
+  const DEFAULT_GROUP_FIELDS=['location type'];
+  function defaultSelectedStoreFields(){
+    return [state.columns?.storeId,state.columns?.location].filter(Boolean);
+  }
   function mode(vals){const m=new Map();for(const v of vals){const s=String(v);m.set(s,(m.get(s)||0)+1);}return [...m.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;}
   function updateSelectedStoresList(){
     const box=el('selectedStoresList');if(!box)return;
@@ -2115,11 +2119,14 @@
   function renderSelectedStoresConfig(filter=''){
     const cont=el('selectedStoresListConfig');if(!cont)return;
     const f=norm(filter);cont.innerHTML='';
-    const fixed=new Set([state.columns.storeId,state.columns.location].filter(Boolean));
-    state.headers.filter(h=>!fixed.has(h)&&(!f||norm(h).includes(f))).forEach((h,i)=>{
+    const fixed=defaultSelectedStoreFields();
+    const fixedSet=new Set(fixed);
+    const ordered=[...fixed,...state.headers.filter(h=>!fixedSet.has(h))];
+    ordered.filter(h=>!f||norm(h).includes(f)).forEach((h,i)=>{
       const id=`selected-store-${i}-${Math.random().toString(36).slice(2,6)}`;
+      const isFixed=fixedSet.has(h);
       const row=document.createElement('label');row.className='check-row';
-      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${state.selectedStoreColumns.includes(h)?'checked':''}><span>${esc(h)}</span><small>${state.types[h]||''}</small>`;
+      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${state.selectedStoreColumns.includes(h)?'checked':''}${isFixed?' disabled':''}><span>${esc(h)}</span><small>${isFixed?'Default':(state.types[h]||'')}</small>`;
       cont.appendChild(row);
     });
   }
@@ -2287,7 +2294,7 @@
     el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
     el('distributionCount').textContent=state.distributionSubject?1:0;
-    el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=2+state.selectedStoreColumns.length;
+    el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=state.selectedStoreColumns.length;
     renderChecklist('groupsList',state.groups,'group');
     renderSubjectConfig();
     renderDistributionList(el('distributionSearch')?.value||''); renderSelectedStoresConfig(el('selectedStoresSearch')?.value||'');
