@@ -1,4 +1,4 @@
-/* Store Explorer - v1.214
+/* Store Explorer - v1.215
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -687,7 +687,7 @@
       const value=editValues[h]??row[h]??'';
       return `<label class="secondary-popup-edit-field"><span>${esc(h)}</span><input type="text" data-secondary-edit-field="${esc(h)}" value="${esc(String(value))}"></label>`;
     }).join('');
-    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}</div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div><div class="secondary-popup-actions"><button type="button" class="secondary-popup-save" data-secondary-popup-save="1">Save</button></div></div>`;
+    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}</div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div></div>`;
   }
   function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
   function secondarySaveEditsFromPopup(root){
@@ -720,7 +720,7 @@
   }
   function showSecondaryPopup(item){
     if(!item)return;
-    const popup=L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:360,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item));
+    const popup=L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:410,minWidth:310,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item));
     popup.openOn(map);
   }
   function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
@@ -4553,7 +4553,7 @@
   el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
   el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
   el('secondaryPopupFields').addEventListener('click',e=>{const btn=e.target.closest('[data-secondary-popup-remove]');if(!btn)return;btn.parentElement?.remove();});
-  document.addEventListener('click',e=>{const save=e.target.closest('[data-secondary-popup-save]');if(!save)return;const root=save.closest('[data-secondary-popup-index]');if(!root)return;secondarySaveEditsFromPopup(root);save.textContent='Saved';setTimeout(()=>{if(save.isConnected)save.textContent='Save';},700);});
+  document.addEventListener('input',e=>{const input=e.target.closest('[data-secondary-edit-field]');if(!input)return;const root=input.closest('[data-secondary-popup-index]');if(!root)return;secondarySaveEditsFromPopup(root);});
 
   el('secondaryPopupAddField').addEventListener('click',()=>{const list=el('secondaryPopupFields');const row=document.createElement('div');row.className='secondary-popup-field-row';const i=list.children.length+1;const opts=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');row.innerHTML=`<span class="field-index">${i}</span><select data-secondary-popup-field="1"><option value="">Choose field</option>${opts}</select><button type="button" class="secondary" data-secondary-popup-remove="${i-1}">×</button>`;list.appendChild(row);});
   el('secondaryPopupApply').addEventListener('click',e=>{e.preventDefault();applySecondaryPopupConfig();});
