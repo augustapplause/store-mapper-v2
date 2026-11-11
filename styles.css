@@ -1035,10 +1035,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 
 
-/* v1.206 secondary canvas layer: map-synced outline squares */
+/* v1.207 secondary canvas layer: map-synced outline squares */
 .data-sources-card{display:flex;flex-direction:column;gap:8px}.data-source-block{display:flex;flex-direction:column;gap:6px}.data-source-title{font-size:12px;font-weight:800;color:var(--navy)}.data-source-divider{border-top:1px solid var(--line);margin:2px 0}.secondary-upload-button{background:#2e6fa6!important;color:#fff!important;font-weight:600!important}.secondary-data-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.secondary-data-actions .secondary{font-size:10px;padding:6px 6px;white-space:nowrap}.secondary-config-dialog{width:min(720px,92vw);max-height:min(720px,88vh);padding:0;border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px #0005}.secondary-config-dialog form{display:flex;flex-direction:column;max-height:inherit;overflow:hidden}.secondary-config-body{padding:12px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px}.secondary-config-body label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px;font-weight:600}.secondary-config-body select,.secondary-config-body input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:6px;padding:8px 9px;background:#fff;color:var(--text);font-size:12px}.secondary-config-subtitle{font-size:12px;font-weight:800;color:var(--navy);margin-top:4px}.secondary-popup-fields{display:flex;flex-direction:column;gap:7px}.secondary-popup-field-row{display:grid;grid-template-columns:28px 1fr 34px;gap:7px;align-items:center}.secondary-popup-field-row .field-index{font-size:11px;font-weight:700;color:var(--muted);text-align:center}.secondary-popup-field-row button{padding:7px 8px;font-size:11px}.secondary-location-popup .leaflet-popup-content-wrapper{border-radius:10px}.secondary-location-popup .leaflet-popup-content{margin:10px 12px;font-size:12px;line-height:1.35}.secondary-popup-title{font-weight:700;color:var(--navy);margin-bottom:2px}.secondary-popup-subtitle{font-size:11px;color:var(--muted);margin-bottom:7px}.secondary-popup-field{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #eef2f5;padding-top:4px;margin-top:4px}.secondary-popup-field span:first-child{color:var(--muted)}
 .secondary-visibility-toggle{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer}.secondary-visibility-toggle input{margin:0;width:14px;height:14px}.secondary-canvas-layer{position:absolute;width:100%;height:100%;pointer-events:none;display:block}
-/* v1.206: secondary layer z-order and compact secondary controls */
+/* v1.207: secondary layer z-order and compact secondary controls */
 .secondary-upload-button{
   background:var(--blue)!important;color:#fff!important;border:1px solid #0e5f9f!important;border-bottom:3px solid #0b4f85!important;
   border-radius:8px!important;box-shadow:0 2px 0 #0b4f85;transform:translateY(0);transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
@@ -1049,3 +1049,15 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .clear-primary-button{width:50%!important;min-width:0!important;font-size:10px!important;padding:5px 6px!important;line-height:1.15!important;white-space:nowrap;}
 .secondary-data-actions{grid-template-columns:1fr 1fr 1fr;gap:5px;}
 .secondary-data-actions .secondary{font-size:10px;padding:5px 4px;white-space:nowrap;min-width:0;}
+
+/* v1.207: compact Data / Proximity filter rows. */
+.filter-table-head{grid-template-columns:.52fr 1fr 1.55fr .46fr 1.73fr .28fr .38fr;}
+.filter-line-main[data-filter-type=proximity]{grid-template-columns:.52fr 1.12fr 1.12fr .72fr 1.73fr .28fr .38fr;}
+.filter-line-main[data-filter-type=data]{grid-template-columns:.52fr 1fr 1.55fr .46fr 1.73fr .28fr .38fr;}
+.filter-line-main .filter-type{font-weight:600;}
+.filter-line-main .filter-distance-input{min-width:0;}
+.filter-proximity-spacer{min-width:0;}
+@media (max-width:900px){
+  .filter-table-head{display:none;}
+  .filter-line-main[data-filter-type=proximity],.filter-line-main[data-filter-type=data]{grid-template-columns:1fr 1fr;}
+}

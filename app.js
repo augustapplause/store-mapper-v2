@@ -1,4 +1,4 @@
-/* Store Explorer - v1.206
+/* Store Explorer - v1.207
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2328,9 +2328,42 @@
     return `${prefix}${f.formula||f.column||''}`;
   }
   function uniqueColumnValues(column){
-    // Filter-value availability follows the viewport, not the Census shape.
     const scope=getViewportSelectedRows({respectFilters:false});
     return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  }
+  function uniqueSecondaryColumnValues(column){
+    if(!column||!state.secondaryLocations?.length)return [];
+    return [...new Set(state.secondaryLocations.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  }
+  function secondaryProximityCandidates(lat,lng,distanceKm){
+    if(!state.secondarySpatialIndex||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(distanceKm)||distanceKm<0)return [];
+    const latRad=lat*Math.PI/180;
+    const dLat=distanceKm/110.574;
+    const cos=Math.max(0.15,Math.cos(latRad));
+    const dLng=distanceKm/(111.320*cos);
+    const q={minX:lng-dLng,maxX:lng+dLng,minY:lat-dLat,maxY:lat+dLat};
+    return state.secondarySpatialIndex.search(q);
+  }
+  function primaryRowWithinSecondaryProximity(row,filter){
+    if(!state.secondarySpatialIndex)return false;
+    const c=state.columns||{};
+    const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
+    const distanceKm=Number(filter.distanceKm);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(distanceKm)||distanceKm<0)return false;
+    const wanted=String(filter.secondaryValue??'');
+    const column=String(filter.secondaryColumn??'');
+    if(!column||wanted==='')return false;
+    const candidates=secondaryProximityCandidates(lat,lng,distanceKm);
+    if(!candidates.length)return false;
+    const origin=L.latLng(lat,lng);
+    const maxMeters=distanceKm*1000;
+    for(const item of candidates){
+      const secondaryRow=item.row||state.secondaryLocations[item.index];
+      if(!secondaryRow)continue;
+      if(String(secondaryRow[column]??'')!==wanted)continue;
+      if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)return true;
+    }
+    return false;
   }
   function exactFormulaTokens(formula){
     const tokens=tokenizeTicker(String(formula??'').trim());
@@ -2361,11 +2394,12 @@
     const value=evaluateTickerExpressionWithTokens(tokens,operandValues);
     return Number.isFinite(value)?value:null;
   }
-  function filterDraftBlank(){return {connector:'AND',column:'',formula:'',operator:'=',value:'',values:[],wildcard:'',type:'numeric'};}
+  function filterDraftBlank(){return {connector:'AND',column:'',formula:'',operator:'=',value:'',values:[],wildcard:'',type:'numeric',secondaryColumn:'',secondaryValue:'',distanceKm:''};}
   function cloneFilterDrafts(filters){
     return (filters||[]).map((f,i)=>({
       connector:i===0?'AND':(f.connector||'AND'),
-      column:f.column||'', formula:f.formula||f.column||'', operator:f.operator||'=', value:f.value??'', values:Array.isArray(f.values)?[...f.values]:[], wildcard:f.wildcard||'', type:f.type||'numeric'
+      column:f.column||'', formula:f.formula||f.column||'', operator:f.operator||'=', value:f.value??'', values:Array.isArray(f.values)?[...f.values]:[], wildcard:f.wildcard||'', type:f.type||'numeric',
+      secondaryColumn:f.secondaryColumn||'', secondaryValue:f.secondaryValue||'', distanceKm:f.distanceKm??''
     }));
   }
   function ensureThreeDrafts(){
@@ -2403,6 +2437,10 @@
     return id!==''&&id!==null&&id!==undefined?String(id):String(index+1);
   }
   function describeFilterRow(filter,row,index){
+    if(filter.type==='proximity'){
+      const pass=primaryRowWithinSecondaryProximity(row,filter);
+      return `Line ${index+1}: within ${Number(filter.distanceKm||0).toFixed(2)} km of secondary ${filter.secondaryColumn||''}=${JSON.stringify(filter.secondaryValue||'')} | result=${pass?'TRUE':'FALSE'}`;
+    }
     if(filter.type==='text'){
       const actual=String(row[filter.column]??'');
       const pass=filter.values.some(v=>String(v)===actual);
@@ -2461,60 +2499,80 @@
     if(!rows.length){box.innerHTML='<div class="empty-message">No filter lines. Use Add filter to create one.</div>';return;}
     const allCols=state.headers;
     box.innerHTML=rows.map((f,i)=>{
-      const type=detectFilterDraftType(f);
+      const typeMode=f.type==='proximity'?'proximity':'data';
+      const detected=detectFilterDraftType(f);
+      const dataType=typeMode==='data'?detected:'numeric';
       const formula=f.formula||'';
       const selectedTextValues=Array.isArray(f.values)?f.values:[];
-      const valuePicker=type==='text'
+      const valuePicker=dataType==='text'
         ? `<button type="button" class="filter-value-select-button" data-index="${i}">${selectedTextValues.length?esc(selectedTextValues.join(', ')):'Select values...'}</button>`
         : `<input class="filter-value-input" data-index="${i}" type="number" step="any" placeholder="Enter value" value="${esc(f.value??'')}">`;
       const condition=`<select class="filter-condition" data-index="${i}">${FILTER_OPERATORS.map(op=>`<option value="${op}" ${f.operator===op?'selected':''}>${op}</option>`).join('')}</select>`;
       const connector=`<select class="filter-connector" data-index="${i}">${FILTER_CONNECTORS.map(op=>`<option value="${op}" ${f.connector===op?'selected':''}>${op}</option>`).join('')}</select>`;
-      return `<div class="filter-line" data-index="${i}">
-        <div class="filter-line-main">
-          <select class="filter-column" data-index="${i}"><option value="">Choose column</option><optgroup label="Workbook columns">${allCols.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup><optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup></select>
-          <input class="filter-formula" data-index="${i}" type="text" placeholder="Variable or Formula" value="${esc(formula)}" autocomplete="off">
-          ${condition}
-          <div class="filter-value-cell">${valuePicker}</div>
+      const secondaryCols=(state.secondaryHeaders||[]).filter(h=>h!==state.secondaryLatColumn&&h!==state.secondaryLonColumn);
+      const secondaryValues=uniqueSecondaryColumnValues(f.secondaryColumn||'');
+      const proximityControls=`
+        <select class="filter-secondary-column" data-index="${i}">
+          <option value="">Secondary column</option>
+          ${secondaryCols.map(h=>`<option value="${esc(h)}" ${f.secondaryColumn===h?'selected':''}>${esc(h)}</option>`).join('')}
+        </select>
+        <select class="filter-secondary-value" data-index="${i}" ${f.secondaryColumn?'':'disabled'}>
+          <option value="">${f.secondaryColumn?(secondaryValues.length?'Choose value':'No values available'):'Choose value'}</option>
+          ${secondaryValues.map(v=>`<option value="${esc(v)}" ${String(f.secondaryValue||'')===v?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+        <input class="filter-distance-input" data-index="${i}" type="number" min="0" step="0.01" placeholder="km" value="${esc(f.distanceKm??'')}">
+      `;
+      return `<div class="filter-line ${typeMode==='proximity'?'filter-line-proximity':''}" data-index="${i}">
+        <div class="filter-line-main" data-filter-type="${typeMode}">
+          <select class="filter-type" data-index="${i}">
+            <option value="data" ${typeMode==='data'?'selected':''}>Data</option>
+            <option value="proximity" ${typeMode==='proximity'?'selected':''}>Proximity</option>
+          </select>
+          ${typeMode==='data'
+            ? `<select class="filter-column" data-index="${i}"><option value="">Choose column</option><optgroup label="Workbook columns">${allCols.map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</optgroup><optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</optgroup></select>
+               <input class="filter-formula" data-index="${i}" type="text" placeholder="Variable or Formula" value="${esc(formula)}" autocomplete="off">
+               ${condition}
+               <div class="filter-value-cell">${valuePicker}</div>`
+            : `${proximityControls}<div class="filter-proximity-spacer"></div>`}
           ${connector}
           <button type="button" class="filter-delete" data-index="${i}">Delete</button>
         </div>
       </div>`;
     }).join('');
 
+    box.querySelectorAll('.filter-type').forEach(sel=>sel.addEventListener('change',e=>{
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i];
+      if(e.target.value==='proximity'){
+        f.type='proximity'; f.column=''; f.formula=''; f.operator='='; f.value=''; f.values=[]; f.wildcard='';
+      }else{
+        f.type='numeric'; f.secondaryColumn=''; f.secondaryValue=''; f.distanceKm='';
+      }
+      renderFilterRows(); updateFilterDiagnostic();
+    }));
     box.querySelectorAll('.filter-column').forEach(sel=>sel.addEventListener('change',e=>{
       const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;if(!h)return;
       const current=String(f.formula||'').trim();
       const chosenType=isPopupVirtualOperand(h)?'numeric':(state.types[h]==='text'?'text':'numeric');
-      if(!current){
-        f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';
-      }else{
-        f.formula=`${current}${h}`;
-        f.type=detectFilterDraftType(f);
-        if(f.type==='text'){f.value='';}
-      }
+      if(!current){f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';}
+      else{f.formula=`${current}${h}`;f.type=detectFilterDraftType(f);if(f.type==='text'){f.value='';}}
       renderFilterRows();
-      const input=box.querySelector(`.filter-formula[data-index="${i}"]`);
-      if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}
+      const input=box.querySelector(`.filter-formula[data-index="${i}"]`); if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}
       updateFilterDiagnostic();
     }));
     box.querySelectorAll('.filter-formula').forEach(inp=>inp.addEventListener('input',e=>{
-      const i=Number(e.target.dataset.index);
-      const draft=state.filterDraft[i];
-      const before=detectFilterDraftType(draft);
-      draft.formula=e.target.value;
-      const after=detectFilterDraftType(draft);
-      draft.type=after;
-      if(before!==after){
-        const caret=e.target.selectionStart??draft.formula.length;
-        renderFilterRows();
-        const replacement=box.querySelector(`.filter-formula[data-index="${i}"]`);
-        if(replacement){replacement.focus();const pos=Math.min(caret,replacement.value.length);replacement.setSelectionRange(pos,pos);}
-      }
+      const i=Number(e.target.dataset.index),draft=state.filterDraft[i];
+      const before=detectFilterDraftType(draft); draft.formula=e.target.value; const after=detectFilterDraftType(draft); draft.type=after;
+      if(before!==after){const caret=e.target.selectionStart??draft.formula.length;renderFilterRows();const replacement=box.querySelector(`.filter-formula[data-index="${i}"]`);if(replacement){replacement.focus();const pos=Math.min(caret,replacement.value.length);replacement.setSelectionRange(pos,pos);}}
       updateFilterDiagnostic();
     }));
     box.querySelectorAll('.filter-condition').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].operator=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-value-input').forEach(inp=>inp.addEventListener('input',e=>{state.filterDraft[Number(e.target.dataset.index)].value=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-value-select-button').forEach(btn=>btn.addEventListener('click',e=>openFilterValuePicker(Number(e.target.dataset.index))));
+    box.querySelectorAll('.filter-secondary-column').forEach(sel=>sel.addEventListener('change',e=>{
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i]; f.secondaryColumn=e.target.value; f.secondaryValue=''; renderFilterRows(); updateFilterDiagnostic();
+    }));
+    box.querySelectorAll('.filter-secondary-value').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].secondaryValue=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-distance-input').forEach(inp=>inp.addEventListener('input',e=>{state.filterDraft[Number(e.target.dataset.index)].distanceKm=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-connector').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].connector=e.target.value;updateFilterDiagnostic();}));
     box.querySelectorAll('.filter-delete').forEach(btn=>btn.addEventListener('click',e=>{state.filterDraft.splice(Number(e.target.dataset.index),1);renderFilterRows();}));
   }
@@ -2566,6 +2624,14 @@
   }
 
   function validateFilterDraft(draft,index){
+    if(draft.type==='proximity'){
+      if(!state.secondaryLocations?.length||!state.secondarySpatialIndex)return `Filter ${index+1} needs a loaded Secondary Locations file.`;
+      if(!String(draft.secondaryColumn||'').trim())return `Filter ${index+1} needs a secondary column.`;
+      if(!String(draft.secondaryValue||'').trim())return `Filter ${index+1} needs a secondary value.`;
+      const distance=toNumber(draft.distanceKm);
+      if(distance===null||distance<0)return `Filter ${index+1} needs a non-negative distance in km.`;
+      return {connector:index===0?'AND':(draft.connector||'AND'),type:'proximity',secondaryColumn:String(draft.secondaryColumn),secondaryValue:String(draft.secondaryValue),distanceKm:distance};
+    }
     const formula=String(draft.formula??'').trim();
     if(!formula)return null;
     const type=detectFilterDraftType(draft);
@@ -2578,12 +2644,10 @@
     }
     const value=toNumber(draft.value);
     if(value===null)return `Filter ${index+1} needs a numeric value.`;
-    // Broken formulas are intentionally allowed through. The row evaluator returns null
-    // for an invalid expression, causing those rows to fail the numeric filter rather than
-    // closing/resetting the dialog.
     return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value};
   }
   function rowMatchesFilter(filter,row){
+    if(filter.type==='proximity') return primaryRowWithinSecondaryProximity(row,filter);
     if(filter.type==='numeric'){
       const n=evaluateRowFormula(filter.formula||filter.column,row);if(n===null)return false;
       const target=Number(filter.value);if(!Number.isFinite(target))return false;
