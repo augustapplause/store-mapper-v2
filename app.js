@@ -4440,7 +4440,7 @@
       const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
       if(!m.title&&derivedTitle)m.title=derivedTitle;
       const row=document.createElement('div');row.className='metric-config-row subject-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=metricConfigHeaderHTML({kind:'subject',idx,title:tickerMetricTitle(m)})+metricConfigSettingsHTML({kind:'subject',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
+      row.innerHTML=metricConfigHeaderHTML({kind:'subject',idx,title:String(m.title||'')})+metricConfigSettingsHTML({kind:'subject',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.subject-title-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].title=e.target.value;}));
