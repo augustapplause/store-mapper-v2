@@ -86,7 +86,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -1372,6 +1372,104 @@
     const value=isPopupVirtualOperand(field.formula)?Number(censusValues?.[field.formula]):evaluatePopupFormula(field.formula,row,censusValues);
     return formatTickerValue(value,field.numberFormat,field.formula,field.decimalPlaces);
   }
+  const AMENITY_BIN_URL='aportee_amenities_v1.bin';
+  const AMENITY_MANIFEST_URL='aportee_amenities_v1_manifest.json';
+  const AMENITY_RADIUS_KM=1;
+  const AMENITY_GRID_DEG=0.01;
+  const AMENITY_RECORD_BYTES=12;
+  const AMENITY_CATEGORY_MASKS={retail:1,food:2,health:4,community:8};
+
+  function amenityMeta(){
+    const m=state.amenityAssetState.meta||{};
+    return {recordCount:Number(m.final_unique_points||m.recordCount||0),recordOffset:Number(m.recordOffset||24+Number(m.index_bytes||0))};
+  }
+  function amenityReadRecord(i,view){
+    const m=amenityMeta();
+    const off=m.recordOffset+i*AMENITY_RECORD_BYTES;
+    return {lat:view.getInt32(off,true)/1e6,lon:view.getInt32(off+4,true)/1e6,mask:view.getUint32(off+8,true)};
+  }
+  function amenityCellCmp(latCell,lonCell,targetLatCell,targetLonCell){
+    if(latCell<targetLatCell)return -1; if(latCell>targetLatCell)return 1;
+    if(lonCell<targetLonCell)return -1; if(lonCell>targetLonCell)return 1; return 0;
+  }
+  function amenityBuildGridIndex(){
+    const a=state.amenityAssetState;
+    if(a.gridIndex)return a.gridIndex;
+    const view=new DataView(a.buffer), meta=amenityMeta(), count=meta.recordCount;
+    const grid=new Map();
+    for(let i=0;i<count;i++){
+      const r=amenityReadRecord(i,view), key=`${Math.floor(r.lat/AMENITY_GRID_DEG)},${Math.floor(r.lon/AMENITY_GRID_DEG)}`;
+      const ranges=grid.get(key);
+      if(!ranges)grid.set(key,[[i,i+1]]);
+      else{
+        const last=ranges[ranges.length-1];
+        if(last[1]===i)last[1]=i+1;else ranges.push([i,i+1]);
+      }
+    }
+    a.gridIndex=grid;
+    return grid;
+  }
+
+  async function loadAmenityAsset(){
+    const a=state.amenityAssetState;
+    if(a.status==='ready')return a;
+    if(a.promise)return a.promise;
+    a.status='loading';
+    a.promise=(async()=>{
+      const manifest=await fetch(AMENITY_MANIFEST_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity manifest unavailable');return r.json();});
+      const bin=await fetch(AMENITY_BIN_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity asset unavailable');return r.arrayBuffer();});
+      const view=new DataView(bin);
+      if(view.getUint8(0)!==0x41||view.getUint8(1)!==0x50||view.getUint8(2)!==0x52||view.getUint8(3)!==0x54)throw new Error('Invalid amenity asset');
+      a.buffer=bin;
+      a.meta={...manifest,recordCount:Number(manifest.final_unique_points||view.getUint32(4,true)),index_bytes:Number(manifest.index_bytes||view.getUint32(8,true))};
+      a.status='ready';
+      return a;
+    })().catch(err=>{a.status='error';a.promise=null;a.error=err;throw err;});
+    return a.promise;
+  }
+  function amenityDistanceKm(lat1,lon1,lat2,lon2){
+    const p=Math.PI/180, dLat=(lat2-lat1)*p, dLon=(lon2-lon1)*p;
+    const a=Math.sin(dLat/2)**2+Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin(dLon/2)**2;
+    return 6371*2*Math.asin(Math.min(1,Math.sqrt(a)));
+  }
+  async function calculateAmenityProfile(lat,lon){
+    const key=`${lat.toFixed(5)},${lon.toFixed(5)},${AMENITY_RADIUS_KM}`;
+    if(state.amenityPopupCache.has(key))return state.amenityPopupCache.get(key);
+    const asset=await loadAmenityAsset();
+    const view=new DataView(asset.buffer), grid=amenityBuildGridIndex();
+    const latPad=AMENITY_RADIUS_KM/111.32;
+    const lonPad=AMENITY_RADIUS_KM/(111.32*Math.max(0.2,Math.cos(lat*Math.PI/180)));
+    const minLat=Math.floor((lat-latPad)/AMENITY_GRID_DEG), maxLat=Math.floor((lat+latPad)/AMENITY_GRID_DEG);
+    const minLon=Math.floor((lon-lonPad)/AMENITY_GRID_DEG), maxLon=Math.floor((lon+lonPad)/AMENITY_GRID_DEG);
+    let total=0,retail=0,food=0,health=0,community=0;
+    for(let cellLat=minLat;cellLat<=maxLat;cellLat++){
+      for(let cellLon=minLon;cellLon<=maxLon;cellLon++){
+        const ranges=grid.get(`${cellLat},${cellLon}`); if(!ranges)continue;
+        for(const [start,end] of ranges){
+          for(let i=start;i<end;i++){
+            const r=amenityReadRecord(i,view);
+            if(amenityDistanceKm(lat,lon,r.lat,r.lon)>AMENITY_RADIUS_KM)continue;
+            total++;
+            if(r.mask&AMENITY_CATEGORY_MASKS.retail)retail++;
+            if(r.mask&AMENITY_CATEGORY_MASKS.food)food++;
+            if(r.mask&AMENITY_CATEGORY_MASKS.health)health++;
+            if(r.mask&AMENITY_CATEGORY_MASKS.community)community++;
+          }
+        }
+      }
+    }
+    const result={total,retail,food,health,community};
+    state.amenityPopupCache.set(key,result);
+    return result;
+  }
+  function amenityProfileHtml(profile,status='ready'){
+    const head=`<div class="popup-amenity-title"><span>Amenities · 1 km</span><button type="button" class="popup-amenity-help" data-amenity-help aria-label="Amenity profile help">i</button></div>`;
+    if(status==='loading')return `<div class="popup-amenity-profile">${head}<div class="popup-amenity-loading">Calculating…</div></div>`;
+    if(status==='error')return `<div class="popup-amenity-profile">${head}<div class="popup-amenity-error">Amenity profile unavailable.</div></div>`;
+    const help=`<div class="popup-amenity-helptext" hidden>Counts are unique locations within 1 km from the à portée source. Retail: grocery, pharmacy, bakery, bookstore, hardware, convenience store and bike shop. Food &amp; Leisure: restaurants, cafes and bars. Health &amp; Services: banks, clinics, dentists, hospitals, nursing homes, laundromats and post offices. Community &amp; Recreation: schools, post-secondary, libraries, parks, childcare, community centres, dog parks, places of worship, pools, ice rinks and sports fields. Category counts may overlap; Total counts each location once.</div>`;
+    return `<div class="popup-amenity-profile">${head}<div class="popup-amenity-grid"><span>Retail</span><strong>${profile.retail}</strong><span>Food &amp; Leisure</span><strong>${profile.food}</strong><span>Health &amp; Services</span><strong>${profile.health}</strong><span>Community &amp; Recreation</span><strong>${profile.community}</strong><span class="amenity-total-label">Total</span><strong class="amenity-total-value">${profile.total}</strong></div>${help}</div>`;
+  }
+
   async function popupCardContent(row,censusValues={}){
     const c=state.columns;
     const popupFields=popupItems();
@@ -1388,9 +1486,9 @@
     const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
     const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-metrics-scroll"><table>`;
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    html+=`</table></div>${amenityProfileHtml({total:0,retail:0,food:0,health:0,community:0},'loading')}</div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -1552,7 +1650,22 @@
       await computePopupQuartiles(row);
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       storePopupCard.innerHTML=await popupCardContent(row,values);
-    wirePopupCardActions(marker);
+      wirePopupCardActions(marker);
+      const amenityHost=storePopupCard.querySelector('.popup-amenity-profile');
+      if(amenityHost){
+        const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+        if(Number.isFinite(lat)&&Number.isFinite(lng)){
+          calculateAmenityProfile(lat,lng).then(profile=>{
+            if(state.openPopupMarker!==marker)return;
+            const host=storePopupCard.querySelector('.popup-amenity-profile');
+            if(host)host.outerHTML=amenityProfileHtml(profile,'ready');
+          }).catch(()=>{
+            const host=storePopupCard.querySelector('.popup-amenity-profile');
+            if(host)host.outerHTML=amenityProfileHtml(null,'error');
+          });
+        }
+      }
+
     requestStorePopupLayout();
     requestAnimationFrame(()=>{
       requestStorePopupLayout();
@@ -4562,6 +4675,7 @@
   // ---------- UI wiring ----------
   el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
   el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
+  document.addEventListener('click',e=>{const btn=e.target.closest('[data-amenity-help]');if(!btn)return;const host=btn.closest('.popup-amenity-profile');const help=host?.querySelector('.popup-amenity-helptext');if(help)help.hidden=!help.hidden;});
   el('secondaryPopupConfigBtn').addEventListener('click',openSecondaryPopupConfig);
   el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
   el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
