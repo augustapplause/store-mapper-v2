@@ -1070,3 +1070,18 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .filter-dataset-card{border:2px solid var(--navy)!important;}
 .left-panel .file-button{font-size:13px!important;}
 .secondary-upload-button{font-size:13px!important;font-weight:700!important;}
+
+/* v1.210: right-panel section separation and hierarchy */
+.right-panel .results-card,
+.right-panel .right-section-box{margin:0 0 11px;border-radius:10px;background:var(--card);padding:12px;}
+.right-panel .right-kpi-box{border:2px solid #7a3db8!important;}
+.right-panel .right-census-box{border:2px solid var(--navy)!important;}
+.right-panel .right-subject-box{border:1px solid #e7dca8!important;background:#fff9df!important;}
+.right-panel .right-group-box{border:1px solid #b8d9c1!important;background:#eef9f1!important;}
+.right-panel .right-distribution-box{border:1px solid #e7dca8!important;background:#fff9df!important;}
+.right-panel .right-selected-stores-box{border:2px solid var(--navy)!important;}
+.right-panel .right-selected-da-box{border:1px solid var(--line)!important;}
+.right-panel .right-distribution-box .distribution-box{border:0!important;background:transparent!important;margin-top:8px;}
+.right-panel .right-distribution-box .distribution-box + .distribution-box{margin-top:8px;}
+.right-panel .right-distribution-box .distribution-instruction{margin-top:0;}
+.secondary-upload-button{font-weight:600!important;}

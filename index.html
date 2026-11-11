@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.209</title>
+  <title>Store Explorer v1.210</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.209.0.ui-cleanup" />
+      <link rel="stylesheet" href="styles.css?v=1.210.0.right-panel-separation" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.209</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.210</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -159,7 +159,7 @@
     </section>
 
     <aside class="right-panel">
-      <section class="results-card">
+      <section class="results-card right-section-box right-kpi-box">
         <div class="kpi-grid">
           <div class="kpi"><span class="kpi-title">Stores</span><strong id="kpiStores">—</strong></div>
           <div class="kpi"><span class="kpi-title">Positive EBIT</span><strong id="kpiSuccess">—</strong></div>
@@ -168,66 +168,66 @@
           <div class="kpi"><span class="kpi-title">Total Sales<small>(000s)</small></span><strong id="kpiTotalSales">—</strong></div>
           <div class="kpi"><span class="kpi-title">Total EBIT<small>(000s)</small></span><div class="kpi-value-row"><strong id="kpiTotalEbit">—</strong><span id="kpiTotalEbitMargin" class="kpi-ratio">—</span></div></div>
         </div>
+      </section>
 
-        <div class="census-box">
-          <div class="section-title-row census-title-row">
-            <div class="box-title">Census catchment</div>
-            <label class="census-threshold-control" title="A DA is selected when at least this percentage of its area lies inside the visible map or selection circle.">
-              <input id="censusThreshold" type="number" min="0" max="100" step="1" inputmode="decimal" aria-label="DA inclusion threshold" value="10">
-              <span>%</span>
-            </label>
-          </div>
-          <div class="census-delay-row">
-            <label for="censusDelay">Calculation delay</label>
-            <div class="census-delay-control"><input id="censusDelay" type="number" min="0" max="10000" step="50" inputmode="numeric" aria-label="Census calculation delay in milliseconds" value="500"><span>ms</span></div>
-          </div>
-          <label class="census-da-toggle" for="showSelectedDAs">
-            <span>Show selected DAs on map</span>
-            <span class="toggle-switch"><input id="showSelectedDAs" type="checkbox" checked><span class="toggle-slider" aria-hidden="true"></span></span>
+      <section class="right-section-box right-census-box census-box">
+        <div class="section-title-row census-title-row">
+          <div class="box-title">Census catchment</div>
+          <label class="census-threshold-control" title="A DA is selected when at least this percentage of its area lies inside the visible map or selection circle.">
+            <input id="censusThreshold" type="number" min="0" max="100" step="1" inputmode="decimal" aria-label="DA inclusion threshold" value="10">
+            <span>%</span>
           </label>
-          <div class="census-grid">
-            <div><span>Total population</span><strong id="censusPopulation">—</strong></div>
-            <div><span>Population 65+</span><strong id="censusSeniors">—</strong></div>
-            <div><span>Population 40+</span><strong id="censusForty">—</strong></div>
-            <div><span>Visible Minority</span><strong id="censusVisibleMinority">—</strong></div>
-            <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
-            <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
-          </div>
-          <div id="censusNote" class="small muted">A Census Query shape selects DAs. The map viewport is for navigation only.</div>
         </div>
-
-        <div class="subject-box">
-          <div class="section-title-row"><div class="box-title">Subjects<div class="section-subtitle">(avg)</div></div><button id="subjectsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="subjectCount" class="config-count">0</span></button></div>
-          <div id="subjectsSummary" class="empty-message">Select a workbook, then configure Subjects.</div>
+        <div class="census-delay-row">
+          <label for="censusDelay">Calculation delay</label>
+          <div class="census-delay-control"><input id="censusDelay" type="number" min="0" max="10000" step="50" inputmode="numeric" aria-label="Census calculation delay in milliseconds" value="500"><span>ms</span></div>
         </div>
-
-        <div class="group-box">
-          <div class="section-title-row"><div class="box-title">Grouped Subjects<div class="section-subtitle">(viewport)</div></div><button id="groupsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="groupCount" class="config-count">0</span></button></div>
-          <div id="groupsSummary" class="empty-message">Choose one or more Groups to compare store segments.</div>
+        <label class="census-da-toggle" for="showSelectedDAs">
+          <span>Show selected DAs on map</span>
+          <span class="toggle-switch"><input id="showSelectedDAs" type="checkbox" checked><span class="toggle-slider" aria-hidden="true"></span></span>
+        </label>
+        <div class="census-grid">
+          <div><span>Total population</span><strong id="censusPopulation">—</strong></div>
+          <div><span>Population 65+</span><strong id="censusSeniors">—</strong></div>
+          <div><span>Population 40+</span><strong id="censusForty">—</strong></div>
+          <div><span>Visible Minority</span><strong id="censusVisibleMinority">—</strong></div>
+          <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
+          <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
         </div>
+        <div id="censusNote" class="small muted">A Census Query shape selects DAs. The map viewport is for navigation only.</div>
+      </section>
 
+      <section class="right-section-box right-subject-box subject-box">
+        <div class="section-title-row"><div class="box-title">Subjects<div class="section-subtitle">(avg)</div></div><button id="subjectsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="subjectCount" class="config-count">0</span></button></div>
+        <div id="subjectsSummary" class="empty-message">Select a workbook, then configure Subjects.</div>
+      </section>
+
+      <section class="right-section-box right-group-box group-box">
+        <div class="section-title-row"><div class="box-title">Grouped Subjects<div class="section-subtitle">(viewport)</div></div><button id="groupsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="groupCount" class="config-count">0</span></button></div>
+        <div id="groupsSummary" class="empty-message">Choose one or more Groups to compare store segments.</div>
+      </section>
+
+      <section class="right-section-box right-distribution-box">
         <div class="distribution-instruction small muted">Configure Distribution to choose a workbook column.</div>
-
         <div class="distribution-box">
           <div class="section-title-row"><div class="box-title">Distribution</div><button id="distributionBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="distributionCount" class="config-count">0</span></button></div>
           <div id="distributionSummary" class="empty-message"></div>
         </div>
-
         <div class="distribution-box">
           <div class="section-title-row"><div class="box-title">Distribution 2</div><button id="distributionBtn2" type="button" class="config-button-inline" disabled><span>Configure</span><span id="distributionCount2" class="config-count">0</span></button></div>
           <div id="distributionSummary2" class="empty-message"></div>
         </div>
+      </section>
 
-        <div class="stores-box">
-          <div class="section-title-row"><div class="box-title">Selected Stores</div><div class="stores-actions"><button id="selectedStoresBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="selectedStoresCount" class="config-count">2</span></button><button id="exportSelectedBtn" type="button" class="config-button-inline export-button" disabled>Export</button></div></div>
-          <div id="selectedStoresList" class="empty-message">Load a workbook to see selected stores.</div>
-        </div>
+      <section class="right-section-box right-selected-stores-box stores-box">
+        <div class="section-title-row"><div class="box-title">Selected Stores</div><div class="stores-actions"><button id="selectedStoresBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="selectedStoresCount" class="config-count">2</span></button><button id="exportSelectedBtn" type="button" class="config-button-inline export-button" disabled>Export</button></div></div>
+        <div id="selectedStoresList" class="empty-message">Load a workbook to see selected stores.</div>
+      </section>
 
-        <div class="census-da-box">
-          <div class="section-title-row"><div class="box-title">Selected Census DAs</div><div class="stores-actions"><button id="exportSelectedDABtn" type="button" class="config-button-inline export-button" disabled>Export</button><div class="small muted census-da-count-label">DA ID sort</div></div></div>
-          <div class="census-da-header"><span>DA ID</span><span>Population</span><span>65+</span><span>40+</span><span>Overlap</span></div>
-          <div id="censusDaList" class="census-da-list"><div class="empty-message">Selected DAs will appear here after the catchment is calculated.</div></div>
-        </div>
+      <section class="right-section-box right-selected-da-box census-da-box">
+        <div class="section-title-row"><div class="box-title">Selected Census DAs</div><div class="stores-actions"><button id="exportSelectedDABtn" type="button" class="config-button-inline export-button" disabled>Export</button><div class="small muted census-da-count-label">DA ID sort</div></div></div>
+        <div class="census-da-header"><span>DA ID</span><span>Population</span><span>65+</span><span>40+</span><span>Overlap</span></div>
+        <div id="censusDaList" class="census-da-list"><div class="empty-message">Selected DAs will appear here after the catchment is calculated.</div></div>
       </section>
     </aside>
   </main>
@@ -428,7 +428,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.209.0.ui-cleanup"></script>
+  <script src="app.js?v=1.210.0.right-panel-separation"></script>
 
 
 </body>
