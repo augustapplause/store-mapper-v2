@@ -1,4 +1,4 @@
-/* Store Explorer - v1.216
+/* Store Explorer - v1.217
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2123,14 +2123,21 @@
   function updateSelectedStoresList(){
     const box=el('selectedStoresList');if(!box)return;
     const c=state.columns;
-    const extra=state.selectedStoreColumns.filter(h=>h&&h!==c.storeId&&h!==c.location&&state.headers.includes(h));
+    const selected=state.selectedStoreColumns.filter(h=>h&&state.headers.includes(h));
+    const visibleCols=selected;
     if(!state.selectedRows.length){box.innerHTML='<div class="empty-message">No stores in current map view.</div>';return;}
-    let html='<div class="selected-store-count small muted">'+state.selectedRows.length.toLocaleString()+' selected store'+(state.selectedRows.length===1?'':'s')+'</div><div class="selected-stores-scroll"><table class="group-table"><thead><tr><th>Store Profile Number</th><th>Location</th>'+extra.map(h=>`<th>${esc(shortHeader(h))}</th>`).join('')+'</tr></thead><tbody>';
+    if(!visibleCols.length){box.innerHTML='<div class="empty-message">No store columns selected.</div>';return;}
+    const th=visibleCols.map(h=>`<th>${esc(shortHeader(h))}</th>`).join('');
+    let html='<div class="selected-store-count small muted">'+state.selectedRows.length.toLocaleString()+' selected store'+(state.selectedRows.length===1?'':'s')+'</div><div class="selected-stores-scroll"><table class="group-table"><thead><tr>'+th+'</tr></thead><tbody>';
     for(const row of state.selectedRows){
-      const profile=c.storeId?String(row[c.storeId]??''):'—';
-      const loc=c.location?String(row[c.location]??'')||[c.city,c.province].filter(Boolean).map(x=>String(row[x]??'').trim()).filter(Boolean).join(', '):[c.city,c.province].filter(Boolean).map(x=>String(row[x]??'').trim()).filter(Boolean).join(', ');
       const active=state.selectedStoreRow===row;
-      html+='<tr class="selected-store-select-row'+(active?' active-store-selection':'')+'"><td>'+esc(profile||'—')+'</td><td>'+esc(loc||'—')+'</td>'+extra.map(h=>`<td>${esc(formatValue(h,row[h]))}</td>`).join('')+'</tr>';
+      html+='<tr class="selected-store-select-row'+(active?' active-store-selection':'')+'">'+visibleCols.map(h=>{
+        let val='—';
+        if(h===c.storeId) val=String(row[c.storeId]??'')||'—';
+        else if(h===c.location) val=String(row[c.location]??'')||[c.city,c.province].filter(Boolean).map(x=>String(row[x]??'').trim()).filter(Boolean).join(', ')||'—';
+        else val=formatValue(h,row[h]);
+        return `<td>${esc(val)}</td>`;
+      }).join('')+'</tr>';
     }
     box.innerHTML=html+'</tbody></table></div>';
     box.querySelectorAll('.selected-store-select-row').forEach((rowEl,idx)=>rowEl.addEventListener('click',()=>{
@@ -2150,7 +2157,7 @@
       const id=`selected-store-${i}-${Math.random().toString(36).slice(2,6)}`;
       const isFixed=fixedSet.has(h);
       const row=document.createElement('label');row.className='check-row';
-      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${state.selectedStoreColumns.includes(h)?'checked':''}${isFixed?' disabled':''}><span>${esc(h)}</span><small>${isFixed?'Default':(state.types[h]||'')}</small>`;
+      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${state.selectedStoreColumns.includes(h)?'checked':''}><span>${esc(h)}</span><small>${isFixed?'Default':(state.types[h]||'')}</small>`;
       cont.appendChild(row);
     });
   }
@@ -2159,8 +2166,8 @@
     if(!state.selectedRows.length){alert('No stores are currently selected.');return;}
     if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
     const c=state.columns;
-    const extra=state.selectedStoreColumns.filter(h=>h&&h!==c.storeId&&h!==c.location&&state.headers.includes(h));
-    const exportHeaders=[c.storeId||'Store Profile Number',c.location||'Location',...extra].filter((v,i,a)=>v&&a.indexOf(v)===i);
+    const selected=state.selectedStoreColumns.filter(h=>h&&state.headers.includes(h));
+    const exportHeaders=selected.filter((v,i,a)=>v&&a.indexOf(v)===i);
     const data=state.selectedRows.map(row=>{
       const out={};
       for(const h of exportHeaders){
@@ -4188,7 +4195,7 @@
   }
   function metricConfigHeaderHTML({kind, idx, title, extraControls=''}){
     const titleClass = kind==='popup' ? 'popup-title-input' : (kind==='subject' ? 'subject-title-input' : 'ticker-title-input');
-    const titlePlaceholder = kind==='popup' ? 'Enter title' : (kind==='subject' ? 'Subject title' : 'Enter title');
+    const titlePlaceholder = kind==='popup' || kind==='subject' ? 'Enter title' : 'Enter title';
     const dragClass='ticker-drag-handle';
     const removeClass=kind==='popup'?'popup-remove':(kind==='subject'?'subject-remove':'ticker-remove');
     return `<div class="metric-row-head ${kind}-row-head"><strong>${kind==='popup'?'Field':'Metric'} ${idx+1}</strong><label class="metric-title-field"><span>Title</span><input class="${titleClass}" data-index="${idx}" value="${esc(title||'')}" placeholder="${titlePlaceholder}"></label>${extraControls}<span class="${dragClass}" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ${removeClass}" data-index="${idx}" aria-label="Remove ${kind==='popup'?'field':'metric'}">×</button></div>`;
@@ -4414,7 +4421,7 @@
   });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
-  el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
+  el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:'',aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
   el('subjectReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetSubjectDefaults();});
   el('subjectApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
   // ---------- Subjects configuration ----------
