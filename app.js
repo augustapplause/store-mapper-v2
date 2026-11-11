@@ -1,4 +1,4 @@
-/* Store Explorer - v1.215
+/* Store Explorer - v1.216
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -753,8 +753,14 @@
     
     state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
     const c=state.columns;
-    const tickerReady=state.tickerMetrics.length>0 && state.tickerMetrics.every(m=>m.formula && tickerFormulaValid(m.formula));
-    if(!tickerReady){
+    const hasSavedTickerConfig=(()=>{
+      try{
+        if(localStorage.getItem(TICKER_STORAGE_KEY))return true;
+        return TICKER_OLD_STORAGE_KEYS.some(key=>!!localStorage.getItem(key));
+      }catch(_){return false;}
+    })();
+    const tickerHasAnyConfiguredFormula=(state.tickerMetrics||[]).some(m=>String(m?.formula||'').trim());
+    if(!hasSavedTickerConfig && !tickerHasAnyConfiguredFormula){
       state.tickerMetrics=tickerDefaultMetrics();
       saveTickerConfig();
     }
@@ -4182,7 +4188,7 @@
   }
   function metricConfigHeaderHTML({kind, idx, title, extraControls=''}){
     const titleClass = kind==='popup' ? 'popup-title-input' : (kind==='subject' ? 'subject-title-input' : 'ticker-title-input');
-    const titlePlaceholder = kind==='popup' ? 'Enter title' : (kind==='subject' ? 'Subject title' : 'Ticker title');
+    const titlePlaceholder = kind==='popup' ? 'Enter title' : (kind==='subject' ? 'Subject title' : 'Enter title');
     const dragClass='ticker-drag-handle';
     const removeClass=kind==='popup'?'popup-remove':(kind==='subject'?'subject-remove':'ticker-remove');
     return `<div class="metric-row-head ${kind}-row-head"><strong>${kind==='popup'?'Field':'Metric'} ${idx+1}</strong><label class="metric-title-field"><span>Title</span><input class="${titleClass}" data-index="${idx}" value="${esc(title||'')}" placeholder="${titlePlaceholder}"></label>${extraControls}<span class="${dragClass}" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ${removeClass}" data-index="${idx}" aria-label="Remove ${kind==='popup'?'field':'metric'}">×</button></div>`;
@@ -4198,7 +4204,7 @@
     const aggregationMarkup = isPopup ? '' : `<label>Aggregation<select class="${aggregationClass}" data-index="${idx}"><option value="sum" ${aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${aggregation==='average'?'selected':''}>Average</option><option value="median" ${aggregation==='median'?'selected':''}>Median</option></select></label>`;
     const popupVirtualMarkup = isPopup ? `<optgroup label="Census virtual fields">${popupVirtualNames().map(name=>`<option value="${esc(name)}" ${directSelected===name?'selected':''}>${esc(name)}</option>`).join('')}</optgroup>` : '';
     const headerMarkup=headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('');
-    const formulaPlaceholder = isPopup ? 'Variable or formula' : 'Choose a column or combine columns with + - × / ( )';
+    const formulaPlaceholder = isPopup ? 'Variable or formula' : 'Formula or value';
     return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${isPopup?`<optgroup label="Workbook columns">${headerMarkup}</optgroup>${popupVirtualMarkup}`:headerMarkup}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="${formulaPlaceholder}" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
   }
   function attachMetricDragHandlers(wrap,stateArray,rerender){
@@ -4386,7 +4392,7 @@
       tickerToggle();
     });
     el('tickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openTickerConfig();});
-    el('tickerAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.tickerConfigDraft.push({title:'',formula:tickerDefaultFormula(),aggregation:'sum',numberFormat:'auto',decimalPlaces:0});renderTickerConfig();});
+    el('tickerAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.tickerConfigDraft.push({title:'',formula:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0});renderTickerConfig();});
     el('tickerSpeed').addEventListener('input',e=>{state.tickerConfigDraftSpeed=Number(e.target.value)||TICKER_DEFAULT_SPEED;el('tickerSpeedValue').textContent=`${state.tickerConfigDraftSpeed}`;});
     el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
