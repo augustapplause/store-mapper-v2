@@ -1658,10 +1658,16 @@
           calculateAmenityProfile(lat,lng).then(profile=>{
             if(state.openPopupMarker!==marker)return;
             const host=storePopupCard.querySelector('.popup-amenity-profile');
-            if(host)host.outerHTML=amenityProfileHtml(profile,'ready');
+            if(host){
+              host.outerHTML=amenityProfileHtml(profile,'ready');
+              wireAmenityHelp(storePopupCard.querySelector('.popup-amenity-profile'));
+            }
           }).catch(()=>{
             const host=storePopupCard.querySelector('.popup-amenity-profile');
-            if(host)host.outerHTML=amenityProfileHtml(null,'error');
+            if(host){
+              host.outerHTML=amenityProfileHtml(null,'error');
+              wireAmenityHelp(storePopupCard.querySelector('.popup-amenity-profile'));
+            }
           });
         }
       }
@@ -1680,9 +1686,20 @@
       if(hasPopulationWork)hidePopulationCalcStatus();
     }
   }
+  function wireAmenityHelp(host){
+    const btn=host?.querySelector('[data-amenity-help]');
+    const help=host?.querySelector('.popup-amenity-helptext');
+    if(!btn||!help)return;
+    btn.addEventListener('click',e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      help.hidden=!help.hidden;
+    });
+  }
   function wirePopupCardActions(marker){
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
     closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
+    wireAmenityHelp(storePopupCard.querySelector('.popup-amenity-profile'));
     const ticker=storePopupCard.querySelector('[data-popup-ticker]');
     if(ticker){
       ticker.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;ticker.classList.toggle('paused',!state.popupTickerPlaying);startPopupTicker();});
@@ -4675,7 +4692,6 @@
   // ---------- UI wiring ----------
   el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
   el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
-  document.addEventListener('click',e=>{const btn=e.target.closest('[data-amenity-help]');if(!btn)return;const host=btn.closest('.popup-amenity-profile');const help=host?.querySelector('.popup-amenity-helptext');if(help)help.hidden=!help.hidden;});
   el('secondaryPopupConfigBtn').addEventListener('click',openSecondaryPopupConfig);
   el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
   el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
