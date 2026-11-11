@@ -1,0 +1,27 @@
+{
+  "asset": "aportee_amenities_v1.bin",
+  "format": "APRT v1",
+  "source": "a port\u00e9e 2026-10-16-v1",
+  "source_rows": 971087,
+  "access_rows_excluded": 344449,
+  "park_subtype_merges_50m_same_name": 26048,
+  "final_unique_points": 600590,
+  "categories": [
+    "Retail",
+    "Food & Leisure",
+    "Health & Services",
+    "Community & Recreation"
+  ],
+  "category_encoding": {
+    "1": "Retail",
+    "2": "Food & Leisure",
+    "4": "Health & Services",
+    "8": "Community & Recreation"
+  },
+  "note": "Category flags may overlap for places such as pharmacies. Total count should use unique spatial points; category counts use category flags.",
+  "grid_cell_degrees": 0.01,
+  "grid_cells": 61011,
+  "record_bytes": 12,
+  "header_bytes": 24,
+  "index_bytes": 732132
+}
