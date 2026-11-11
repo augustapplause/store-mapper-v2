@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.208</title>
+  <title>Store Explorer v1.209</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.208.0.proximity-filter-fix" />
+      <link rel="stylesheet" href="styles.css?v=1.209.0.ui-cleanup" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.208</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.209</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -32,7 +32,7 @@
           <div class="data-source-title">Primary Store Data</div>
           <label class="file-button financial-upload-button" data-help-key="financial-file">
             <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
-            Select Excel / CSV file
+            Load Excel / CSV file
           </label>
           <div id="fileStatus" class="status muted">No financial file selected.</div>
           <button id="clearFileBtn" class="secondary clear-primary-button" disabled>Clear Primary</button>
@@ -42,14 +42,14 @@
           <div class="data-source-title">Secondary Locations</div>
           <label class="file-button secondary-upload-button" data-help-key="secondary-file">
             <input id="secondaryFileInput" type="file" accept=".xlsx,.xls,.csv" />
-            Select Excel / CSV file
+            Load Excel / CSV file
           </label>
           <div id="secondaryFileStatus" class="status muted">No secondary locations loaded.</div>
           <label class="secondary-visibility-toggle"><input id="secondaryVisibilityToggle" type="checkbox" disabled><span>Show secondary locations</span></label>
           <div class="secondary-data-actions">
             <button id="secondaryPopupConfigBtn" type="button" class="secondary" disabled>Popup</button>
             <button id="secondaryHoverConfigBtn" type="button" class="secondary" disabled>Hover</button>
-            <button id="clearSecondaryBtn" type="button" class="secondary" disabled>Clear secondary</button>
+            <button id="clearSecondaryBtn" type="button" class="secondary" disabled>Clear</button>
           </div>
         </div>
       </section>
@@ -89,7 +89,7 @@
         </div>
       </section>
 
-      <section class="panel-card">
+      <section class="panel-card go-to-geography-card">
         <h2>Go to geography</h2>
         <form id="searchForm">
           <label for="searchInput">City, postal code or address</label>
@@ -109,7 +109,7 @@
         <div id="geoStatus" class="status muted">Pan and zoom the map freely. Draw a Census Query shape to calculate Census data.</div>
       </section>
 
-      <section class="panel-card">
+      <section class="panel-card filter-dataset-card">
         <h2>Filter dataset</h2>
         <div class="filter-actions">
           <button id="filterBtn" type="button" class="filter-action-button configure-filter-button" disabled>
@@ -428,7 +428,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.208.0.proximity-filter-fix"></script>
+  <script src="app.js?v=1.209.0.ui-cleanup"></script>
 
 
 </body>

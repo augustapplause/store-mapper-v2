@@ -1061,3 +1061,12 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
   .filter-table-head{display:none;}
   .filter-line-main[data-filter-type=proximity],.filter-line-main[data-filter-type=data]{grid-template-columns:1fr 1fr;}
 }
+
+/* v1.209 UI readability cleanup */
+.data-sources-card{border:2px solid var(--navy)!important;}
+.census-query-card{background:#eef9f1!important;}
+.left-panel .census-query-card{border-color:#b8d9c1!important;}
+.go-to-geography-card{background:#fff9df!important;}
+.filter-dataset-card{border:2px solid var(--navy)!important;}
+.left-panel .file-button{font-size:13px!important;}
+.secondary-upload-button{font-size:13px!important;font-weight:700!important;}
