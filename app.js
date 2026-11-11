@@ -1381,7 +1381,7 @@
 
   function amenityMeta(){
     const m=state.amenityAssetState.meta||{};
-    return {recordCount:Number(m.final_unique_points||m.recordCount||0),recordOffset:Number(m.recordOffset||24+Number(m.index_bytes||0))};
+    return {recordCount:Number(m.final_unique_points||m.recordCount||0),recordOffset:24};
   }
   function amenityReadRecord(i,view){
     const m=amenityMeta();
@@ -1488,7 +1488,7 @@
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table></div>${amenityProfileHtml({total:0,retail:0,food:0,health:0,community:0},'loading')}</div>${quartileHtml}</div>${tickerHtml}</div>`;
+    html+=`</table>${amenityProfileHtml({total:0,retail:0,food:0,health:0,community:0},'loading')}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
