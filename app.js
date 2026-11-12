@@ -1068,6 +1068,7 @@
   // ---------- Custom store popup overlay ----------
   let storePopupLayer = null;
   let storePopupCard = null;
+  let amenityDetailLayer = null;
   let storePopupSvg = null;
   let storePopupFrame = null;
   let storePopupResizeObserver = null;
@@ -1394,12 +1395,12 @@
     a.promise=(async()=>{ const manifest=await fetch(AMENITY_MANIFEST_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity manifest unavailable');return r.json();}); const bin=await fetch(AMENITY_BIN_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity asset unavailable');return r.arrayBuffer();}); const view=new DataView(bin); if(view.getUint8(0)!==0x41||view.getUint8(1)!==0x50||view.getUint8(2)!==0x52||view.getUint8(3)!==0x54)throw new Error('Invalid amenity asset'); a.buffer=bin; a.meta={...manifest,recordCount:Number(manifest.final_unique_points||view.getUint32(8,true))}; a.status='ready'; return a; })().catch(err=>{a.status='error';a.promise=null;a.error=err;throw err;}); return a.promise;
   }
   function amenityDistanceKm(lat1,lon1,lat2,lon2){const p=Math.PI/180,dLat=(lat2-lat1)*p,dLon=(lon2-lon1)*p,a=Math.sin(dLat/2)**2+Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin(dLon/2)**2;return 6371*2*Math.asin(Math.min(1,Math.sqrt(a)));}
-  function amenityNearbyIndices(lat,lon){
-    const asset=state.amenityAssetState,view=new DataView(asset.buffer),grid=amenityBuildGridIndex(),latPad=AMENITY_RADIUS_KM/111.32,lonPad=AMENITY_RADIUS_KM/(111.32*Math.max(0.2,Math.cos(lat*Math.PI/180))); const minLat=Math.floor((lat-latPad)/AMENITY_GRID_DEG),maxLat=Math.floor((lat+latPad)/AMENITY_GRID_DEG),minLon=Math.floor((lon-lonPad)/AMENITY_GRID_DEG),maxLon=Math.floor((lon+lonPad)/AMENITY_GRID_DEG); const ids=[];
-    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;for(const [start,end] of ranges)for(let i=start;i<end;i++){const r=amenityReadRecord(i,view);if(amenityDistanceKm(lat,lon,r.lat,r.lon)<=AMENITY_RADIUS_KM)ids.push(i);}}
+  function amenityIndicesWithinRadius(lat,lon,radiusKm){
+    const asset=state.amenityAssetState,view=new DataView(asset.buffer),grid=amenityBuildGridIndex(),latPad=radiusKm/111.32,lonPad=radiusKm/(111.32*Math.max(0.2,Math.cos(lat*Math.PI/180))); const minLat=Math.floor((lat-latPad)/AMENITY_GRID_DEG),maxLat=Math.floor((lat+latPad)/AMENITY_GRID_DEG),minLon=Math.floor((lon-lonPad)/AMENITY_GRID_DEG),maxLon=Math.floor((lon+lonPad)/AMENITY_GRID_DEG); const ids=[];
+    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;for(const [start,end] of ranges)for(let i=start;i<end;i++){const r=amenityReadRecord(i,view);if(amenityDistanceKm(lat,lon,r.lat,r.lon)<=radiusKm)ids.push(i);}}
     return ids;
   }
-  async function calculateAmenityProfile(lat,lon){const key=`${lat.toFixed(5)},${lon.toFixed(5)},${AMENITY_RADIUS_KM}`;if(state.amenityPopupCache.has(key))return state.amenityPopupCache.get(key);const asset=await loadAmenityAsset(),view=new DataView(asset.buffer),ids=amenityNearbyIndices(lat,lon);let total=0,retail=0,food=0,health=0,community=0;for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}const result={total,retail,food,health,community,indices:ids};state.amenityPopupCache.set(key,result);return result;}
+  async function calculateAmenityProfile(lat,lon,radiusKm=AMENITY_RADIUS_KM){const key=`${lat.toFixed(5)},${lon.toFixed(5)},${radiusKm}`;if(state.amenityPopupCache.has(key))return state.amenityPopupCache.get(key);const asset=await loadAmenityAsset(),view=new DataView(asset.buffer),ids=amenityIndicesWithinRadius(lat,lon,radiusKm);let total=0,retail=0,food=0,health=0,community=0;for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}const result={total,retail,food,health,community,indices:ids};state.amenityPopupCache.set(key,result);return result;}
   function amenityProfileHtml(profile,status='ready'){
     const rows=`<button type="button" class="popup-amenity-category" data-amenity-category="retail"><span>Retail</span><strong>${profile?.retail??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="food"><span>Food &amp; Leisure</span><strong>${profile?.food??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="health"><span>Health &amp; Services</span><strong>${profile?.health??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="community"><span>Community &amp; Recreation</span><strong>${profile?.community??0}</strong></button><div class="popup-amenity-grid-total"><span>Total</span><strong>${profile?.total??0}</strong></div>`;
     if(status==='loading')return `<div class="popup-amenity-profile"><div class="popup-amenity-title"><span>Amenities · 1 km</span></div><div class="popup-amenity-loading">Calculating…</div></div>`;
@@ -1412,21 +1413,10 @@
     health:['Bank','Clinic','Dentist','Hospital','Nursing home','Laundromat','Post office'],
     community:['School','Elementary school','Secondary school','College or university','Library','Park','Large park','Neighbourhood park','Pocket park','Playground','Childcare','Community centre','Dog park','Place of worship','Pool','Ice rink','Sports field or court']
   };
-  function amenityDetailHtml(category){
-    const title=AMENITY_CATEGORY_LABELS[category]||category;
-    const items=AMENITY_SUBCATEGORIES[category]||[];
-    const list=items.map(x=>`<div class=\"popup-amenity-detail-row\"><span>${esc(x)}</span></div>`).join('');
-    return `<div class=\"popup-amenity-detail\" data-amenity-detail><div class=\"popup-amenity-detail-head\"><strong>${esc(title)}</strong><button type=\"button\" class=\"popup-amenity-detail-close\" data-amenity-detail-close aria-label=\"Close amenity category details\">×</button></div><div class=\"popup-amenity-detail-list\">${list}</div><div class=\"popup-amenity-detail-help\">These are the à portée source subcategories included in this headline category. Counts use the same unique amenity locations within 1 km.</div></div>`;
+  function wireAmenityCategoryButtons(host,marker){
+    host?.querySelectorAll('[data-amenity-category]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showAmenityCategoryDetail(marker,btn.dataset.amenityCategory);}));
   }
-  async function showAmenityCategoryDetail(marker,category){
-    const host=storePopupCard?.querySelector('.popup-amenity-profile');if(!host)return;
-    host.querySelector('[data-amenity-detail]')?.remove();
-    const wrap=document.createElement('div');wrap.innerHTML=amenityDetailHtml(category);
-    const detail=wrap.firstElementChild;host.appendChild(detail);
-    detail.querySelector('[data-amenity-detail-close]')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();detail.remove();});
-  }
-  function wireAmenityCategoryButtons(host,marker){host?.querySelectorAll('[data-amenity-category]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showAmenityCategoryDetail(marker,btn.dataset.amenityCategory);}));}
-  function wireAmenityHelp(host){ return; }
+
 
     async function popupCardContent(row,censusValues={}){
     const c=state.columns;
@@ -1671,6 +1661,7 @@
     storePopupLayer.setAttribute('aria-hidden','true');
     if(storePopupSvg)storePopupSvg.replaceChildren();
     if(storePopupCard)storePopupCard.innerHTML='';
+    closeAmenityDetail();
   }
 
   function requestStorePopupLayout(){
@@ -1682,6 +1673,60 @@
       storePopupLayoutQueued=false;
       layoutStorePopup(state.openPopupMarker);
     });
+  }
+
+  function ensureAmenityDetailLayer(){
+    if(amenityDetailLayer)return amenityDetailLayer;
+    const container=map.getContainer();
+    amenityDetailLayer=document.createElement('div');
+    amenityDetailLayer.className='amenity-detail-layer';
+    amenityDetailLayer.setAttribute('aria-hidden','true');
+    amenityDetailLayer.style.display='none';
+    ['click','mousedown','mouseup','pointerdown','pointerup','pointermove','wheel','touchstart','touchmove','contextmenu'].forEach(type=>amenityDetailLayer.addEventListener(type,e=>{e.stopPropagation();},{passive:false}));
+    container.appendChild(amenityDetailLayer);
+    return amenityDetailLayer;
+  }
+  function closeAmenityDetail(){
+    if(!amenityDetailLayer)return;
+    amenityDetailLayer.style.display='none';
+    amenityDetailLayer.setAttribute('aria-hidden','true');
+    amenityDetailLayer.innerHTML='';
+  }
+  function positionAmenityDetail(){
+    if(!amenityDetailLayer || !storePopupCard || amenityDetailLayer.style.display==='none')return;
+    const mapSize=map.getSize();
+    const popRect=storePopupCard.getBoundingClientRect();
+    const mapRect=map.getContainer().getBoundingClientRect();
+    const popupLeft=popRect.left-mapRect.left;
+    const popupTop=popRect.top-mapRect.top;
+    const popupW=popRect.width;
+    const popupH=popRect.height;
+    const gap=10, margin=12;
+    const detailW=Math.min(280,Math.max(220,mapSize.x-margin*2));
+    const detailH=Math.min(220,Math.max(140,mapSize.y-margin*2));
+    const candidates=[
+      {left:popupLeft+popupW+gap,top:popupTop},
+      {left:popupLeft-detailW-gap,top:popupTop},
+      {left:popupLeft+popupW+gap,top:Math.max(margin,popupTop+popupH-detailH)},
+      {left:popupLeft-detailW-gap,top:Math.max(margin,popupTop+popupH-detailH)}
+    ];
+    const valid=candidates.find(c=>c.left>=margin&&c.top>=margin&&c.left+detailW<=mapSize.x-margin&&c.top+detailH<=mapSize.y-margin);
+    const c=valid||{left:clamp(popupLeft+popupW+gap,margin,Math.max(margin,mapSize.x-margin-detailW)),top:clamp(popupTop,margin,Math.max(margin,mapSize.y-margin-detailH))};
+    amenityDetailLayer.style.width=`${detailW}px`;
+    amenityDetailLayer.style.height=`${detailH}px`;
+    amenityDetailLayer.style.left=`${c.left}px`;
+    amenityDetailLayer.style.top=`${c.top}px`;
+  }
+  function showAmenityCategoryDetail(marker,category){
+    const layer=ensureAmenityDetailLayer();
+    const title=AMENITY_CATEGORY_LABELS[category]||category;
+    const items=AMENITY_SUBCATEGORIES[category]||[];
+    const list=items.map(x=>`<div class="amenity-detail-subcategory">${esc(x)}</div>`).join('');
+    layer.innerHTML=`<div class="amenity-detail-panel"><div class="amenity-detail-head"><strong>${esc(title)}</strong><button type="button" class="amenity-detail-close" aria-label="Close amenity details">×</button></div><div class="amenity-detail-list">${list}</div><div class="amenity-detail-help">Source: à portée, data version 8 October 2026. These are the source subcategories included in this headline category. Counts use unique amenity locations within the active scope.</div></div>`;
+    layer.style.display='block';
+    layer.setAttribute('aria-hidden','false');
+    layer.querySelector('.amenity-detail-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeAmenityDetail();});
+    positionAmenityDetail();
   }
 
   function rectOverlapsMarker(left,top,w,h,px,py,radius,extra=0){
@@ -1813,6 +1858,7 @@
       polygon.setAttribute('class','store-popup-leader-arrow');
       storePopupSvg.appendChild(polygon);
     }
+    positionAmenityDetail();
   }
 
   async function openStorePopup(marker){
@@ -3720,18 +3766,40 @@
   }
 
   function resetCensusAmenitySummary(){['censusAmenityTotal','censusAmenityRetail','censusAmenityFood','censusAmenityHealth','censusAmenityCommunity'].forEach(id=>{const n=el(id);if(n)n.textContent='—';});}
+  function amenityIndicesWithinBounds(bounds){
+    const grid=amenityBuildGridIndex();
+    const north=bounds.getNorth(), south=bounds.getSouth(), east=bounds.getEast(), west=bounds.getWest();
+    const minLat=Math.floor(south/AMENITY_GRID_DEG),maxLat=Math.floor(north/AMENITY_GRID_DEG),minLon=Math.floor(west/AMENITY_GRID_DEG),maxLon=Math.floor(east/AMENITY_GRID_DEG);
+    const ids=[];
+    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){
+      const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;
+      for(const [start,end] of ranges)for(let i=start;i<end;i++){
+        const r=amenityReadRecord(i,new DataView(state.amenityAssetState.buffer));
+        if(r.lat>=south&&r.lat<=north&&r.lon>=west&&r.lon<=east)ids.push(i);
+      }
+    }
+    return ids;
+  }
+
   async function calculateCensusAmenityProfile(result){
-    if(!result?.selected?.length)return null;
-    const asset=await loadAmenityAsset(),view=new DataView(asset.buffer),grid=amenityBuildGridIndex();
-    if(typeof RBush==='undefined'||typeof turf==='undefined')return null;
-    const daIndex=new RBush();let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-    result.selected.forEach((item,i)=>{const feature=item.feature,b=turf.bbox(feature);minX=Math.min(minX,b[0]);minY=Math.min(minY,b[1]);maxX=Math.max(maxX,b[2]);maxY=Math.max(maxY,b[3]);daIndex.insert({minX:b[0],minY:b[1],maxX:b[2],maxY:b[3],feature});});
-    const minLat=Math.floor(minY/AMENITY_GRID_DEG),maxLat=Math.floor(maxY/AMENITY_GRID_DEG),minLon=Math.floor(minX/AMENITY_GRID_DEG),maxLon=Math.floor(maxX/AMENITY_GRID_DEG);let total=0,retail=0,food=0,health=0,community=0,seen=0,accepted=0;
-    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;for(const [start,end] of ranges)for(let i=start;i<end;i++){const r=amenityReadRecord(i,view);const hits=daIndex.search({minX:r.lon,minY:r.lat,maxX:r.lon,maxY:r.lat});let inside=false;for(const h of hits){if(turf.booleanPointInPolygon(turf.point([r.lon,r.lat]),h.feature)){inside=true;break;}}if(inside){total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}if(++seen%2500===0)await new Promise(resolve=>setTimeout(resolve,0));}}
+    const shapeType=censusShapeType();
+    if(shapeType!=='circle'&&shapeType!=='rectangle')return null;
+    const asset=await loadAmenityAsset(),view=new DataView(asset.buffer);
+    let ids=[];
+    if(shapeType==='circle' && state.circleSelection?.circle){
+      const ll=state.circleSelection.circle.getLatLng();
+      const radiusKm=state.circleSelection.circle.getRadius()/1000;
+      ids=amenityIndicesWithinRadius(ll.lat,ll.lng,radiusKm);
+    } else if(shapeType==='rectangle' && state.rectangleSelection?.rectangle){
+      ids=amenityIndicesWithinBounds(state.rectangleSelection.rectangle.getBounds());
+    } else return null;
+    let total=0,retail=0,food=0,health=0,community=0;
+    for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}
     return {total,retail,food,health,community};
   }
+
   function updateCensusAmenitySummary(result){
-    resetCensusAmenitySummary(); if(!result?.selected?.length)return; const gen=state.censusScopeGeneration; calculateCensusAmenityProfile(result).then(p=>{if(gen!==state.censusScopeGeneration||!p)return; for(const [id,key] of [['censusAmenityTotal','total'],['censusAmenityRetail','retail'],['censusAmenityFood','food'],['censusAmenityHealth','health'],['censusAmenityCommunity','community']]){const n=el(id);if(n)n.textContent=fmtInt(p[key]);}}).catch(()=>{});
+    resetCensusAmenitySummary(); if(!censusShapeType())return; const gen=state.censusScopeGeneration; calculateCensusAmenityProfile(result).then(p=>{if(gen!==state.censusScopeGeneration||!p)return; for(const [id,key] of [['censusAmenityTotal','total'],['censusAmenityRetail','retail'],['censusAmenityFood','food'],['censusAmenityHealth','health'],['censusAmenityCommunity','community']]){const n=el(id);if(n)n.textContent=fmtInt(p[key]);}}).catch(()=>{});
   }
 
   function updateCensusPopulationSummary(aggregate) {
@@ -3776,6 +3844,7 @@
     updateSelectionState();
     updateSelectionPanels();
     updateCensusPopulationSummary(result.aggregate);
+    updateCensusAmenitySummary(result);
 
     const zoom = map.getZoom();
     const renderAllowed = zoom >= CONFIG.daMinRenderZoom && state.showDaOverlay;

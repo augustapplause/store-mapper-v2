@@ -1136,7 +1136,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .store-popup-card .store-popup-metrics-scroll{flex:1 1 auto;height:auto;max-height:none;min-height:0;}
 
 /* v1.223 amenity detail lists and full-row popup scrolling */
-.store-popup-metrics-scroll{padding-bottom:18px;box-sizing:border-box;}
+.store-popup-metrics-scroll{padding-bottom:19px;box-sizing:border-box;}
 .popup-amenity-profile{font-size:11px;}
 .popup-amenity-title{font-size:11px;line-height:19px;}
 .popup-amenity-click-hint{font-size:9px;font-weight:400;color:#777;}
@@ -1160,3 +1160,12 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-amenity-grid{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto;column-gap:10px;row-gap:2px;font-size:11px;line-height:16px;}
 .census-amenity-grid span:nth-child(odd){min-width:0;}
 .census-amenity-grid strong{text-align:right;font-weight:700;}
+
+/* v1.226 amenity category detail overlay */
+.amenity-detail-layer{position:absolute;z-index:1600;pointer-events:none;box-sizing:border-box;}
+.amenity-detail-panel{width:100%;height:100%;box-sizing:border-box;background:#fff;border:1px solid #b9c5cc;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;}
+.amenity-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:#f4f7f9;border-bottom:1px solid #d8e0e5;font-size:11px;color:#111;line-height:18px;}
+.amenity-detail-close{width:20px;height:20px;border:0;background:transparent;color:#111;font-size:18px;font-weight:800;line-height:18px;padding:0;cursor:pointer;}
+.amenity-detail-list{flex:1;overflow:auto;padding:4px 8px;}
+.amenity-detail-subcategory{font-size:11px;line-height:19px;color:#000;border-bottom:1px solid #eee;white-space:nowrap;}
+.amenity-detail-help{flex:0 0 auto;padding:5px 8px;border-top:1px solid #ddd;background:#fafafa;color:#555;font-size:9px;line-height:13px;}
