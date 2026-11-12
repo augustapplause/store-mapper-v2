@@ -1668,7 +1668,7 @@
     const margin=12;
     const detailW=Math.min(255,Math.max(220,mapSize.x-margin*2));
     const detailH=Math.min(245,Math.max(170,mapSize.y-margin*2));
-    const left=Math.max(margin, Math.floor((mapSize.x-detailW)/2));
+    const rightGap=20; const left=Math.max(margin, Math.floor(mapSize.x-detailW-rightGap));
     const top=Math.max(80, Math.floor((mapSize.y-detailH)/2));
     const clampedTop=clamp(top,margin,Math.max(margin,mapSize.y-margin-detailH));
     amenityDetailLayer.style.width=`${detailW}px`;
