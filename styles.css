@@ -1137,7 +1137,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 /* v1.223 amenity detail lists and full-row popup scrolling */
 .store-popup-metrics-scroll{padding-bottom:19px;box-sizing:border-box;}
-.popup-amenity-profile{font-size:11px;}
+.popup-amenity-profile{font-size:12px;}
 .popup-amenity-title{font-size:11px;line-height:19px;}
 .popup-amenity-click-hint{font-size:9px;font-weight:400;color:#777;}
 .popup-amenity-grid{grid-template-columns:minmax(0,1fr);row-gap:0;line-height:19px;}
@@ -1157,11 +1157,17 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-amenity-detail-help{flex:0 0 auto;padding:5px 8px;border-top:1px solid #ddd;background:#fafafa;color:#555;font-size:9px;line-height:13px;}
 .census-amenity-profile{margin-top:9px;padding-top:7px;border-top:1px solid #dfe5e9;color:#111;}
 .census-amenity-title{font-size:11px;font-weight:700;line-height:16px;margin-bottom:3px;}
-.census-amenity-grid{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto;column-gap:10px;row-gap:2px;font-size:11px;line-height:16px;}
+.census-amenity-grid{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto;column-gap:10px;row-gap:2px;font-size:12px;line-height:16px;}
 .census-amenity-grid span:nth-child(odd){min-width:0;}
 .census-amenity-grid strong{text-align:right;font-weight:700;}
+.census-amenity-category{grid-column:span 2;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;border:0;background:transparent;padding:0;margin:0;text-align:left;font:inherit;color:#111;line-height:16px;cursor:pointer;width:100%;}
+.census-amenity-category:hover{background:#f4f7f9;}
+.census-amenity-category span{min-width:0;}
+.census-amenity-category strong{font-weight:700;text-align:right;}
+.census-amenity-total-label{grid-column:1 / 2;}
 
-/* v1.226 amenity category detail overlay */
+
+/* v1.227 amenity category detail overlay */
 .amenity-detail-layer{position:absolute;z-index:1600;pointer-events:none;box-sizing:border-box;}
 .amenity-detail-panel{width:100%;height:100%;box-sizing:border-box;background:#fff;border:1px solid #b9c5cc;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;}
 .amenity-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:#f4f7f9;border-bottom:1px solid #d8e0e5;font-size:11px;color:#111;line-height:18px;}

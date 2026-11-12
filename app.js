@@ -1401,21 +1401,13 @@
     return ids;
   }
   async function calculateAmenityProfile(lat,lon,radiusKm=AMENITY_RADIUS_KM){const key=`${lat.toFixed(5)},${lon.toFixed(5)},${radiusKm}`;if(state.amenityPopupCache.has(key))return state.amenityPopupCache.get(key);const asset=await loadAmenityAsset(),view=new DataView(asset.buffer),ids=amenityIndicesWithinRadius(lat,lon,radiusKm);let total=0,retail=0,food=0,health=0,community=0;for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}const result={total,retail,food,health,community,indices:ids};state.amenityPopupCache.set(key,result);return result;}
-  function amenityProfileHtml(profile,status='ready'){
-    const rows=`<button type="button" class="popup-amenity-category" data-amenity-category="retail"><span>Retail</span><strong>${profile?.retail??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="food"><span>Food &amp; Leisure</span><strong>${profile?.food??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="health"><span>Health &amp; Services</span><strong>${profile?.health??0}</strong></button><button type="button" class="popup-amenity-category" data-amenity-category="community"><span>Community &amp; Recreation</span><strong>${profile?.community??0}</strong></button><div class="popup-amenity-grid-total"><span>Total</span><strong>${profile?.total??0}</strong></div>`;
-    if(status==='loading')return `<div class="popup-amenity-profile"><div class="popup-amenity-title"><span>Amenities · 1 km</span></div><div class="popup-amenity-loading">Calculating…</div></div>`;
-    if(status==='error')return `<div class="popup-amenity-profile"><div class="popup-amenity-title"><span>Amenities · 1 km</span></div><div class="popup-amenity-error">Amenity profile unavailable.</div></div>`;
-    return `<div class="popup-amenity-profile" data-amenity-profile><div class="popup-amenity-title"><span>Amenities · 1 km</span><span class="popup-amenity-click-hint">click a category</span></div><div class="popup-amenity-grid">${rows}</div></div>`;
-  }
   const AMENITY_SUBCATEGORIES={
     retail:['Grocery','Pharmacy','Bakery','Bookstore','Hardware store','Convenience store','Bike shop'],
     food:['Restaurant','Cafe','Bar / pub'],
     health:['Bank','Clinic','Dentist','Hospital','Nursing home','Laundromat','Post office'],
     community:['School','Elementary school','Secondary school','College or university','Library','Park','Large park','Neighbourhood park','Pocket park','Playground','Childcare','Community centre','Dog park','Place of worship','Pool','Ice rink','Sports field or court']
   };
-  function wireAmenityCategoryButtons(host,marker){
-    host?.querySelectorAll('[data-amenity-category]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();showAmenityCategoryDetail(marker,btn.dataset.amenityCategory);}));
-  }
+
 
 
     async function popupCardContent(row,censusValues={}){
@@ -1436,7 +1428,7 @@
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table>${amenityProfileHtml({total:0,retail:0,food:0,health:0,community:0},'loading')}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    html+=`</table></div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -1599,27 +1591,6 @@
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       storePopupCard.innerHTML=await popupCardContent(row,values);
       wirePopupCardActions(marker);
-      const amenityHost=storePopupCard.querySelector('.popup-amenity-profile');
-      if(amenityHost){
-        const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
-        if(Number.isFinite(lat)&&Number.isFinite(lng)){
-          calculateAmenityProfile(lat,lng).then(profile=>{
-            if(state.openPopupMarker!==marker)return;
-            const host=storePopupCard.querySelector('.popup-amenity-profile');
-            if(host){
-              host.outerHTML=amenityProfileHtml(profile,'ready');
-              wireAmenityCategoryButtons(storePopupCard.querySelector('.popup-amenity-profile'), marker);
-            }
-          }).catch(()=>{
-            const host=storePopupCard.querySelector('.popup-amenity-profile');
-            if(host){
-              host.outerHTML=amenityProfileHtml(null,'error');
-              wireAmenityCategoryButtons(storePopupCard.querySelector('.popup-amenity-profile'), marker);
-            }
-          });
-        }
-      }
-
     requestStorePopupLayout();
     requestAnimationFrame(()=>{
       requestStorePopupLayout();
@@ -1637,7 +1608,6 @@
   function wirePopupCardActions(marker){
     const closeBtn=storePopupCard.querySelector('.store-popup-close');
     closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
-    wireAmenityCategoryButtons(storePopupCard.querySelector('.popup-amenity-profile'), marker);
     const ticker=storePopupCard.querySelector('[data-popup-ticker]');
     if(ticker){
       ticker.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;ticker.classList.toggle('paused',!state.popupTickerPlaying);startPopupTicker();});
@@ -1693,31 +1663,20 @@
     amenityDetailLayer.innerHTML='';
   }
   function positionAmenityDetail(){
-    if(!amenityDetailLayer || !storePopupCard || amenityDetailLayer.style.display==='none')return;
+    if(!amenityDetailLayer || amenityDetailLayer.style.display==='none')return;
     const mapSize=map.getSize();
-    const popRect=storePopupCard.getBoundingClientRect();
-    const mapRect=map.getContainer().getBoundingClientRect();
-    const popupLeft=popRect.left-mapRect.left;
-    const popupTop=popRect.top-mapRect.top;
-    const popupW=popRect.width;
-    const popupH=popRect.height;
-    const gap=10, margin=12;
-    const detailW=Math.min(280,Math.max(220,mapSize.x-margin*2));
-    const detailH=Math.min(220,Math.max(140,mapSize.y-margin*2));
-    const candidates=[
-      {left:popupLeft+popupW+gap,top:popupTop},
-      {left:popupLeft-detailW-gap,top:popupTop},
-      {left:popupLeft+popupW+gap,top:Math.max(margin,popupTop+popupH-detailH)},
-      {left:popupLeft-detailW-gap,top:Math.max(margin,popupTop+popupH-detailH)}
-    ];
-    const valid=candidates.find(c=>c.left>=margin&&c.top>=margin&&c.left+detailW<=mapSize.x-margin&&c.top+detailH<=mapSize.y-margin);
-    const c=valid||{left:clamp(popupLeft+popupW+gap,margin,Math.max(margin,mapSize.x-margin-detailW)),top:clamp(popupTop,margin,Math.max(margin,mapSize.y-margin-detailH))};
+    const margin=12;
+    const detailW=Math.min(255,Math.max(220,mapSize.x-margin*2));
+    const detailH=Math.min(245,Math.max(170,mapSize.y-margin*2));
+    const left=Math.max(margin, Math.floor((mapSize.x-detailW)/2));
+    const top=Math.max(80, Math.floor((mapSize.y-detailH)/2));
+    const clampedTop=clamp(top,margin,Math.max(margin,mapSize.y-margin-detailH));
     amenityDetailLayer.style.width=`${detailW}px`;
     amenityDetailLayer.style.height=`${detailH}px`;
-    amenityDetailLayer.style.left=`${c.left}px`;
-    amenityDetailLayer.style.top=`${c.top}px`;
+    amenityDetailLayer.style.left=`${left}px`;
+    amenityDetailLayer.style.top=`${clampedTop}px`;
   }
-  function showAmenityCategoryDetail(marker,category){
+  function showAmenityCategoryDetail(category){
     const layer=ensureAmenityDetailLayer();
     const title=AMENITY_CATEGORY_LABELS[category]||category;
     const items=AMENITY_SUBCATEGORIES[category]||[];
@@ -1727,6 +1686,19 @@
     layer.setAttribute('aria-hidden','false');
     layer.querySelector('.amenity-detail-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeAmenityDetail();});
     positionAmenityDetail();
+  }
+
+  function wireCensusAmenityCategoryButtons(){
+    const grid=el('censusAmenityGrid');
+    if(!grid || grid.dataset.wired==='1')return;
+    grid.dataset.wired='1';
+    grid.addEventListener('click',e=>{
+      const btn=e.target.closest('.census-amenity-category');
+      if(!btn || !grid.contains(btn))return;
+      e.preventDefault();
+      e.stopPropagation();
+      showAmenityCategoryDetail(btn.dataset.amenityCategory);
+    });
   }
 
   function rectOverlapsMarker(left,top,w,h,px,py,radius,extra=0){
@@ -5379,6 +5351,7 @@
   }
 
   el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
+  wireCensusAmenityCategoryButtons();
   el('censusThreshold').addEventListener('change',()=>{state.filterCensusCache=new WeakMap();state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();scheduleCensusQuery(null,'threshold change');});
   el('censusDelay')?.addEventListener('change',()=>{ state.daDelayMs=getDaDelayMs(); });
   el('censusDelay')?.addEventListener('input',()=>{ state.daDelayMs=getDaDelayMs(); });
