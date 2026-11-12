@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.229</title>
+  <title>Store Explorer v1.230</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.229.0.amenity-marker-restore" />
+      <link rel="stylesheet" href="styles.css?v=1.230.0.amenity-marker-restore" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.229</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.230</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -197,9 +197,8 @@
           <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
         </div>
         <div class="census-amenity-profile">
-          <div class="census-amenity-title">Amenities within selected DAs</div>
+          <div class="census-amenity-title" id="censusAmenityTitle">— amenities within drawn shape</div>
           <div class="census-amenity-grid" id="censusAmenityGrid">
-            <span class="census-amenity-total-label">Total</span><strong id="censusAmenityTotal">—</strong>
             <button type="button" class="census-amenity-category" data-amenity-category="retail"><span>Retail</span><strong id="censusAmenityRetail">—</strong></button>
             <button type="button" class="census-amenity-category" data-amenity-category="food"><span>Food &amp; Leisure</span><strong id="censusAmenityFood">—</strong></button>
             <button type="button" class="census-amenity-category" data-amenity-category="health"><span>Health &amp; Services</span><strong id="censusAmenityHealth">—</strong></button>
@@ -440,7 +439,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.229.0.amenity-marker-restore"></script>
+  <script src="app.js?v=1.230.0.amenity-marker-restore"></script>
 
 
 </body>

@@ -3748,7 +3748,11 @@
     return `<span class="census-metric-value">${esc(fmtInt(value))}</span><span class="census-share">(${pct}%)</span>`;
   }
 
-  function resetCensusAmenitySummary(){['censusAmenityTotal','censusAmenityRetail','censusAmenityFood','censusAmenityHealth','censusAmenityCommunity'].forEach(id=>{const n=el(id);if(n)n.textContent='—';});}
+  function resetCensusAmenitySummary(){
+    const title=el('censusAmenityTitle');
+    if(title) title.textContent='— amenities within drawn shape';
+    ['censusAmenityRetail','censusAmenityFood','censusAmenityHealth','censusAmenityCommunity'].forEach(id=>{const n=el(id);if(n)n.textContent='—';});
+  }
   function amenityIndicesWithinBounds(bounds){
     const grid=amenityBuildGridIndex();
     const north=bounds.getNorth(), south=bounds.getSouth(), east=bounds.getEast(), west=bounds.getWest();
@@ -3782,7 +3786,7 @@
   }
 
   function updateCensusAmenitySummary(result){
-    resetCensusAmenitySummary(); if(!censusShapeType())return; const gen=state.censusScopeGeneration; calculateCensusAmenityProfile(result).then(p=>{if(gen!==state.censusScopeGeneration||!p)return; for(const [id,key] of [['censusAmenityTotal','total'],['censusAmenityRetail','retail'],['censusAmenityFood','food'],['censusAmenityHealth','health'],['censusAmenityCommunity','community']]){const n=el(id);if(n)n.textContent=fmtInt(p[key]);}}).catch(()=>{});
+    resetCensusAmenitySummary(); if(!censusShapeType())return; const gen=state.censusScopeGeneration; calculateCensusAmenityProfile(result).then(p=>{if(gen!==state.censusScopeGeneration||!p)return; const title=el('censusAmenityTitle'); if(title) title.textContent=`${fmtInt(p.total)} amenities within drawn shape`; for(const [id,key] of [['censusAmenityRetail','retail'],['censusAmenityFood','food'],['censusAmenityHealth','health'],['censusAmenityCommunity','community']]){const n=el(id);if(n)n.textContent=fmtInt(p[key]);}}).catch(()=>{});
   }
 
   function updateCensusPopulationSummary(aggregate) {
