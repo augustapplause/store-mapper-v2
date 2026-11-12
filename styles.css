@@ -1182,3 +1182,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-amenity-category strong{font-weight:700!important;}
 .popup-amenity-static{background:#fff;cursor:default;}
 .popup-amenity-static:hover{background:#fff;}
+.popup-amenity-static .popup-amenity-title{font-size:11px;font-weight:700;color:#000;margin-bottom:3px;}
+.popup-amenity-static .popup-amenity-grid{grid-template-columns:minmax(0,1fr) auto;row-gap:0;line-height:18px;font-size:11px;}
+.popup-amenity-static .popup-amenity-category{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:0;background:#fff;padding:0;margin:0;line-height:18px;font-size:11px;color:#000;text-align:left;cursor:default;}
+.popup-amenity-static .popup-amenity-category strong{font-weight:700;text-align:right;}
+.popup-amenity-static .popup-amenity-grid-total{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border-top:1px solid #ddd;margin-top:1px;padding-top:1px;line-height:18px;font-size:11px;color:#000;}
+.popup-amenity-static .popup-amenity-grid-total strong{font-weight:700;text-align:right;}

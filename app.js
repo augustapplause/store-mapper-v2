@@ -1410,7 +1410,13 @@
 
 
 
-    async function popupCardContent(row,censusValues={}){
+    function renderPopupAmenityStatic(profile){
+    const fmt=(v)=>Number.isFinite(Number(v))?Number(v).toLocaleString('en-CA'):'—';
+    if(!profile)return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · 1 km</div><div class="popup-amenity-loading">Calculating…</div></div>`;
+    return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · 1 km</div><div class="popup-amenity-grid"><div class="popup-amenity-category"><span>Retail</span><strong>${fmt(profile.retail)}</strong></div><div class="popup-amenity-category"><span>Food &amp; Leisure</span><strong>${fmt(profile.food)}</strong></div><div class="popup-amenity-category"><span>Health &amp; Services</span><strong>${fmt(profile.health)}</strong></div><div class="popup-amenity-category"><span>Community &amp; Recreation</span><strong>${fmt(profile.community)}</strong></div></div><div class="popup-amenity-grid-total"><span>Total</span><strong>${fmt(profile.total)}</strong></div></div>`;
+  }
+
+  async function popupCardContent(row,censusValues={},amenityProfile=null){
     const c=state.columns;
     const popupFields=popupItems();
     const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
@@ -1428,7 +1434,7 @@
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table></div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    html+=`</table>${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -1585,11 +1591,16 @@
     const hasPopulationWork=hasPopupVirtualFields()||popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
     if(hasPopulationWork)await showPopulationCalcStatus();
     try{
-      const values=hasPopupVirtualFields()?await calculatePopupCensusForStore(row):{};
+      const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
+      const c=state.columns;
+      const lat=toNumber(row[c?.lat]), lng=toNumber(row[c?.lon]);
+      const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,AMENITY_RADIUS_KM).catch(()=>null):Promise.resolve(null);
+      const values=await valuesPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       await computePopupQuartiles(row);
+      const amenityProfile=await amenityPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      storePopupCard.innerHTML=await popupCardContent(row,values);
+      storePopupCard.innerHTML=await popupCardContent(row,values,amenityProfile);
       wirePopupCardActions(marker);
     requestStorePopupLayout();
     requestAnimationFrame(()=>{
@@ -1666,7 +1677,7 @@
     if(!amenityDetailLayer || amenityDetailLayer.style.display==='none')return;
     const mapSize=map.getSize();
     const margin=12;
-    const detailW=Math.min(255,Math.max(220,mapSize.x-margin*2));
+    const detailW=Math.min(205,Math.max(200,mapSize.x-margin*2));
     const detailH=Math.min(245,Math.max(170,mapSize.y-margin*2));
     const rightGap=20; const left=Math.max(margin, Math.floor(mapSize.x-detailW-rightGap));
     const top=Math.max(80, Math.floor((mapSize.y-detailH)/2));
