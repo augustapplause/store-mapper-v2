@@ -115,6 +115,10 @@
   municipalityLabelPane.style.pointerEvents = 'none';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
+  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
+  const secondaryMarkerImage = new Image();
+  secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
+  secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
   secondaryMarkerPane.style.zIndex = '580';
   secondaryMarkerPane.style.pointerEvents = 'none';
 
@@ -157,23 +161,23 @@
       const b=this._map.getBounds();
       const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
       const items=state.secondarySpatialIndex.search(q);
-      ctx.save();
-      ctx.lineWidth=2.5;
-      ctx.strokeStyle='#7a3db8';
-      ctx.lineJoin='miter';
+      const markerSize=15;
+      const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
-        const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
         const x=p.x-origin.x;
         const y=p.y-origin.y;
-        const r=4;
         ctx.save();
-        ctx.translate(x,y);
-        ctx.rotate(Math.PI/4);
-        ctx.strokeRect(-r+0.5,-r+0.5,r*2-1,r*2-1);
+        if(secondaryMarkerImage.complete && secondaryMarkerImage.naturalWidth>0){
+          ctx.drawImage(secondaryMarkerImage, x-markerSize/2, y-markerSize/2, markerSize, markerSize);
+        }else{
+          ctx.fillStyle='#c90000';
+          ctx.beginPath();
+          ctx.arc(x,y,markerSize/2,0,Math.PI*2);
+          ctx.fill();
+        }
         ctx.restore();
       }
-      ctx.restore();
     }
   }
   state.secondaryCanvasLayer=new SecondaryCanvasLayer().addTo(map);
@@ -1032,7 +1036,7 @@
     const markerBody = USE_PRIMARY_BRAND_MARKER && !focusActive
       ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false">`
       : `<div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>`;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[10,10],iconAnchor:[5,5]});
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[20,20],iconAnchor:[10,10]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     // Highlights are viewport-driven. The Census shape constrains metrics and
