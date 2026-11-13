@@ -1010,6 +1010,8 @@
     }
     refreshMarkerStyles();
   }
+  const PRIMARY_MARKER_ASSET='Shoppers_Drug_Mart_Icon.svg';
+  const USE_PRIMARY_BRAND_MARKER=true;
   function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null){
     const focusActive = markerFocusActive(row,dist1,dist2);
     const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
@@ -1023,9 +1025,14 @@
     const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${fadeKey}" aria-hidden="true">${fadeContent}</span>` : '';
     const staticActive = animating && state.markerAnimation.type==='static';
     const staticObject = staticActive ? `<span class="marker-static-object" aria-hidden="true"><svg class="marker-static-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="15" r="7" fill="#fff" stroke="#c90000" stroke-width="2"/><circle cx="11" cy="15" r="4.3" fill="#c90000" stroke="#fff" stroke-width="1.5"/><circle cx="11" cy="15" r="2" fill="#c90000"/><path d="M24 4 L12.2 15.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/><path d="M24 4 L20.2 4.7 L21.2 8.2 Z" fill="#111"/></svg></span>` : '';
-    const navActive=!!overrideColor; const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const navActive=!!overrideColor;
+    const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
     const markerColor=overrideColor||state.markerColor;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}"><div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>${staticObject}${fadeObject}</div>`,iconSize:[14,14],iconAnchor:[7,7]});
+    const markerImageClass = `store-marker-image ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const markerBody = USE_PRIMARY_BRAND_MARKER && !focusActive
+      ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false">`
+      : `<div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>`;
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[10,10],iconAnchor:[5,5]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     // Highlights are viewport-driven. The Census shape constrains metrics and
