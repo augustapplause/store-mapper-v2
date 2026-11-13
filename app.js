@@ -76,7 +76,7 @@
     subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
-    markerColor: '#d34c4c',
+    markerColor: '#d34c4c', primaryMarkerSize:20, secondaryMarkerSize:12,
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
@@ -115,7 +115,7 @@
   municipalityLabelPane.style.pointerEvents = 'none';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
-  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent-normalized-12px.png';
+  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
   const secondaryMarkerImage = new Image();
   secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
   secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
@@ -161,7 +161,7 @@
       const b=this._map.getBounds();
       const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
       const items=state.secondarySpatialIndex.search(q);
-      const markerSize=12;
+      const markerSize=state.secondaryMarkerSize;
       const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
@@ -1016,6 +1016,28 @@
   }
   const PRIMARY_MARKER_ASSET='Shoppers_Drug_Mart_Icon.svg';
   const USE_PRIMARY_BRAND_MARKER=true;
+  const MARKER_SIZE_STORAGE_KEY='cse_marker_sizes_v1';
+  function normalizeMarkerSize(value,fallback,min,max){const n=Number(value);return Number.isFinite(n)?Math.max(min,Math.min(max,Math.round(n))):fallback;}
+  function loadMarkerSizes(){
+    try{
+      const raw=localStorage.getItem(MARKER_SIZE_STORAGE_KEY);
+      const cfg=raw?JSON.parse(raw):null;
+      state.primaryMarkerSize=normalizeMarkerSize(cfg?.primary,20,8,40);
+      state.secondaryMarkerSize=normalizeMarkerSize(cfg?.secondary,12,6,32);
+    }catch(_){state.primaryMarkerSize=20;state.secondaryMarkerSize=12;}
+  }
+  function saveMarkerSizes(){try{localStorage.setItem(MARKER_SIZE_STORAGE_KEY,JSON.stringify({primary:state.primaryMarkerSize,secondary:state.secondaryMarkerSize}));}catch(_){}
+  }
+  function refreshMarkerSizeControls(){
+    const p=el('primaryMarkerSizeInput'),s=el('secondaryMarkerSizeInput');
+    if(p)p.value=String(state.primaryMarkerSize);
+    if(s)s.value=String(state.secondaryMarkerSize);
+  }
+  function applyMarkerSizeChanges(){
+    refreshMarkerStyles();
+    state.secondaryCanvasLayer?.redraw();
+  }
+
   function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null){
     const focusActive = markerFocusActive(row,dist1,dist2);
     const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
@@ -1033,10 +1055,14 @@
     const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
     const markerColor=overrideColor||state.markerColor;
     const markerImageClass = `store-marker-image ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const markerImageStyle = `width:${Math.max(8,state.primaryMarkerSize)}px;height:${Math.max(8,state.primaryMarkerSize)}px;flex:0 0 ${Math.max(8,state.primaryMarkerSize)}px;`;
     const markerBody = USE_PRIMARY_BRAND_MARKER && !focusActive
-      ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false">`
+      ? `<img class="${markerImageClass}" style="${markerImageStyle}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false">`
       : `<div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>`;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[20,20],iconAnchor:[10,10]});
+    const iconSize=Math.max(8,state.primaryMarkerSize);
+    const wrapperSize=Math.max(22,iconSize+4);
+    const iconHtml=`<div class="store-marker-wrap${anim}" style="${delay}--marker-art-size:${iconSize}px;--marker-wrapper-size:${wrapperSize}px;">${markerBody}${staticObject}${fadeObject}</div>`;
+    return L.divIcon({className:'',html:iconHtml,iconSize:[wrapperSize,wrapperSize],iconAnchor:[wrapperSize/2,wrapperSize/2]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     // Highlights are viewport-driven. The Census shape constrains metrics and
@@ -1057,7 +1083,7 @@
   }
   function markerVisualKey(row,inSelection,dist1=null,dist2=null){
     const focusActive=markerFocusActive(row,dist1,dist2);
-    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${state.markerAnimation.fadeObject||''}|${state.markerColor}`;
+    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${state.markerAnimation.fadeObject||''}|${state.markerColor}|${state.primaryMarkerSize}`;
   }
   function rowMatchesSelectedGroup(row){
     if(state.selectedGroupKey===null||!state.groups.length)return false;
@@ -4052,6 +4078,12 @@
     dialog.showModal();
   }
   function refreshMarkerAnimationUI(){rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();}
+  function wireMarkerSizeControls(){
+    const primary=el('primaryMarkerSizeInput'),secondary=el('secondaryMarkerSizeInput');
+    primary?.addEventListener('change',e=>{state.primaryMarkerSize=normalizeMarkerSize(e.target.value,20,8,40);saveMarkerSizes();refreshMarkerSizeControls();applyMarkerSizeChanges();});
+    secondary?.addEventListener('change',e=>{state.secondaryMarkerSize=normalizeMarkerSize(e.target.value,12,6,32);saveMarkerSizes();refreshMarkerSizeControls();applyMarkerSizeChanges();});
+  }
+
   function wireMarkerAnimationControls(){
     el('markerAnimationEnabled').addEventListener('change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
     el('markerAnimationType').addEventListener('change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
@@ -4076,7 +4108,7 @@
 
   // ---------- Trade Area Halo (standalone, on-demand analysis overlay) ----------
 
-  // ---------- Marker colour compatibility (UI removed in v1.233) ----------
+  // ---------- Marker colour compatibility (UI removed in v1.234) ----------
   const MARKER_COLORS = [
     {name:'Red', value:'#d34c4c'},
     {name:'Royal Blue', value:'#4169e1'},
@@ -4085,11 +4117,6 @@
   ];
 
   function updateMarkerColorUI(){
-    document.querySelectorAll('.marker-color-swatch').forEach(btn=>{
-      const active=btn.dataset.color===state.markerColor;
-      btn.classList.toggle('active',active);
-      btn.setAttribute('aria-pressed',active?'true':'false');
-    });
     const dot=el('defaultMarkerDot');
     if(dot)dot.style.background=state.markerColor;
   }
@@ -5389,8 +5416,11 @@
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
   if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
+  loadMarkerSizes();
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
+  wireMarkerSizeControls();
+  refreshMarkerSizeControls();
   wireMarkerAnimationControls();
   setupTicker();
   loadHelpConfig();
