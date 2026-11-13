@@ -77,7 +77,7 @@
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
-    markerConfig: {primarySize:20, secondarySize:12},
+    markerConfig: {primarySize:22, secondarySize:11},
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
@@ -4034,14 +4034,14 @@
       el('markerAnimationValueButton')?.classList.add('hidden');
       el('markerAnimationValue').value=a.value||'';
     }
-    el('markerAnimationEnabled').checked=!!a.enabled;
-    el('markerAnimationType').value=a.type;
+    const enabled=el('markerAnimationEnabled'); if(enabled) enabled.checked=!!a.enabled;
+    const typeSelect=el('markerAnimationType'); if(typeSelect) typeSelect.value=a.type;
     const fadeRow=el('markerFadeObjectRow'); if(fadeRow) fadeRow.style.display=a.type==='fade'?'flex':'none';
     const fadeObject=el('markerFadeObject'); if(fadeObject) fadeObject.value=a.fadeObject||'smiley';
     const typeSummary=el('markerAnimationTypeSummary'); if(typeSummary) typeSummary.textContent=a.type==='fade'?'Fade':(a.type==='static'?'Static':'Ripple');
-    el('markerAnimationFormula').value=a.formula||'';
-    el('markerAnimationCondition').value=a.operator||'=';
-    el('markerAnimationStatus').textContent=markerAnimationConditionSummary();
+    const formulaInput=el('markerAnimationFormula'); if(formulaInput) formulaInput.value=a.formula||'';
+    const condition=el('markerAnimationCondition'); if(condition) condition.value=a.operator||'=';
+    const status=el('markerAnimationStatus'); if(status) status.textContent=markerAnimationConditionSummary();
   }
   function openMarkerAnimationValuePicker(){
     const dialog=el('markerAnimationValueDialog'), a=state.markerAnimation;
@@ -4055,25 +4055,25 @@
   }
   function refreshMarkerAnimationUI(){rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();}
   function wireMarkerAnimationControls(){
-    el('markerAnimationEnabled').addEventListener('change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
-    el('markerAnimationType').addEventListener('change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
-    el('markerFadeObject').addEventListener('change',e=>{state.markerAnimation.fadeObject=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
-    el('markerAnimationColumn').addEventListener('change',e=>{const h=e.target.value;state.markerAnimation.column=h;state.markerAnimation.formula=h;state.markerAnimation.value='';state.markerAnimation.values=[];state.markerAnimation.typeMode=state.types[h]==='text'?'text':'numeric';saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
-    el('markerAnimationFormula').addEventListener('input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
-    el('markerAnimationCondition').addEventListener('change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
-    el('markerAnimationValue').addEventListener('input',e=>{state.markerAnimation.value=e.target.value;el('markerAnimationStatus').textContent=markerAnimationConditionSummary();});
-    el('markerAnimationValueButton').addEventListener('click',e=>{e.preventDefault();openMarkerAnimationValuePicker();});
+    const on=(id,event,handler)=>{const node=el(id); if(node) node.addEventListener(event,handler);};
+    on('markerAnimationEnabled','change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
+    on('markerAnimationType','change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
+    on('markerFadeObject','change',e=>{state.markerAnimation.fadeObject=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
+    on('markerAnimationColumn','change',e=>{const h=e.target.value;state.markerAnimation.column=h;state.markerAnimation.formula=h;state.markerAnimation.value='';state.markerAnimation.values=[];state.markerAnimation.typeMode=state.types[h]==='text'?'text':'numeric';saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
+    on('markerAnimationFormula','input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
+    on('markerAnimationCondition','change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
+    on('markerAnimationValue','input',e=>{state.markerAnimation.value=e.target.value;const status=el('markerAnimationStatus');if(status)status.textContent=markerAnimationConditionSummary();});
+    on('markerAnimationValueButton','click',e=>{e.preventDefault();openMarkerAnimationValuePicker();});
     const markerAnimationOperandInsert = el('markerAnimationOperandInsert');
     if(markerAnimationOperandInsert){
       markerAnimationOperandInsert.addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
     }
-    el('markerAnimationConfigureBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();populateMarkerAnimationControls();el('markerAnimationDialog').showModal();});
-    el('markerAnimationApply').addEventListener('click',e=>{e.preventDefault();const a=state.markerAnimation;const formula=String(a.formula||'').trim();if(!formula){el('markerAnimationDialogStatus').textContent='Choose a column or enter a formula.';return;}if(a.typeMode==='numeric'&&!tickerFormulaValid(formula)){el('markerAnimationDialogStatus').textContent='Invalid formula. Use exact workbook column headings and (), +, -, *, /. ';return;}if(a.typeMode==='numeric'&&!Number.isFinite(Number(a.value))){el('markerAnimationDialogStatus').textContent='Enter a numeric comparison value.';return;}if(a.typeMode==='text'&&(!a.column||!a.values.length)){el('markerAnimationDialogStatus').textContent='Choose one or more values.';return;}saveMarkerAnimationConfig();rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();el('markerAnimationDialog').close();});
-    el('markerAnimationSelectAll').addEventListener('click',e=>{const checks=[...document.querySelectorAll('.marker-animation-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);e.currentTarget.textContent=all?'Select all':'Clear all';});
-    el('markerAnimationValueApply').addEventListener('click',e=>{e.preventDefault();state.markerAnimation.values=[...document.querySelectorAll('.marker-animation-picker-check:checked')].map(x=>x.value);state.markerAnimation.typeMode='text';saveMarkerAnimationConfig();el('markerAnimationValueDialog').close();refreshMarkerAnimationUI();});
-    el('markerAnimationValueCancel').addEventListener('click',e=>{e.preventDefault();el('markerAnimationValueDialog').close();});
+    on('markerAnimationConfigureBtn','click',e=>{e.preventDefault();e.stopPropagation();populateMarkerAnimationControls();const dlg=el('markerAnimationDialog');if(dlg)dlg.showModal();});
+    on('markerAnimationApply','click',e=>{e.preventDefault();const a=state.markerAnimation;const formula=String(a.formula||'').trim();const status=el('markerAnimationDialogStatus');const dlg=el('markerAnimationDialog');if(!formula){if(status)status.textContent='Choose a column or enter a formula.';return;}if(a.typeMode==='numeric'&&!tickerFormulaValid(formula)){if(status)status.textContent='Invalid formula. Use exact workbook column headings and (), +, -, *, /. ';return;}if(a.typeMode==='numeric'&&!Number.isFinite(Number(a.value))){if(status)status.textContent='Enter a numeric comparison value.';return;}if(a.typeMode==='text'&&(!a.column||!a.values.length)){if(status)status.textContent='Choose one or more values.';return;}saveMarkerAnimationConfig();rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();if(dlg)dlg.close();});
+    on('markerAnimationSelectAll','click',e=>{const checks=[...document.querySelectorAll('.marker-animation-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);e.currentTarget.textContent=all?'Select all':'Clear all';});
+    on('markerAnimationValueApply','click',e=>{e.preventDefault();state.markerAnimation.values=[...document.querySelectorAll('.marker-animation-picker-check:checked')].map(x=>x.value);state.markerAnimation.typeMode='text';saveMarkerAnimationConfig();const dlg=el('markerAnimationValueDialog');if(dlg)dlg.close();refreshMarkerAnimationUI();});
+    on('markerAnimationValueCancel','click',e=>{e.preventDefault();const dlg=el('markerAnimationValueDialog');if(dlg)dlg.close();});
   }
-
 
 
   // ---------- Trade Area Halo (standalone, on-demand analysis overlay) ----------
@@ -4081,7 +4081,7 @@
   // ---------- Marker configuration ----------
   const MARKER_CONFIG_STORAGE_KEY='store_explorer_marker_config_v1';
   function loadMarkerConfig(){
-    const defaults={primarySize:20,secondarySize:12};
+    const defaults={primarySize:22,secondarySize:11};
     try{
       const raw=localStorage.getItem(MARKER_CONFIG_STORAGE_KEY);
       const parsed=raw?JSON.parse(raw):{};
