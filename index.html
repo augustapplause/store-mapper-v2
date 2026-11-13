@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.232</title>
+  <title>Store Explorer v1.233</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.232.0.primary-20px-secondary-ball" />
+      <link rel="stylesheet" href="styles.css?v=1.233.0.visible-artwork-primary-20-secondary-12" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.232</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.233</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -126,12 +126,6 @@
       <section class="panel-card legend-card">
         <h2>Store markers</h2>
         <div><span id="defaultMarkerDot" class="dot default"></span> Store (default)</div>
-        <div class="marker-color-row"><span>Colour</span><div class="marker-color-palette" aria-label="Default marker colour">
-          <button type="button" class="marker-color-swatch" data-help-key="marker-red" data-color="#d34c4c" aria-label="Red" title="Red"><span></span></button>
-          <button type="button" class="marker-color-swatch" data-help-key="marker-blue" data-color="#4169e1" aria-label="Royal Blue" title="Royal Blue"><span></span></button>
-          <button type="button" class="marker-color-swatch" data-help-key="marker-purple" data-color="#7a3db8" aria-label="Purple" title="Purple"><span></span></button>
-          <button type="button" class="marker-color-swatch" data-help-key="marker-black" data-color="#1f2933" aria-label="Black" title="Black"><span></span></button>
-        </div></div>
         <div class="marker-animation-box">
           <div class="marker-animation-head"><span>Animate</span><div class="marker-animation-head-controls"><select id="markerAnimationType" class="marker-animation-type-inline" aria-label="Animation type"><option value="ripple">Ripple</option><option value="fade">Fade</option><option value="static">Static</option></select><label class="marker-animation-switch"><input id="markerAnimationEnabled" type="checkbox"><span>On</span></label></div></div>
           <div class="marker-fade-object-row" id="markerFadeObjectRow"><label for="markerFadeObject">Fade object</label><select id="markerFadeObject" class="marker-animation-type-inline" aria-label="Fade object"><option value="smiley">🙂 Smiley</option><option value="starburst">✦ Starburst</option><option value="lightning">⚡ Lightning</option></select></div>
@@ -439,7 +433,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.232.0.primary-20px-secondary-ball"></script>
+  <script src="app.js?v=1.233.0.visible-artwork-primary-20-secondary-12"></script>
 
 
 </body>

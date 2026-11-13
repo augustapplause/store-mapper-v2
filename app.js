@@ -115,7 +115,7 @@
   municipalityLabelPane.style.pointerEvents = 'none';
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
-  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
+  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent-normalized-12px.png';
   const secondaryMarkerImage = new Image();
   secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
   secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
@@ -161,7 +161,7 @@
       const b=this._map.getBounds();
       const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
       const items=state.secondarySpatialIndex.search(q);
-      const markerSize=15;
+      const markerSize=12;
       const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
@@ -4076,7 +4076,7 @@
 
   // ---------- Trade Area Halo (standalone, on-demand analysis overlay) ----------
 
-  // ---------- Marker colour palette ----------
+  // ---------- Marker colour compatibility (UI removed in v1.233) ----------
   const MARKER_COLORS = [
     {name:'Red', value:'#d34c4c'},
     {name:'Royal Blue', value:'#4169e1'},
@@ -4101,13 +4101,6 @@
     refreshMarkerStyles();
   }
 
-  document.querySelectorAll('.marker-color-swatch').forEach(btn=>{
-    btn.addEventListener('click',e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      setMarkerColor(btn.dataset.color);
-    });
-  });
 
   const POPUP_STORAGE_KEY='cse_popup_config_v171';
 
@@ -5401,7 +5394,6 @@
   wireMarkerAnimationControls();
   setupTicker();
   loadHelpConfig();
-  document.querySelectorAll('.marker-color-swatch').forEach((b,i)=>{b.dataset.helpKey=['marker-red','marker-blue','marker-purple','marker-black'][i]||'marker-red';});
   el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
   el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
