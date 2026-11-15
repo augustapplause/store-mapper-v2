@@ -1,4 +1,4 @@
-/* Store Explorer - v1.251
+/* Store Explorer - v1.252
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -88,7 +88,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -249,7 +249,7 @@
   L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
   state.markerCluster = L.layerGroup().addTo(map);
   state.navigationResultLayer = L.layerGroup().addTo(map);
-  map.on('move zoom resize',requestStorePopupLayout);
+  map.on('move zoom resize',()=>{requestStorePopupLayout();requestSecondaryPopupLayout();});
   map.on('click',e=>{ if(e?.originalEvent?.target===map.getContainer() && state.openPopupMarker) closeStorePopup(); });
 
   const daStyle = {color:'#298ac2',weight:.7,fillColor:'#45a3d4',fillOpacity:.12,interactive:false};
@@ -724,10 +724,74 @@
     for(const item of candidates){const cp=map.latLngToContainerPoint([item.lat,item.lng]);const dx=cp.x-p.x,dy=cp.y-p.y;const dist=Math.hypot(dx,dy);if(dist<=pixelRadius&&dist<bestPx){best=item;bestPx=dist;}}
     return best;
   }
+  function ensureSecondaryPopupOverlay(){
+    if(state.secondaryPopupLayer&&state.secondaryPopupCard&&state.secondaryPopupSvg)return;
+    const container=map.getContainer();
+    const layer=document.createElement('div');
+    layer.className='store-popup-layer secondary-popup-layer';
+    layer.setAttribute('aria-hidden','true');
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.classList.add('store-popup-leader');
+    svg.setAttribute('aria-hidden','true');
+    const card=document.createElement('div');
+    card.className='secondary-popup-overlay-card';
+    card.setAttribute('role','dialog');
+    card.setAttribute('aria-modal','false');
+    ['click','dblclick','mousedown','mouseup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>card.addEventListener(type,e=>e.stopPropagation(),{passive:false}));
+    card.addEventListener('click',e=>e.stopPropagation());
+    layer.addEventListener('click',e=>{if(e.target===layer)closeSecondaryPopup();});
+    layer.appendChild(svg);
+    layer.appendChild(card);
+    container.appendChild(layer);
+    state.secondaryPopupLayer=layer;state.secondaryPopupSvg=svg;state.secondaryPopupCard=card;
+    if(typeof ResizeObserver==='function'){
+      state.secondaryPopupResizeObserver=new ResizeObserver(()=>requestSecondaryPopupLayout());
+      state.secondaryPopupResizeObserver.observe(card);
+    }
+  }
+  function closeSecondaryPopup(){
+    state.secondaryPopupItem=null;
+    if(state.secondaryPopupLayer)state.secondaryPopupLayer.classList.remove('open');
+    if(state.secondaryPopupLayer)state.secondaryPopupLayer.setAttribute('aria-hidden','true');
+    if(state.secondaryPopupSvg)state.secondaryPopupSvg.replaceChildren();
+    if(state.secondaryPopupCard)state.secondaryPopupCard.innerHTML='';
+  }
+  function requestSecondaryPopupLayout(){
+    if(!state.secondaryPopupItem||!state.secondaryPopupCard||!state.secondaryPopupLayer?.classList.contains('open'))return;
+    requestAnimationFrame(()=>layoutSecondaryPopup(state.secondaryPopupItem));
+  }
+  function layoutSecondaryPopup(item){
+    if(!item||!state.secondaryPopupCard||!state.secondaryPopupSvg)return;
+    const container=map.getContainer();
+    const cssWidth=Number(container?.clientWidth||0),cssHeight=Number(container?.clientHeight||0);
+    const mapSize={x:Math.max(1,Math.round(cssWidth||map.getSize().x)),y:Math.max(1,Math.round(cssHeight||map.getSize().y))};
+    const margin=12;
+    const maxW=Math.max(220,mapSize.x-margin*2),maxH=Math.max(160,mapSize.y-margin*2);
+    state.secondaryPopupCard.style.maxWidth=`${maxW}px`;state.secondaryPopupCard.style.maxHeight=`${maxH}px`;
+    const markerPoint=map.latLngToContainerPoint([item.lat,item.lng]);
+    const markerRadius=Math.max(6,Number(state.markerSize)||22);
+    const cardRect=state.secondaryPopupCard.getBoundingClientRect();
+    const w=Math.min(cardRect.width||410,maxW),h=Math.min(cardRect.height||220,maxH);
+    let candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
+    if(!candidate){
+      const corners=[{left:margin,top:margin},{left:mapSize.x-margin-w,top:margin},{left:margin,top:mapSize.y-margin-h},{left:mapSize.x-margin-w,top:mapSize.y-margin-h}];
+      corners.sort((a,b)=>{const da=Math.hypot(markerPoint.x-(a.left+w/2),markerPoint.y-(a.top+h/2));const db=Math.hypot(markerPoint.x-(b.left+w/2),markerPoint.y-(b.top+h/2));return db-da;});
+      const chosen=corners[0];candidate={left:clamp(chosen.left,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(chosen.top,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
+    }
+    state.secondaryPopupCard.style.left=`${candidate.left}px`;state.secondaryPopupCard.style.top=`${candidate.top}px`;
+    const leader=leaderGeometry(markerPoint,candidate,markerRadius);
+    state.secondaryPopupSvg.setAttribute('width',String(mapSize.x));state.secondaryPopupSvg.setAttribute('height',String(mapSize.y));state.secondaryPopupSvg.setAttribute('viewBox',`0 0 ${mapSize.x} ${mapSize.y}`);state.secondaryPopupSvg.style.width=`${mapSize.x}px`;state.secondaryPopupSvg.style.height=`${mapSize.y}px`;state.secondaryPopupSvg.replaceChildren();
+    if(leader){const polygon=document.createElementNS('http://www.w3.org/2000/svg','polygon');polygon.setAttribute('points',leader.points);polygon.setAttribute('class','store-popup-leader-arrow secondary-popup-leader-arrow');state.secondaryPopupSvg.appendChild(polygon);}
+  }
   function showSecondaryPopup(item){
     if(!item)return;
-    const popup=L.popup({className:'secondary-location-popup',closeButton:true,maxWidth:410,minWidth:310,autoPan:true}).setLatLng([item.lat,item.lng]).setContent(secondaryPopupHtml(item));
-    popup.openOn(map);
+    ensureSecondaryPopupOverlay();
+    state.secondaryPopupItem=item;
+    const html=secondaryPopupHtml(item).replace(/<div class=\"secondary-popup-head-actions\">/,`<div class=\"secondary-popup-head-actions\"><button type=\"button\" class=\"secondary-popup-overlay-close\" aria-label=\"Close\">×</button>`);
+    state.secondaryPopupCard.innerHTML=html;
+    state.secondaryPopupLayer.classList.add('open');state.secondaryPopupLayer.setAttribute('aria-hidden','false');
+    state.secondaryPopupCard.querySelector('.secondary-popup-overlay-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeSecondaryPopup();});
+    requestSecondaryPopupLayout();
   }
   function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
   async function readSecondaryLocationsFile(file){
