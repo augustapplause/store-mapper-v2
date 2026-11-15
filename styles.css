@@ -1203,7 +1203,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .marker-config-row>span:last-child{color:var(--muted);font-weight:600;}
 
 
-/* v1.237: Subjects distribution popup */
+/* v1.238: Subjects distribution popup */
 .subject-box .section-subtitle{color:#111!important;}
 .subject-box .subject-name-button{display:inline;padding:0;border:0;background:transparent;color:#111!important;font:inherit;font-weight:800;cursor:pointer;text-align:left;}
 .subject-box .subject-name-button:hover{text-decoration:underline;}
