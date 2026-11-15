@@ -1,4 +1,4 @@
-/* Store Explorer - v1.250
+/* Store Explorer - v1.251
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2237,19 +2237,26 @@
     const layer=popup.layer;
     layer.classList.add('open');
     layer.setAttribute('aria-hidden','false');
-    const panel=document.querySelector('.right-panel');
+    const subjectBox=document.querySelector('.subject-box');
     const clicked=state.subjectDistributionAnchor;
-    const panelRect=panel?.getBoundingClientRect();
+    const boxRect=subjectBox?.getBoundingClientRect();
     const anchorRect=clicked?.getBoundingClientRect();
     const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
     card.style.width=`${cardW}px`;
     const rect=card.getBoundingClientRect();
-    let left=(panelRect?.left??window.innerWidth-20)-rect.width-20;
+    let left=(boxRect?.left??window.innerWidth-20)-rect.width-20;
+    if(left<10)left=Math.min(window.innerWidth-rect.width-10,(boxRect?.right??window.innerWidth)-rect.width);
     left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
-    let top=(anchorRect?.top??90);
+    let top=(anchorRect?.top??boxRect?.top??90);
+    const boxBottom=boxRect?.bottom??window.innerHeight-10;
     if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
+    if(top<10)top=10;
+    if(Number.isFinite(boxBottom)&&top+rect.height<Math.min(boxBottom,window.innerHeight-10)){
+      const desired=Math.max(10,(boxRect?.top??top));
+      if(desired+rect.height<=window.innerHeight-10)top=desired;
+    }
     card.style.left=`${left}px`;
-    card.style.top=`${Math.max(10,top)}px`;
+    card.style.top=`${top}px`;
   }
   const SUBJECT_TABLE_ROWS_DEFAULT=11;
   const SUBJECT_TABLE_COLS_DEFAULT=3;
@@ -4727,7 +4734,7 @@
   function addSubjectColumn(){const t=ensureDraftTable();for(const row of t.cells)row.push(blankSubjectCell());t.cols++;state.subjectSelectedCell={r:0,c:t.cols-1};renderSubjectCanvas();syncSubjectCellEditor();}
   function openSubjectConfig(){if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();el('subjectsDialog').showModal();}
   function validateSubjectTableDraft(){const t=ensureDraftTable();const exactHeaders=new Set(state.headers);for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const formula=String(cell.content||'').trim();if(!formula||cell.type==='text')continue;const issue=formulaIssue(formula);if(issue)return `Cell ${subjectCellLabel(r,c)}: ${issue}.`;for(const tok of tokenizeTicker(formula)||[]){if(tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)&&!exactHeaders.has(tok.value))return `Cell ${subjectCellLabel(r,c)} uses a column that is not present in the workbook: ${tok.value}`;}}return '';}
-  function applySubjectConfig(){state.subjectTable=sanitizeSubjectTableForHeaders(ensureDraftTable(),state.headers||[]);state.subjects=subjectTableToMetrics(state.subjectTable);saveSubjectConfig();refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();el('subjectsDialog').close();}
+  function applySubjectConfig(){state.subjectTable=sanitizeSubjectTableForHeaders(ensureDraftTable(),state.headers||[]);state.subjects=subjectTableToMetrics(state.subjectTable);saveSubjectConfig();refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();renderSubjectCanvas();syncSubjectCellEditor();}
   function resetSubjectDefaults(){state.subjectConfigDraftTable=canonicalSubjectDefaultTable();state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
   async function exportSubjectsTable(){
     if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
