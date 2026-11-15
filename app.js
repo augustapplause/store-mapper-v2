@@ -73,7 +73,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectDistributionPopup:null, subjectDistributionAnchor:null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
@@ -2250,7 +2250,7 @@
     if(points.length<2)return {points,bins:[]};
     const min=Math.min(...points),max=Math.max(...points);
     if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};
-    const bucketCount=6;
+    const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));
     const width=(max-min)/bucketCount;
     const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));
     for(const v of points){
@@ -2268,6 +2268,7 @@
   }
 
   function openSubjectDistribution(index){
+    state.subjectDistributionIndex=index;
     const items=subjectItems();
     const metric=items[index];
     if(!metric)return;
@@ -2276,15 +2277,20 @@
     const title=esc(tickerMetricTitle(metric));
     const scopeCount=(state.selectedRows||[]).length;
     if(!data.points.length){
-      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution</span></div><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;
+      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools"><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;
     }else{
       const maxCount=Math.max(...data.bins.map(b=>b.count),1);
       const bars=data.bins.map(b=>{
         const pct=Math.max(2,(b.count/maxCount)*100);
         return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;
       }).join('');
-      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · 6 buckets</div>`;
+      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools"><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;
     }
+    popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{
+      const delta=Number(btn.dataset.bucketDelta)||0;
+      state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+delta));
+      if(state.subjectDistributionIndex!==null) openSubjectDistribution(state.subjectDistributionIndex);
+    }));
     popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);
     positionSubjectDistributionPopup(popup.card);
   }
@@ -2327,7 +2333,7 @@
     const popup=state.subjectDistributionPopup;if(!popup)return;
     popup.layer.classList.remove('open');
     popup.layer.setAttribute('aria-hidden','true');
-    state.subjectDistributionAnchor=null;
+    state.subjectDistributionAnchor=null;state.subjectDistributionIndex=null;
   }
 
   function updateSubjects(){
