@@ -1,4 +1,4 @@
-/* Store Explorer - v1.249
+/* Store Explorer - v1.250
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2215,6 +2215,42 @@
   function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
 
   // ---------- Subjects / Groups ----------
+  function normalizeSubjectMetric(m){
+    const base=normalizeTickerMetric(m||{});
+    return {title:base.title,formula:base.formula,aggregation:['sum','average','median'].includes(base.aggregation)?base.aggregation:'average',numberFormat:base.numberFormat,decimalPlaces:base.decimalPlaces};
+  }
+  function ensureSubjectDistributionPopup(){
+    if(state.subjectDistributionPopup)return state.subjectDistributionPopup;
+    const layer=document.createElement('div');
+    layer.className='subject-distribution-layer';
+    layer.setAttribute('aria-hidden','true');
+    const card=document.createElement('div');
+    card.className='subject-distribution-popup';
+    layer.appendChild(card);
+    document.body.appendChild(layer);
+    layer.addEventListener('click',e=>{if(e.target===layer)closeSubjectDistribution();});
+    state.subjectDistributionPopup={layer,card};
+    return state.subjectDistributionPopup;
+  }
+  function positionSubjectDistributionPopup(card){
+    const popup=state.subjectDistributionPopup;if(!popup)return;
+    const layer=popup.layer;
+    layer.classList.add('open');
+    layer.setAttribute('aria-hidden','false');
+    const panel=document.querySelector('.right-panel');
+    const clicked=state.subjectDistributionAnchor;
+    const panelRect=panel?.getBoundingClientRect();
+    const anchorRect=clicked?.getBoundingClientRect();
+    const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
+    card.style.width=`${cardW}px`;
+    const rect=card.getBoundingClientRect();
+    let left=(panelRect?.left??window.innerWidth-20)-rect.width-20;
+    left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
+    let top=(anchorRect?.top??90);
+    if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
+    card.style.left=`${left}px`;
+    card.style.top=`${Math.max(10,top)}px`;
+  }
   const SUBJECT_TABLE_ROWS_DEFAULT=11;
   const SUBJECT_TABLE_COLS_DEFAULT=3;
   function blankSubjectCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'average'};}
@@ -2287,6 +2323,12 @@
   function buildSubjectDistribution(metric){const points=subjectDistributionRows(metric).map(x=>x.value);if(points.length<2)return {points,bins:[]};const min=Math.min(...points),max=Math.max(...points);if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));const width=(max-min)/bucketCount;const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));for(const v of points){let idx=Math.floor((v-min)/width);if(idx<0)idx=0;if(idx>=bucketCount)idx=bucketCount-1;bins[idx].count++;}bins.forEach(b=>{b.label=`${formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces)} – ${formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces)}`;});return {points,bins};}
   function openSubjectDistribution(rowIndex){state.subjectDistributionIndex=rowIndex;const metric=getSubjectRowForDistribution(rowIndex);if(!metric)return;const data=buildSubjectDistribution(metric);const popup=ensureSubjectDistributionPopup();const title=esc(tickerMetricTitle(metric));const scopeCount=(state.selectedRows||[]).length;const tools=`<button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button>`;if(!data.points.length)popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;else{const maxCount=Math.max(...data.bins.map(b=>b.count),1);const bars=data.bins.map(b=>{const pct=Math.max(2,(b.count/maxCount)*100);return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;}).join('');popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;}popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+(Number(btn.dataset.bucketDelta)||0)));openSubjectDistribution(state.subjectDistributionIndex);}));popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);positionSubjectDistributionPopup(popup,state.subjectDistributionAnchor);popup.layer.classList.add('open');popup.layer.setAttribute('aria-hidden','false');}
   function subjectCellFormulaFragment(cell){const text=String(cell?.content||'').trim();if(!text)return '';return cell.type==='formula'?(text.length>22?`${text.slice(0,21)}…`:text):subjectTableCellDisplay(cell,state.selectedRows||[]);}
+  function closeSubjectDistribution(){
+    const popup=state.subjectDistributionPopup;if(!popup)return;
+    popup.layer.classList.remove('open');
+    popup.layer.setAttribute('aria-hidden','true');
+    state.subjectDistributionAnchor=null;state.subjectDistributionIndex=null;
+  }
   function renderSubjectTableOutput(){const box=el('subjectsSummary');if(!box)return;const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}if(!t.cells.some(row=>row.some(c=>String(c.content||'').trim()))){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}let html='<table class="subject-table"><tbody>';for(let r=0;r<t.rows;r++){html+='<tr>';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);let display=subjectTableCellDisplay(cell,state.selectedRows||[]);if(c===0&&r>0&&String(cell.content||'').trim())html+=`<td><button type="button" class="subject-name subject-name-button" data-subject-row="${r}">${esc(display)}</button></td>`;else html+=`<td>${esc(display)}</td>`;}html+='</tr>';}html+='</tbody></table>';box.innerHTML=html;box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectRow));}));}
   function updateSubjects(){renderSubjectTableOutput();}
 
