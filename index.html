@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.252</title>
+  <title>Store Explorer v1.254</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.252.0.subject-canvas" />
+      <link rel="stylesheet" href="styles.css?v=1.254.0.subject-canvas-keyboard" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.252</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.254</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -270,12 +270,15 @@
           </label>
         </div>
         <div class="subject-cell-editor-hint">For Value, choose one workbook column. For Formula, use the same formula field and operator mechanic as the existing metric builder; selecting a column appends it to the formula.</div>
+        <div class="subject-table-edit-actions" aria-label="Table edit actions">
+          <button id="subjectAddColumnZone" type="button" class="subject-canvas-add-zone" aria-label="Add column">＋ Add column</button>
+          <button id="subjectAddRowZone" type="button" class="subject-canvas-add-zone" aria-label="Add row">＋ Add row</button>
+        </div>
       </div>
       <div class="subject-canvas-wrap">
+        <div class="subject-canvas-title">Subject Table Contents</div>
         <div class="subject-canvas-scroll" id="subjectCanvasScroll">
-          <div id="subjectCanvas" class="subject-canvas" role="grid" aria-label="Subject table editor"></div>
-          <button id="subjectAddColumnZone" type="button" class="subject-canvas-add-zone subject-canvas-add-column" aria-label="Add column">＋ Add column</button>
-          <button id="subjectAddRowZone" type="button" class="subject-canvas-add-zone subject-canvas-add-row" aria-label="Add row">＋ Add row</button>
+          <div id="subjectCanvas" class="subject-canvas" role="grid" aria-label="Subject table editor" tabindex="0"></div>
         </div>
       </div>
     </div>
@@ -477,7 +480,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.252.0.subject-canvas"></script>
+  <script src="app.js?v=1.254.0.subject-canvas-keyboard"></script>
 
 
 </body>
