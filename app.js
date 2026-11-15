@@ -1,4 +1,4 @@
-/* Store Explorer - v1.258
+/* Store Explorer - v1.259
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -693,7 +693,7 @@
       const value=editValues[h]??row[h]??'';
       return `<label class="secondary-popup-edit-field"><span>${esc(h)}</span><input type="text" data-secondary-edit-field="${esc(h)}" value="${esc(String(value))}"></label>`;
     }).join('');
-    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}</div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div></div>`;
+    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}<button type="button" class="secondary-popup-overlay-close" aria-label="Close">×</button></div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div></div>`;
   }
   function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
   function secondarySaveEditsFromPopup(root){
@@ -769,7 +769,8 @@
     const maxW=Math.max(220,mapSize.x-margin*2),maxH=Math.max(160,mapSize.y-margin*2);
     state.secondaryPopupCard.style.maxWidth=`${maxW}px`;state.secondaryPopupCard.style.maxHeight=`${maxH}px`;
     const markerPoint=map.latLngToContainerPoint([item.lat,item.lng]);
-    const markerRadius=Math.max(6,Number(state.markerSize)||22);
+    const secondaryMarkerSize=Math.max(6,Math.min(48,Number(state.markerConfig?.secondarySize)||12));
+    const markerRadius=secondaryMarkerSize/2;
     const cardRect=state.secondaryPopupCard.getBoundingClientRect();
     const w=Math.min(cardRect.width||410,maxW),h=Math.min(cardRect.height||220,maxH);
     let candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
@@ -787,7 +788,7 @@
     if(!item)return;
     ensureSecondaryPopupOverlay();
     state.secondaryPopupItem=item;
-    const html=secondaryPopupHtml(item).replace(/<div class=\"secondary-popup-head-actions\">/,`<div class=\"secondary-popup-head-actions\"><button type=\"button\" class=\"secondary-popup-overlay-close\" aria-label=\"Close\">×</button>`);
+    const html=secondaryPopupHtml(item);
     state.secondaryPopupCard.innerHTML=html;
     state.secondaryPopupLayer.classList.add('open');state.secondaryPopupLayer.setAttribute('aria-hidden','false');
     state.secondaryPopupCard.querySelector('.secondary-popup-overlay-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeSecondaryPopup();});

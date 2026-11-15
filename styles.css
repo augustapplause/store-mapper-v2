@@ -1274,10 +1274,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:900px){.subject-cell-editor-grid{grid-template-columns:1fr 1fr 2fr;}.subject-cell-editor-grid label:nth-child(3){grid-column:1 / -1;}}
 @media (max-width:650px){.subject-config-header{display:flex;flex-direction:column;}.subject-config-top-actions{margin-left:0;}.subject-cell-editor-grid{grid-template-columns:1fr;}.subject-cell-editor-grid label:nth-child(3){grid-column:auto;}.subject-canvas-row{grid-template-columns:repeat(var(--subject-cols),140px);}}
 
-/* v1.252: secondary popups use the same viewport-aware placement as primary popups */
+/* v1.259: secondary popups use the same viewport-aware placement and marker-relative leader spacing as primary popups */
 .secondary-popup-layer{z-index:851;}
 .secondary-popup-overlay-card{position:absolute;width:410px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);box-sizing:border-box;background:#fff;border:1px solid #d8e1e8;border-radius:12px;box-shadow:0 8px 24px #0003;pointer-events:auto;color:var(--text);z-index:2;overflow:hidden;}
 .secondary-popup-overlay-card .secondary-location-popup{max-height:inherit;overflow:auto;}
 .secondary-popup-overlay-card .secondary-popup-head-actions{position:relative;}
-.secondary-popup-overlay-close{border:0;background:transparent;color:#fff;font-size:20px;line-height:20px;font-weight:800;cursor:pointer;padding:0 2px;margin:-2px -28px 0 4px;}
+.secondary-popup-overlay-close{border:0;background:transparent;color:#fff;font-size:20px;line-height:20px;font-weight:800;cursor:pointer;padding:0 2px;margin:0;}
 @media (max-width:600px){.secondary-popup-overlay-card{width:min(410px,calc(100% - 24px));}}
