@@ -2297,30 +2297,27 @@
     return state.subjectDistributionPopup;
   }
   function positionSubjectDistributionPopup(card){
-    const popup=state.subjectDistributionPopup;if(!popup)return;
+    const popup=state.subjectDistributionPopup;if(!popup||!card)return;
     const layer=popup.layer;
     layer.classList.add('open');
     layer.setAttribute('aria-hidden','false');
-    const subjectBox=document.querySelector('.subject-box');
-    const clicked=state.subjectDistributionAnchor;
+    const subjectBox=document.querySelector('.right-panel .subject-box');
+    const rightPanel=document.querySelector('.right-panel');
     const boxRect=subjectBox?.getBoundingClientRect();
-    const anchorRect=clicked?.getBoundingClientRect();
+    const panelRect=rightPanel?.getBoundingClientRect();
     const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
     card.style.width=`${cardW}px`;
     const rect=card.getBoundingClientRect();
-    let left=(boxRect?.left??window.innerWidth-20)-rect.width-20;
-    if(left<10)left=Math.min(window.innerWidth-rect.width-10,(boxRect?.right??window.innerWidth)-rect.width);
+    const panelLeft=Number.isFinite(panelRect?.left)?panelRect.left:(boxRect?.left??window.innerWidth);
+    const subjectTop=Number.isFinite(boxRect?.top)?boxRect.top:90;
+    let left=panelLeft-rect.width-20;
+    if(left<10)left=Math.max(10,(boxRect?.left??panelLeft)-rect.width-20);
     left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
-    let top=(anchorRect?.top??boxRect?.top??90);
-    const boxBottom=boxRect?.bottom??window.innerHeight-10;
+    let top=subjectTop;
     if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
     if(top<10)top=10;
-    if(Number.isFinite(boxBottom)&&top+rect.height<Math.min(boxBottom,window.innerHeight-10)){
-      const desired=Math.max(10,(boxRect?.top??top));
-      if(desired+rect.height<=window.innerHeight-10)top=desired;
-    }
-    card.style.left=`${left}px`;
-    card.style.top=`${top}px`;
+    card.style.left=`${Math.round(left)}px`;
+    card.style.top=`${Math.round(top)}px`;
   }
   const SUBJECT_TABLE_ROWS_DEFAULT=11;
   const SUBJECT_TABLE_COLS_DEFAULT=3;
@@ -2361,6 +2358,7 @@
     for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){
       const cell=t.cells[r][c];if(cell.type==='text')continue;
       const formula=String(cell.content||'').trim();if(!formula)continue;
+      if(cell.type==='formula'&&exact.has(formula)){cell.type='value';continue;}
       const tokens=tokenizeTicker(formula)||[];const valid=tokens.length>0 && tokens.filter(tok=>tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)).every(tok=>exact.has(tok.value));
       if(!valid)t.cells[r][c]=blankSubjectCell();
     }
