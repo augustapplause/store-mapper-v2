@@ -1,4 +1,4 @@
-/* Store Explorer - v1.217
+/* Store Explorer - v1.241
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -43,6 +43,7 @@
   const CENSUS_PROVINCE_NAMES = {AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NL:'Newfoundland and Labrador',NS:'Nova Scotia',NT:'Northwest Territories',NU:'Nunavut',ON:'Ontario',PE:'Prince Edward Island',QC:'Quebec',SK:'Saskatchewan',YT:'Yukon'};
 
   const HELP_STORAGE_KEY='storeExplorer.help.v1';
+  const SUBJECT_STORAGE_KEY='storeExplorer.subjects.v1';
   const HELP_DEFAULTS={
     'financial-file':'Start here: load your Excel or CSV workbook to populate the store data and enable the analysis controls.',
     'secondary-file':'Load a separate set of locations that remain independent of the primary store data and analysis.',
@@ -772,7 +773,8 @@
     const exactDefaultNames=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
     const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
-    state.subjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
+    const defaultSubjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
+    state.subjects=loadSubjectConfigForHeaders(state.headers, defaultSubjects);
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
     state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
@@ -2219,6 +2221,23 @@
   }
   function subjectDefaultMetrics(names=[]){
     return names.filter(Boolean).map(h=>normalizeSubjectMetric({title:h,formula:h,aggregation:'average',numberFormat:'auto',decimalPlaces:0}));
+  }
+  function loadSubjectConfigForHeaders(headers, fallback){
+    const available=new Set(headers||[]);
+    try{
+      const raw=localStorage.getItem(SUBJECT_STORAGE_KEY);
+      if(!raw)return fallback;
+      const parsed=JSON.parse(raw);
+      if(!Array.isArray(parsed?.metrics)||!parsed.metrics.length)return fallback;
+      const metrics=parsed.metrics.map(normalizeSubjectMetric).filter(m=>{
+        const tokens=tokenizeTicker(String(m.formula||''))||[];
+        return !!m.formula && tokens.filter(t=>t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)).every(t=>available.has(t.value));
+      });
+      return metrics.length?metrics:fallback;
+    }catch(_){ return fallback; }
+  }
+  function saveSubjectConfig(){
+    try{localStorage.setItem(SUBJECT_STORAGE_KEY,JSON.stringify({version:1,metrics:(state.subjects||[]).map(normalizeSubjectMetric)}));}catch(_){}
   }
   function subjectItems(){return (state.subjects||[]).map(normalizeSubjectMetric).filter(m=>m.formula);}
   function subjectDistributionRows(metric){
@@ -4783,6 +4802,7 @@
   function applySubjectConfig(){
     const error=validateSubjectDraft();if(error){alert(error);return;}
     state.subjects=state.subjectConfigDraft.map(normalizeSubjectMetric);
+    saveSubjectConfig();
     refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();el('subjectsDialog').close();
   }
   function resetSubjectDefaults(){
