@@ -1,4 +1,4 @@
-/* Store Explorer - v1.241
+/* Store Explorer - v1.243
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -2005,7 +2005,9 @@
   function refreshMarkerStyles(dist1=null,dist2=null){
     if(!state.markers.length)return;
     const selectedSet=new Set(state.selectedRows);
-    const bounds=map.getBounds();
+    // Animation scope is the current viewport-selected dataset only.
+    // Census shapes affect metric/subject scope, but never animation eligibility.
+    const viewportSet=new Set(state.viewportSelectedRows||[]);
     if(dist1===null && state.distributionBinKey!==null && state.distributionSubject){
       const bins=buildDistributionBins();
       dist1=bins.find(x=>x.key===state.distributionBinKey)||null;
@@ -2017,7 +2019,7 @@
     state.markers.forEach(m=>{
       const passes=filterRowPasses(m.__row);
       const inSelection=selectedSet.has(m.__row)||state.selection.type==='national';
-      const animateVisible=passes && bounds.contains(m.__trueLatLng||m.getLatLng());
+      const animateVisible=passes && viewportSet.has(m.__row);
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
