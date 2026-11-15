@@ -1,4 +1,4 @@
-/* Store Explorer - v1.247
+/* Store Explorer - v1.248
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -776,12 +776,12 @@
     const defaultSubjects=subjectDefaultMetrics(exactDefaultNames.map(n=>exactHeaders.get(n)).filter(Boolean));
     state.subjects=loadSubjectConfigForHeaders(state.headers, defaultSubjects);
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectConfigDraft=state.subjects.map(normalizeSubjectMetric);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -2218,160 +2218,80 @@
   function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
 
   // ---------- Subjects / Groups ----------
-  function normalizeSubjectMetric(m){
-    const base=normalizeTickerMetric(m||{});
-    return {title:base.title,formula:base.formula,aggregation:['sum','average','median'].includes(base.aggregation)?base.aggregation:'average',numberFormat:base.numberFormat,decimalPlaces:base.decimalPlaces};
+  const SUBJECT_TABLE_ROWS_DEFAULT=11;
+  const SUBJECT_TABLE_COLS_DEFAULT=3;
+  function blankSubjectCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'average'};}
+  function normalizeSubjectCell(cell){
+    const type=['text','value','formula'].includes(cell?.type)?cell.type:'text';
+    const content=String(cell?.content??cell?.formula??'');
+    const numberFormat=['auto','number','currency','percentage'].includes(cell?.numberFormat)?cell.numberFormat:'auto';
+    const d=Number(cell?.decimalPlaces);const decimalPlaces=Number.isInteger(d)&&d>=0&&d<=4?d:0;
+    const aggregation=['sum','average','median'].includes(cell?.aggregation)?cell.aggregation:'average';
+    return {type,content,numberFormat,decimalPlaces,aggregation};
   }
-  function subjectDefaultMetrics(names=[]){
-    return names.filter(Boolean).map(h=>normalizeSubjectMetric({title:h,formula:h,aggregation:'average',numberFormat:'auto',decimalPlaces:0}));
+  function blankSubjectTable(rows=SUBJECT_TABLE_ROWS_DEFAULT,cols=SUBJECT_TABLE_COLS_DEFAULT){return {rows,cols,cells:Array.from({length:rows},()=>Array.from({length:cols},()=>blankSubjectCell()))};}
+  function canonicalSubjectDefaultTable(){
+    const names=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
+    const table=blankSubjectTable();const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
+    table.cells[0][0]=normalizeSubjectCell({type:'text',content:'Metric'});table.cells[0][1]=normalizeSubjectCell({type:'text',content:'Average'});
+    names.forEach((name,i)=>{const h=exactHeaders.get(norm(name));if(!h)return;table.cells[i+1][0]=normalizeSubjectCell({type:'text',content:h});table.cells[i+1][1]=normalizeSubjectCell({type:'value',content:h,numberFormat:'auto',decimalPlaces:0,aggregation:'average'});});
+    return table;
   }
-  function loadSubjectConfigForHeaders(headers, fallback){
-    const available=new Set(headers||[]);
+  function normalizeSubjectTable(table){
+    const rows=Math.max(1,Math.min(200,Number(table?.rows)||SUBJECT_TABLE_ROWS_DEFAULT));const cols=Math.max(1,Math.min(50,Number(table?.cols)||SUBJECT_TABLE_COLS_DEFAULT));
+    const cells=Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizeSubjectCell(table?.cells?.[r]?.[c])));return {rows,cols,cells};
+  }
+  function subjectTableToMetrics(table){
+    const t=normalizeSubjectTable(table);const metrics=[];
+    for(let r=1;r<t.rows;r++){const label=t.cells[r]?.[0],src=t.cells[r]?.[1];const title=String(label?.content||'').trim(),formula=String(src?.content||'').trim();if(title&&formula&&(src.type==='value'||src.type==='formula'))metrics.push(normalizeSubjectMetric({title,formula,aggregation:src.aggregation,numberFormat:src.numberFormat,decimalPlaces:src.decimalPlaces}));}
+    return metrics;
+  }
+  function subjectTableCellDisplay(cell,rows){
+    const c=normalizeSubjectCell(cell),text=String(c.content||'').trim();if(!text)return '';
+    if(c.type==='text')return text;
+    const metric=normalizeSubjectMetric({title:'',formula:text,aggregation:c.aggregation,numberFormat:c.numberFormat,decimalPlaces:c.decimalPlaces});
+    return formatTickerValue(evaluateTickerFormula(metric.formula,rows,c.aggregation),metric.numberFormat,metric.formula,metric.decimalPlaces);
+  }
+  function sanitizeSubjectTableForHeaders(table,headers){
+    const t=normalizeSubjectTable(table);const exact=new Set(headers||[]);
+    for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){
+      const cell=t.cells[r][c];if(cell.type==='text')continue;
+      const formula=String(cell.content||'').trim();if(!formula)continue;
+      const tokens=tokenizeTicker(formula)||[];const valid=tokens.length>0 && tokens.filter(tok=>tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)).every(tok=>exact.has(tok.value));
+      if(!valid)t.cells[r][c]=blankSubjectCell();
+    }
+    return t;
+  }
+  function loadSubjectTableForHeaders(headers){
+    const fallback=canonicalSubjectDefaultTable();
     try{
-      const raw=localStorage.getItem(SUBJECT_STORAGE_KEY);
-      if(!raw)return fallback;
-      const parsed=JSON.parse(raw);
-      if(!Array.isArray(parsed?.metrics)||!parsed.metrics.length)return fallback;
-      const metrics=parsed.metrics.map(normalizeSubjectMetric).filter(m=>{
-        const tokens=tokenizeTicker(String(m.formula||''))||[];
-        return !!m.formula && tokens.filter(t=>t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)).every(t=>available.has(t.value));
-      });
-      return metrics.length?metrics:fallback;
-    }catch(_){ return fallback; }
+      const raw=localStorage.getItem(SUBJECT_STORAGE_KEY);if(!raw)return fallback;const parsed=JSON.parse(raw);
+      if(parsed?.version>=2&&parsed.table)return sanitizeSubjectTableForHeaders(parsed.table,headers);
+      if(Array.isArray(parsed?.metrics)&&parsed.metrics.length){const t=blankSubjectTable();t.cells[0][0]=normalizeSubjectCell({type:'text',content:'Metric'});t.cells[0][1]=normalizeSubjectCell({type:'text',content:'Average'});parsed.metrics.slice(0,t.rows-1).forEach((rawMetric,i)=>{const m=normalizeSubjectMetric(rawMetric);t.cells[i+1][0]=normalizeSubjectCell({type:'text',content:m.title});t.cells[i+1][1]=normalizeSubjectCell({type:m.formula===m.title?'value':'formula',content:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});});return sanitizeSubjectTableForHeaders(t,headers);}
+      return fallback;
+    }catch(_){return fallback;}
   }
-  function saveSubjectConfig(){
-    try{localStorage.setItem(SUBJECT_STORAGE_KEY,JSON.stringify({version:1,metrics:(state.subjects||[]).map(normalizeSubjectMetric)}));}catch(_){}
+  function ensureSubjectTableState(){if(!state.subjectTable)state.subjectTable=loadSubjectTableForHeaders(state.headers||[]);return state.subjectTable;}
+  function saveSubjectConfig(){try{localStorage.setItem(SUBJECT_STORAGE_KEY,JSON.stringify({version:2,table:normalizeSubjectTable(state.subjectTable||canonicalSubjectDefaultTable())}));}catch(_){} }
+  function subjectItems(){return subjectTableToMetrics(state.subjectTable||ensureSubjectTableState());}
+  function getSubjectRowForDistribution(rowIndex){
+    const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());
+    const r=Number(rowIndex);
+    if(!Number.isInteger(r)||r<1||r>=t.rows)return null;
+    const labelCell=t.cells[r]?.[0]||blankSubjectCell();
+    const sourceCell=t.cells[r]?.[1]||blankSubjectCell();
+    const title=String(labelCell.content||'').trim() || `Row ${r+1}`;
+    const formula=String(sourceCell.content||'').trim();
+    if(!formula || (sourceCell.type!=='value'&&sourceCell.type!=='formula'))return null;
+    return normalizeSubjectMetric({title,formula,aggregation:sourceCell.aggregation,numberFormat:sourceCell.numberFormat,decimalPlaces:sourceCell.decimalPlaces});
   }
-  function subjectItems(){return (state.subjects||[]).map(normalizeSubjectMetric).filter(m=>m.formula);}
-  function subjectDistributionRows(metric){
-    const scopeRows=Array.isArray(state.selectedRows)?state.selectedRows:[];
-    if(!scopeRows.length||!metric?.formula)return [];
-    return scopeRows.map(row=>{
-      const value=subjectFormulaRowValue(metric,row);
-      return {row,value};
-    }).filter(x=>x.value!==null&&Number.isFinite(x.value));
-  }
-
-  function subjectFormulaRowValue(metric,row){
-    const formula=String(metric?.formula||'').trim();
-    if(!formula)return NaN;
-    const tokens=tokenizeTicker(formula);
-    if(!tokens)return NaN;
-    const operandValues=new Map();
-    for(const t of tokens){
-      if(t.type!=='operand'||/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
-      const raw=toNumber(row[t.value]);
-      if(raw===null)return NaN;
-      operandValues.set(t.value,raw);
-    }
-    return evaluateTickerExpression(formula,operandValues);
-  }
-
-  function buildSubjectDistribution(metric){
-    const points=subjectDistributionRows(metric).map(x=>x.value);
-    if(points.length<2)return {points,bins:[]};
-    const min=Math.min(...points),max=Math.max(...points);
-    if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};
-    const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));
-    const width=(max-min)/bucketCount;
-    const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));
-    for(const v of points){
-      let idx=Math.floor((v-min)/width);
-      if(idx<0)idx=0;
-      if(idx>=bucketCount)idx=bucketCount-1;
-      bins[idx].count++;
-    }
-    bins.forEach((b,i)=>{
-      const a=formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces);
-      const z=formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces);
-      b.label=`${a} – ${z}`;
-    });
-    return {points,bins};
-  }
-
-  function openSubjectDistribution(index){
-    state.subjectDistributionIndex=index;
-    const items=subjectItems();
-    const metric=items[index];
-    if(!metric)return;
-    const data=buildSubjectDistribution(metric);
-    const popup=ensureSubjectDistributionPopup();
-    const title=esc(tickerMetricTitle(metric));
-    const scopeCount=(state.selectedRows||[]).length;
-    if(!data.points.length){
-      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools"><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;
-    }else{
-      const maxCount=Math.max(...data.bins.map(b=>b.count),1);
-      const bars=data.bins.map(b=>{
-        const pct=Math.max(2,(b.count/maxCount)*100);
-        return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;
-      }).join('');
-      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools"><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;
-    }
-    popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{
-      const delta=Number(btn.dataset.bucketDelta)||0;
-      state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+delta));
-      if(state.subjectDistributionIndex!==null) openSubjectDistribution(state.subjectDistributionIndex);
-    }));
-    popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);
-    positionSubjectDistributionPopup(popup.card);
-  }
-
-  function ensureSubjectDistributionPopup(){
-    if(state.subjectDistributionPopup)return state.subjectDistributionPopup;
-    const layer=document.createElement('div');
-    layer.className='subject-distribution-layer';
-    layer.setAttribute('aria-hidden','true');
-    const card=document.createElement('div');
-    card.className='subject-distribution-popup';
-    layer.appendChild(card);
-    document.body.appendChild(layer);
-    layer.addEventListener('click',e=>{if(e.target===layer)closeSubjectDistribution();});
-    state.subjectDistributionPopup={layer,card};
-    return state.subjectDistributionPopup;
-  }
-
-  function positionSubjectDistributionPopup(card){
-    const popup=state.subjectDistributionPopup;if(!popup)return;
-    const layer=popup.layer;
-    layer.classList.add('open');
-    layer.setAttribute('aria-hidden','false');
-    const panel=document.querySelector('.right-panel');
-    const clicked=state.subjectDistributionAnchor;
-    const panelRect=panel?.getBoundingClientRect();
-    const anchorRect=clicked?.getBoundingClientRect();
-    const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
-    card.style.width=`${cardW}px`;
-    const rect=card.getBoundingClientRect();
-    let left=(panelRect?.left??window.innerWidth-20)-rect.width-20;
-    left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
-    let top=(anchorRect?.top??90);
-    if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
-    card.style.left=`${left}px`;
-    card.style.top=`${Math.max(10,top)}px`;
-  }
-
-  function closeSubjectDistribution(){
-    const popup=state.subjectDistributionPopup;if(!popup)return;
-    popup.layer.classList.remove('open');
-    popup.layer.setAttribute('aria-hidden','true');
-    state.subjectDistributionAnchor=null;state.subjectDistributionIndex=null;
-  }
-
-  function updateSubjects(){
-    const box=el('subjectsSummary');
-    if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}
-    const items=subjectItems();
-    if(!items.length){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}
-    let html='<table class="subject-table"><tbody>';
-    items.forEach((m,index)=>{
-      const value=evaluateTickerFormula(m.formula,state.selectedRows,m.aggregation||'average');
-      const valueText=formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces);
-      html+=`<tr><td><button type="button" class="subject-name subject-name-button" data-subject-index="${index}">${esc(tickerMetricTitle(m))}</button></td><td>${esc(valueText)}</td></tr>`;
-    });
-    el('subjectsSummary').innerHTML=html+'</tbody></table>';
-    box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectIndex));}));
-  }
+  function subjectDistributionRows(metric){const scopeRows=Array.isArray(state.selectedRows)?state.selectedRows:[];if(!scopeRows.length||!metric?.formula)return [];return scopeRows.map(row=>({row,value:subjectFormulaRowValue(metric,row)})).filter(x=>x.value!==null&&Number.isFinite(x.value));}
+  function subjectFormulaRowValue(metric,row){const formula=String(metric?.formula||'').trim();if(!formula)return NaN;const tokens=tokenizeTicker(formula);if(!tokens)return NaN;const operandValues=new Map();for(const t of tokens){if(t.type!=='operand'||/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;const raw=toNumber(row[t.value]);if(raw===null)return NaN;operandValues.set(t.value,raw);}return evaluateTickerExpression(formula,operandValues);}
+  function buildSubjectDistribution(metric){const points=subjectDistributionRows(metric).map(x=>x.value);if(points.length<2)return {points,bins:[]};const min=Math.min(...points),max=Math.max(...points);if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));const width=(max-min)/bucketCount;const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));for(const v of points){let idx=Math.floor((v-min)/width);if(idx<0)idx=0;if(idx>=bucketCount)idx=bucketCount-1;bins[idx].count++;}bins.forEach(b=>{b.label=`${formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces)} – ${formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces)}`;});return {points,bins};}
+  function openSubjectDistribution(rowIndex){state.subjectDistributionIndex=rowIndex;const metric=getSubjectRowForDistribution(rowIndex);if(!metric)return;const data=buildSubjectDistribution(metric);const popup=ensureSubjectDistributionPopup();const title=esc(tickerMetricTitle(metric));const scopeCount=(state.selectedRows||[]).length;const tools=`<button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button>`;if(!data.points.length)popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;else{const maxCount=Math.max(...data.bins.map(b=>b.count),1);const bars=data.bins.map(b=>{const pct=Math.max(2,(b.count/maxCount)*100);return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;}).join('');popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;}popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+(Number(btn.dataset.bucketDelta)||0)));openSubjectDistribution(state.subjectDistributionIndex);}));popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);positionSubjectDistributionPopup(popup,state.subjectDistributionAnchor);popup.layer.classList.add('open');popup.layer.setAttribute('aria-hidden','false');}
+  function subjectCellFormulaFragment(cell){const text=String(cell?.content||'').trim();if(!text)return '';return cell.type==='formula'?(text.length>22?`${text.slice(0,21)}…`:text):subjectTableCellDisplay(cell,state.selectedRows||[]);}
+  function renderSubjectTableOutput(){const box=el('subjectsSummary');if(!box)return;const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}if(!t.cells.some(row=>row.some(c=>String(c.content||'').trim()))){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}let html='<table class="subject-table"><tbody>';for(let r=0;r<t.rows;r++){html+='<tr>';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);let display=subjectTableCellDisplay(cell,state.selectedRows||[]);if(c===0&&r>0&&String(cell.content||'').trim())html+=`<td><button type="button" class="subject-name subject-name-button" data-subject-row="${r}">${esc(display)}</button></td>`;else html+=`<td>${esc(display)}</td>`;}html+='</tr>';}html+='</tbody></table>';box.innerHTML=html;box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectRow));}));}
+  function updateSubjects(){renderSubjectTableOutput();}
 
   const DEFAULT_GROUP_FIELDS=['location type'];
   function defaultSelectedStoreFields(){
@@ -2576,16 +2496,16 @@
   function shortHeader(h){return h.length>18?h.slice(0,17)+'…':h;}
   function formatValue(header,v){if(v===null||v===undefined||v===''||Number.isNaN(v))return '—';const n=toNumber(v),hn=norm(header);if(n!==null){if(hn.includes('sales')||hn.includes('wage')||hn.includes('expense')||hn.includes('margin $')||hn.includes('profit')||hn.includes('ebit')||hn.includes('income')||hn.includes('cogs')||hn.includes('sga'))return fmtMoney(n);if(hn.includes('sq ft')||hn.includes('area'))return `${fmtInt(n)} sq.ft.`;if(hn.includes('pct')||hn.includes('percent')||hn.endsWith('%'))return `${n.toFixed(1)}%`;return fmtNum(n);}return String(v);}
   function refreshConfigUI(){
-    if(!Array.isArray(state.subjectConfigDraft)) state.subjectConfigDraft=(state.subjects||[]).map(normalizeSubjectMetric);
+    ensureSubjectTableState();
     if(!Array.isArray(state.popupConfigDraft)) state.popupConfigDraft=(state.popupConfig||[]).map(normalizePopupField);
-    el('subjectCount').textContent=state.subjects.length;
+    el('subjectCount').textContent=subjectTableToMetrics(state.subjectTable||ensureSubjectTableState()).length;if(el('exportSubjectsBtn'))el('exportSubjectsBtn').disabled=!state.headers.length;
     el('popupCount').textContent=(state.popupConfig||[]).length;
     el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
     if(el('distributionCount'))el('distributionCount').textContent=state.distributionSubject?1:0;
     if(el('distributionCount2'))el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=state.selectedStoreColumns.length;
     renderChecklist('groupsList',state.groups,'group');
-    renderSubjectConfig();
+    renderSubjectCanvas();
     renderDistributionList(el('distributionSearch')?.value||''); renderSelectedStoresConfig(el('selectedStoresSearch')?.value||'');
   }
   function renderChecklist(containerId,selected,kind,filter=''){
@@ -4757,65 +4677,39 @@
   });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
-  el('subjectAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.subjectConfigDraft.push({title:'',formula:'',aggregation:'average',numberFormat:'auto',decimalPlaces:0});renderSubjectConfig();});
-  el('subjectReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetSubjectDefaults();});
-  el('subjectApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
   // ---------- Subjects configuration ----------
-  function openSubjectConfig(){
-    if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}
-    state.subjectConfigDraft=state.subjects.length?state.subjects.map(normalizeSubjectMetric):subjectDefaultMetrics();
-    renderSubjectConfig();
-    el('subjectsDialog').showModal();
-  }
-  function renderSubjectConfig(){
-    const wrap=el('subjectMetricList');if(!wrap)return;
-    const cols=state.headers.length?state.headers:[];
-    wrap.replaceChildren();
-    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first. Subjects use workbook columns as operands.</div>';return;}
-    (state.subjectConfigDraft||[]).forEach((m,idx)=>{
-      const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
-      if(!m.title&&derivedTitle)m.title=derivedTitle;
-      const row=document.createElement('div');row.className='metric-config-row subject-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=metricConfigHeaderHTML({kind:'subject',idx,title:String(m.title||'')})+metricConfigSettingsHTML({kind:'subject',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
-      wrap.appendChild(row);
-    });
-    wrap.querySelectorAll('.subject-title-input').forEach(input=>input.addEventListener('input',e=>{state.subjectConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.subject-formula-input').forEach(input=>{const warning=input.parentElement.querySelector('.formula-warning');updateFormulaValidation(input,warning);input.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.subjectConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}updateFormulaValidation(e.target,warning);});});
-    wrap.querySelectorAll('.subject-operand-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(!chosen)return;const m=state.subjectConfigDraft[i];const formulaInput=wrap.querySelector(`.subject-formula-input[data-index="${i}"]`);const current=formulaInput.value.trim();formulaInput.value=current?`${current}${chosen}`:chosen;m.formula=formulaInput.value;if(!String(m.title||'').trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.subject-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(formulaInput,formulaInput.parentElement.querySelector('.formula-warning'));select.value='';}));
-    wrap.querySelectorAll('.subject-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.subjectConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderSubjectConfig();}));
-    wrap.querySelectorAll('.subject-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
-    wrap.querySelectorAll('.subject-aggregation-select').forEach(select=>select.addEventListener('change',e=>{state.subjectConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
-    wrap.querySelectorAll('.subject-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.subjectConfigDraft.length){state.subjectConfigDraft.splice(i,1);renderSubjectConfig();}}));
-    attachMetricDragHandlers(wrap,state.subjectConfigDraft,renderSubjectConfig);
-  }
-  function validateSubjectDraft(){
-    if(!state.headers.length)return 'Load a financial workbook before saving Subjects.';
-    const exactHeaders=new Set(state.headers);
-    for(const [i,m] of state.subjectConfigDraft.entries()){
-      const formula=String(m.formula||'').trim();
-      if(!formula)return `Metric ${i+1} needs a formula.`;
-      const issue=formulaIssue(formula);
-      if(issue)return `Metric ${i+1}: ${issue}.`;
-      for(const t of tokenizeTicker(formula)||[]){
-        if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
-      }
+  function ensureDraftTable(){if(!state.subjectConfigDraftTable)state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));return state.subjectConfigDraftTable;}
+  function selectedSubjectCell(){const t=ensureDraftTable();state.subjectSelectedCell=state.subjectSelectedCell||{r:0,c:0};const r=Math.max(0,Math.min(t.rows-1,Number(state.subjectSelectedCell.r)||0));const c=Math.max(0,Math.min(t.cols-1,Number(state.subjectSelectedCell.c)||0));state.subjectSelectedCell={r,c};return {t,r,c,cell:t.cells[r][c]};}
+  function subjectCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
+  function syncSubjectCellEditor(){const {cell,r,c}=selectedSubjectCell();el('subjectSelectedCellLabel').textContent=subjectCellLabel(r,c);el('subjectCellType').value=cell.type;const select=el('subjectCellColumn');select.innerHTML='<option value="">Choose column</option>'+(state.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');if(cell.type==='value'&&cell.content)select.value=cell.content;else if(cell.type==='formula'){const first=firstTickerOperand(cell.content);if(first)select.value=first;}el('subjectCellExpression').value=cell.content;el('subjectCellNumberFormat').value=cell.numberFormat;el('subjectCellDecimals').value=String(cell.decimalPlaces);el('subjectCellAggregation').value=cell.aggregation;const show=cell.type!=='text';el('subjectChooseColumnWrap').style.display=show?'grid':'none';['subjectCellNumberFormat','subjectCellDecimals','subjectCellAggregation'].forEach(id=>{const node=el(id);if(node)node.closest('label').style.display=show?'grid':'none';});const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':formulaIssue(String(cell.content||''));warning.textContent=issue||'';warning.hidden=!issue;}
+  function bindSubjectEditor(){el('subjectCellType').addEventListener('change',()=>{const {cell}=selectedSubjectCell();cell.type=el('subjectCellType').value;syncSubjectCellEditor();});el('subjectCellExpression').addEventListener('input',e=>{const {cell}=selectedSubjectCell();cell.content=e.target.value;const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':formulaIssue(cell.content);warning.textContent=issue||'';warning.hidden=!issue;});el('subjectCellColumn').addEventListener('change',e=>{const chosen=e.target.value;if(!chosen)return;const {cell}=selectedSubjectCell();const current=String(cell.content||'').trim();if(cell.type==='value')cell.content=chosen;else if(cell.type==='formula')cell.content=current?`${current}${chosen}`:chosen;else{cell.type='value';cell.content=chosen;}syncSubjectCellEditor();});el('subjectCellNumberFormat').addEventListener('change',e=>{const {cell}=selectedSubjectCell();cell.numberFormat=e.target.value;cell.decimalPlaces=defaultTickerDecimals(cell.numberFormat);syncSubjectCellEditor();});el('subjectCellDecimals').addEventListener('change',e=>{selectedSubjectCell().cell.decimalPlaces=Number(e.target.value)||0;});el('subjectCellAggregation').addEventListener('change',e=>{selectedSubjectCell().cell.aggregation=e.target.value;});}
+  function renderSubjectCanvas(){const canvas=el('subjectCanvas');if(!canvas)return;const t=ensureDraftTable();canvas.style.setProperty('--subject-cols',t.cols);canvas.innerHTML='';for(let r=0;r<t.rows;r++){const row=document.createElement('div');row.className='subject-canvas-row';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const div=document.createElement('button');div.type='button';div.className='subject-canvas-cell';div.dataset.row=r;div.dataset.col=c;div.classList.toggle('selected',state.subjectSelectedCell?.r===r&&state.subjectSelectedCell?.c===c);const text=String(cell.content||'').trim();div.innerHTML=cell.type==='formula'&&text?`<span class="subject-canvas-formula-fragment">${esc(subjectCellFormulaFragment(cell))}</span>`:esc(text);if(cell.type==='formula'&&text)div.title=text;div.addEventListener('click',()=>{state.subjectSelectedCell={r,c};syncSubjectCellEditor();renderSubjectCanvas();});row.appendChild(div);}canvas.appendChild(row);}}
+  function addSubjectRow(){const t=ensureDraftTable();t.cells.push(Array.from({length:t.cols},()=>blankSubjectCell()));t.rows++;state.subjectSelectedCell={r:t.rows-1,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
+  function addSubjectColumn(){const t=ensureDraftTable();for(const row of t.cells)row.push(blankSubjectCell());t.cols++;state.subjectSelectedCell={r:0,c:t.cols-1};renderSubjectCanvas();syncSubjectCellEditor();}
+  function openSubjectConfig(){if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();el('subjectsDialog').showModal();}
+  function validateSubjectTableDraft(){const t=ensureDraftTable();const exactHeaders=new Set(state.headers);for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const formula=String(cell.content||'').trim();if(!formula||cell.type==='text')continue;const issue=formulaIssue(formula);if(issue)return `Cell ${subjectCellLabel(r,c)}: ${issue}.`;for(const tok of tokenizeTicker(formula)||[]){if(tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)&&!exactHeaders.has(tok.value))return `Cell ${subjectCellLabel(r,c)} uses a column that is not present in the workbook: ${tok.value}`;}}return '';}
+  function applySubjectConfig(){state.subjectTable=sanitizeSubjectTableForHeaders(ensureDraftTable(),state.headers||[]);state.subjects=subjectTableToMetrics(state.subjectTable);saveSubjectConfig();refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();el('subjectsDialog').close();}
+  function resetSubjectDefaults(){state.subjectConfigDraftTable=canonicalSubjectDefaultTable();state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
+  async function exportSubjectsTable(){
+    if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
+    const t=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));const rows=state.selectedRows||[];
+    const data=t.cells.map(row=>row.map(cell=>subjectTableCellDisplay(cell,rows)));
+    if(!data.some(row=>row.some(v=>String(v||'').trim()!==''))){alert('There is no Subject table content to export.');return;}
+    const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,'Subjects');const filename='subjects.xls';
+    if(typeof window.showSaveFilePicker==='function'){
+      try{const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Excel 97-2003 workbook',accept:{'application/vnd.ms-excel':['.xls']}}]});const bytes=XLSX.write(wb,{bookType:'biff8',type:'array'});const writable=await handle.createWritable();await writable.write(bytes);await writable.close();return;}catch(err){if(err?.name==='AbortError')return;}
     }
-    return '';
+    XLSX.writeFile(wb,filename,{bookType:'biff8'});
   }
-  function applySubjectConfig(){
-    const error=validateSubjectDraft();if(error){alert(error);return;}
-    state.subjects=state.subjectConfigDraft.map(normalizeSubjectMetric);
-    saveSubjectConfig();
-    refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();el('subjectsDialog').close();
-  }
-  function resetSubjectDefaults(){
-    const names=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
-    const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
-    state.subjectConfigDraft=subjectDefaultMetrics(names.map(n=>exactHeaders.get(n)).filter(Boolean));
-    renderSubjectConfig();
-  }
-
+  bindSubjectEditor();
+  el('subjectCommit').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
+  el('subjectClose').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();el('subjectsDialog').close();});
+  el('subjectAddColumnZone').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();addSubjectColumn();});
+  el('subjectAddRowZone').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();addSubjectRow();});
+  el('exportSubjectsBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();exportSubjectsTable();});
+  el('subjectsBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openSubjectConfig();});
   // ---------- Popup configuration ----------
+
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
     if(!state.popupHeader)loadPopupHeaderConfig();
@@ -5510,7 +5404,6 @@
   });
   map.on('zoomend',()=>{ refreshMunicipalityLabels(); hideUnifiedHover(); });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();refreshMunicipalityLabels();});
-  el('subjectsBtn').addEventListener('click',()=>{openSubjectConfig();});
   window.addEventListener('resize',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);});
   window.addEventListener('scroll',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);},true);
 
