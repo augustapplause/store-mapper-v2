@@ -73,7 +73,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{},
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectDistributionPopup:null, subjectDistributionAnchor:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
@@ -779,7 +779,7 @@
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
   }
-  function clearFinancial(){closeStorePopup();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraft=[];state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('distributionBtn').disabled=true;el('distributionBtn2').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -2221,18 +2221,128 @@
     return names.filter(Boolean).map(h=>normalizeSubjectMetric({title:h,formula:h,aggregation:'average',numberFormat:'auto',decimalPlaces:0}));
   }
   function subjectItems(){return (state.subjects||[]).map(normalizeSubjectMetric).filter(m=>m.formula);}
+  function subjectDistributionRows(metric){
+    const scopeRows=Array.isArray(state.selectedRows)?state.selectedRows:[];
+    if(!scopeRows.length||!metric?.formula)return [];
+    return scopeRows.map(row=>{
+      const value=subjectFormulaRowValue(metric,row);
+      return {row,value};
+    }).filter(x=>x.value!==null&&Number.isFinite(x.value));
+  }
+
+  function subjectFormulaRowValue(metric,row){
+    const formula=String(metric?.formula||'').trim();
+    if(!formula)return NaN;
+    const tokens=tokenizeTicker(formula);
+    if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      const raw=toNumber(row[t.value]);
+      if(raw===null)return NaN;
+      operandValues.set(t.value,raw);
+    }
+    return evaluateTickerExpression(formula,operandValues);
+  }
+
+  function buildSubjectDistribution(metric){
+    const points=subjectDistributionRows(metric).map(x=>x.value);
+    if(points.length<2)return {points,bins:[]};
+    const min=Math.min(...points),max=Math.max(...points);
+    if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};
+    const bucketCount=6;
+    const width=(max-min)/bucketCount;
+    const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));
+    for(const v of points){
+      let idx=Math.floor((v-min)/width);
+      if(idx<0)idx=0;
+      if(idx>=bucketCount)idx=bucketCount-1;
+      bins[idx].count++;
+    }
+    bins.forEach((b,i)=>{
+      const a=formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces);
+      const z=formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces);
+      b.label=`${a} – ${z}`;
+    });
+    return {points,bins};
+  }
+
+  function openSubjectDistribution(index){
+    const items=subjectItems();
+    const metric=items[index];
+    if(!metric)return;
+    const data=buildSubjectDistribution(metric);
+    const popup=ensureSubjectDistributionPopup();
+    const title=esc(tickerMetricTitle(metric));
+    const scopeCount=(state.selectedRows||[]).length;
+    if(!data.points.length){
+      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution</span></div><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;
+    }else{
+      const maxCount=Math.max(...data.bins.map(b=>b.count),1);
+      const bars=data.bins.map(b=>{
+        const pct=Math.max(2,(b.count/maxCount)*100);
+        return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;
+      }).join('');
+      popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · 6 buckets</div>`;
+    }
+    popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);
+    positionSubjectDistributionPopup(popup.card);
+  }
+
+  function ensureSubjectDistributionPopup(){
+    if(state.subjectDistributionPopup)return state.subjectDistributionPopup;
+    const layer=document.createElement('div');
+    layer.className='subject-distribution-layer';
+    layer.setAttribute('aria-hidden','true');
+    const card=document.createElement('div');
+    card.className='subject-distribution-popup';
+    layer.appendChild(card);
+    document.body.appendChild(layer);
+    layer.addEventListener('click',e=>{if(e.target===layer)closeSubjectDistribution();});
+    state.subjectDistributionPopup={layer,card};
+    return state.subjectDistributionPopup;
+  }
+
+  function positionSubjectDistributionPopup(card){
+    const popup=state.subjectDistributionPopup;if(!popup)return;
+    const layer=popup.layer;
+    layer.classList.add('open');
+    layer.setAttribute('aria-hidden','false');
+    const panel=document.querySelector('.right-panel');
+    const clicked=state.subjectDistributionAnchor;
+    const panelRect=panel?.getBoundingClientRect();
+    const anchorRect=clicked?.getBoundingClientRect();
+    const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
+    card.style.width=`${cardW}px`;
+    const rect=card.getBoundingClientRect();
+    let left=(panelRect?.left??window.innerWidth-20)-rect.width-20;
+    left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
+    let top=(anchorRect?.top??90);
+    if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
+    card.style.left=`${left}px`;
+    card.style.top=`${Math.max(10,top)}px`;
+  }
+
+  function closeSubjectDistribution(){
+    const popup=state.subjectDistributionPopup;if(!popup)return;
+    popup.layer.classList.remove('open');
+    popup.layer.setAttribute('aria-hidden','true');
+    state.subjectDistributionAnchor=null;
+  }
+
   function updateSubjects(){
     const box=el('subjectsSummary');
     if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}
     const items=subjectItems();
     if(!items.length){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}
-    let html='<table class="subject-table">';
-    for(const m of items){
+    let html='<table class="subject-table"><tbody>';
+    items.forEach((m,index)=>{
       const value=evaluateTickerFormula(m.formula,state.selectedRows,m.aggregation||'average');
       const valueText=formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces);
-      html+=`<tr><td><span class="subject-name">${esc(tickerMetricTitle(m))}</span></td><td>${esc(valueText)}</td></tr>`;
-    }
-    el('subjectsSummary').innerHTML=html+'</table>';
+      html+=`<tr><td><button type="button" class="subject-name subject-name-button" data-subject-index="${index}">${esc(tickerMetricTitle(m))}</button></td><td>${esc(valueText)}</td></tr>`;
+    });
+    el('subjectsSummary').innerHTML=html+'</tbody></table>';
+    box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectIndex));}));
   }
 
   const DEFAULT_GROUP_FIELDS=['location type'];
@@ -2444,8 +2554,8 @@
     el('popupCount').textContent=(state.popupConfig||[]).length;
     el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
-    el('distributionCount').textContent=state.distributionSubject?1:0;
-    el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=state.selectedStoreColumns.length;
+    if(el('distributionCount'))el('distributionCount').textContent=state.distributionSubject?1:0;
+    if(el('distributionCount2'))el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=state.selectedStoreColumns.length;
     renderChecklist('groupsList',state.groups,'group');
     renderSubjectConfig();
     renderDistributionList(el('distributionSearch')?.value||''); renderSelectedStoresConfig(el('selectedStoresSearch')?.value||'');
@@ -5372,6 +5482,9 @@
   map.on('zoomend',()=>{ refreshMunicipalityLabels(); hideUnifiedHover(); });
   window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();refreshMunicipalityLabels();});
   el('subjectsBtn').addEventListener('click',()=>{openSubjectConfig();});
+  window.addEventListener('resize',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);});
+  window.addEventListener('scroll',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);},true);
+
   el('selectedStoresBtn').addEventListener('click',()=>{renderSelectedStoresConfig(el('selectedStoresSearch').value);el('selectedStoresDialog').showModal();});
   el('selectedStoresSearch').addEventListener('input',e=>renderSelectedStoresConfig(e.target.value));
   el('selectedStoresClear').addEventListener('click',()=>{renderSelectedStoresConfig('');});
@@ -5385,8 +5498,8 @@
   el('groupsClear').addEventListener('click',()=>renderChecklist('groupsList',[],'group',el('groupSearch').value));
 
   el('groupsApply').addEventListener('click',()=>{state.groups=[...new Set(checkedValues('groupsList'))];state.distributionBinKey=null;state.distributionBinKey2=null;state.selectedGroupKey=null;state.selectedStoreRow=null;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
-  el('distributionBtn').addEventListener('click',()=>{state.distributionDialogTarget=1;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
-  el('distributionBtn2').addEventListener('click',()=>{state.distributionDialogTarget=2;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
+  el('distributionBtn')?.addEventListener('click',()=>{state.distributionDialogTarget=1;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
+  el('distributionBtn2')?.addEventListener('click',()=>{state.distributionDialogTarget=2;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
   el('distributionSearch').addEventListener('input',e=>renderDistributionList(e.target.value));
   el('distributionClear').addEventListener('click',()=>{if(state.distributionDialogTarget===2){state.distributionSubject2=null;state.distributionBinKey2=null;}else{state.distributionSubject=null;state.distributionBinKey=null;}renderDistributionList(el('distributionSearch').value);updateDistribution();refreshConfigUI();refreshMarkerStyles();});
   el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
