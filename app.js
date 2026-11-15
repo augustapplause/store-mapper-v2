@@ -1,4 +1,4 @@
-/* Store Explorer - v1.244
+/* Store Explorer - v1.245
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1039,8 +1039,9 @@
     const primarySize=Math.max(8,Math.min(64,Number(state.markerConfig?.primarySize)||20));
     const markerBody = USE_PRIMARY_BRAND_MARKER && !focusActive
       ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false" style="width:${primarySize}px;height:${primarySize}px;">`
-      : `<div class="${markerClass}" style="--store-marker-color:${markerColor}"></div>`;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[primarySize,primarySize],iconAnchor:[primarySize/2,primarySize/2]});
+      : `<div class="${markerClass}" style="--store-marker-color:${markerColor};width:${primarySize}px;height:${primarySize}px"></div>`;
+    const sizeVars=`--marker-primary-size:${primarySize}px;--marker-pulse-core:${Math.max(5,Math.round(primarySize*0.38))}px;--marker-pulse-halo:${Math.max(primarySize+8,Math.round(primarySize*1.55))}px;`;
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${sizeVars}${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[primarySize,primarySize],iconAnchor:[primarySize/2,primarySize/2]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     // Highlights are viewport-driven. The Census shape constrains metrics and
