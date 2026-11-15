@@ -186,6 +186,11 @@ select,
   align-items: flex-start;
   gap: 8px;
 }
+.subject-box .section-title-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
 
 .stores-actions {
   display: flex;
@@ -1237,7 +1242,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 .marker-config-actions{display:flex;flex-direction:column;gap:7px;}
 
-/* v1.248: persistent open-ended Subject table editor */
+/* v1.249: persistent open-ended Subject table editor */
 .subject-config-dialog{width:min(1180px,96vw);max-height:min(900px,92vh);padding:0;overflow:hidden;}
 .subject-config-dialog form{display:flex;flex-direction:column;max-height:inherit;overflow:hidden;}
 .subject-config-header{align-items:flex-start;gap:16px;}
