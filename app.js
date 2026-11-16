@@ -1,4 +1,4 @@
-/* Store Explorer - v1.261
+/* Store Explorer - v1.262
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -88,7 +88,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null, navigationResultStoreRippleTimer:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -852,6 +852,10 @@
   const NAV_FLAG_ASSET = './search-result-flag.png';
 
   function clearNavigationResult(){
+    if(state.navigationResultStoreRippleTimer){
+      clearTimeout(state.navigationResultStoreRippleTimer);
+      state.navigationResultStoreRippleTimer=null;
+    }
     if(state.navigationResultLayer) state.navigationResultLayer.clearLayers();
     if(state.navigationResultAnimation){
       try{ state.navigationResultAnimation.cancel?.(); }catch(_){ }
@@ -911,8 +915,21 @@
     const marker=findCurrentMarkerForRow(row);
     if(marker){
       state.navigationResultStoreRow=row;
-      state.navigationResultStoreColor=contrastingNavigationColor();
+      state.navigationResultStoreColor=null;
       refreshMarkerStyles();
+      requestAnimationFrame(()=>{
+        if(state.navigationResultStoreRow!==row)return;
+        state.navigationResultStoreColor='__ripple__';
+        refreshMarkerStyles();
+        if(state.navigationResultStoreRippleTimer)clearTimeout(state.navigationResultStoreRippleTimer);
+        state.navigationResultStoreRippleTimer=setTimeout(()=>{
+          if(state.navigationResultStoreRow===row){
+            state.navigationResultStoreColor=null;
+            state.navigationResultStoreRippleTimer=null;
+            refreshMarkerStyles();
+          }
+        },5600);
+      });
       return marker;
     }
     return null;
@@ -1081,7 +1098,7 @@
   }
   const PRIMARY_MARKER_ASSET='Shoppers_Drug_Mart_Icon.svg';
   const USE_PRIMARY_BRAND_MARKER=true;
-  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null){
+  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null,navRipple=false){
     const focusActive = markerFocusActive(row,dist1,dist2);
     const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
     const animating = animateVisible && markerRowAnimationPasses(row);
@@ -1103,7 +1120,7 @@
       ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false" style="width:${primarySize}px;height:${primarySize}px;">`
       : `<div class="${markerClass}" style="--store-marker-color:${markerColor};width:${primarySize}px;height:${primarySize}px"></div>`;
     const sizeVars=`--marker-primary-size:${primarySize}px;--marker-pulse-core:${Math.max(5,Math.round(primarySize*0.38))}px;--marker-pulse-halo:${Math.max(primarySize+8,Math.round(primarySize*1.55))}px;`;
-    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}" style="${sizeVars}${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[primarySize,primarySize],iconAnchor:[primarySize/2,primarySize/2]});
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}${navRipple?' navigation-result-ripple':''}" style="${sizeVars}${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[primarySize,primarySize],iconAnchor:[primarySize/2,primarySize/2]});
   }
   function markerFocusActive(row,dist1=null,dist2=null){
     // Highlights are viewport-driven. The Census shape constrains metrics and
@@ -2086,8 +2103,8 @@
       if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
       const z=passes?(inSelection?10:0):-1000;
       if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
-      const navColor=(state.navigationResultKind==='store' && m.__row===state.navigationResultStoreRow) ? state.navigationResultStoreColor : null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navColor||''}`;
-      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor,dist1,dist2));}
+      const navActive=(state.navigationResultKind==='store' && m.__row===state.navigationResultStoreRow && state.navigationResultStoreColor==='__ripple__'); const navColor=null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navActive?'ripple':''}`;
+      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor,dist1,dist2,navActive));}
     });
   }
 
