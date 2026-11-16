@@ -1,4 +1,4 @@
-/* Store Explorer - v1.264
+/* Store Explorer - v1.265
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4893,6 +4893,7 @@
     wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
     wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
     wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){const removed=state.popupConfigDraft[i]; if(removed?.quartile)state.popupQuartileDraftChanged=true; state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
+    attachMetricDragHandlers(wrap,state.popupConfigDraft,renderPopupConfig);
   }
   function validatePopupDraft(){
     if(!state.headers.length)return 'Load a financial workbook before saving the popup.';
