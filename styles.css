@@ -1277,7 +1277,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:900px){.subject-cell-editor-grid{grid-template-columns:1fr 1fr 2fr;}.subject-cell-editor-grid label:nth-child(3){grid-column:1 / -1;}}
 @media (max-width:650px){.subject-config-header{display:flex;flex-direction:column;}.subject-config-top-actions{margin-left:0;}.subject-cell-editor-grid{grid-template-columns:1fr;}.subject-cell-editor-grid label:nth-child(3){grid-column:auto;}.subject-canvas-row{grid-template-columns:repeat(var(--subject-cols),140px);}}
 
-/* v1.263: proximity filter blurb, subject subtitle, and census subtitle layout */
+/* v1.264: proximity filter blurb, subject subtitle, and census subtitle layout */
 .secondary-popup-layer{z-index:851;}
 .secondary-popup-overlay-card{position:absolute;width:410px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);box-sizing:border-box;background:#fff;border:1px solid #d8e1e8;border-radius:12px;box-shadow:0 8px 24px #0003;pointer-events:auto;color:var(--text);z-index:2;overflow:hidden;}
 .secondary-popup-overlay-card .secondary-location-popup{max-height:inherit;overflow:auto;}
