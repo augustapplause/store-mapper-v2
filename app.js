@@ -4962,6 +4962,7 @@
       if(!list.some(m=>String(m.formula||'').trim()===formula))list.push({formula,title:formula});
     }else{
       state.popupTickerDraft=list.filter(m=>String(m.formula||'').trim()!==formula);
+      return;
     }
     state.popupTickerDraft=list;
   });
