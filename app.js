@@ -1,4 +1,4 @@
-/* Store Explorer - v1.265
+/* Store Explorer - v1.266
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -78,7 +78,7 @@
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
-    markerConfig: {primarySize:22, secondarySize:11},
+    markerConfig: {primarySize:22, secondarySize:11, secondaryIconSizes:{}},
     markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
     markerAnimationPassCache: new WeakMap(),
     filterPassCache: new WeakMap(),
@@ -88,7 +88,7 @@
     csdGeo: null,
     daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
     csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
-    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null, navigationResultStoreRippleTimer:null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryCompetitorColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null, navigationResultStoreRippleTimer:null,
     municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
     circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null,
     mapReadyForViewport: false, initialNationalView: true,
@@ -118,6 +118,34 @@
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
   const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
+  const SECONDARY_MARKER_ICONS = [
+    {key:'calgary coop',label:'Calgary Coop',asset:'calgary coop.png'},
+    {key:'calgary co-op',label:'Calgary Co-op',asset:'calgary co-op.png'},
+    {key:'freshco',label:'FreshCo',asset:'freshco.png'},
+    {key:'brunet',label:'Brunet',asset:'brunet.png'},
+    {key:'metro',label:'Metro',asset:'metro.png'},
+    {key:'safeway',label:'Safeway',asset:'safeway.png'},
+    {key:'sobeys',label:'Sobeys',asset:'sobeys.png'},
+    {key:'pharmacie jean coutu',label:'Pharmacie Jean Coutu',asset:'pharmacie jean coutu.png'},
+    {key:'wal-mart',label:'Wal-Mart',asset:'wal-mart.jpg'}
+  ];
+  const secondaryMarkerImageCache = new Map();
+  function secondaryIconKey(value){ return String(value ?? '').toLowerCase(); }
+  function secondaryIconForRow(row){
+    const col=state.secondaryCompetitorColumn;
+    if(!col)return null;
+    const key=secondaryIconKey(row?.[col]);
+    return SECONDARY_MARKER_ICONS.find(icon=>icon.key===key)||null;
+  }
+  function loadSecondaryMarkerImage(icon){
+    if(!icon)return secondaryMarkerImage;
+    if(secondaryMarkerImageCache.has(icon.asset))return secondaryMarkerImageCache.get(icon.asset);
+    const image=new Image();
+    image.src=icon.asset;
+    image.onload=()=>state.secondaryCanvasLayer?.redraw();
+    secondaryMarkerImageCache.set(icon.asset,image);
+    return image;
+  }
   const secondaryMarkerImage = new Image();
   secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
   secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
@@ -163,15 +191,19 @@
       const b=this._map.getBounds();
       const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
       const items=state.secondarySpatialIndex.search(q);
-      const markerSize=Math.max(6,Math.min(48,Number(state.markerConfig?.secondarySize)||12));
+      const fallbackSize=Math.max(6,Math.min(48,Number(state.markerConfig?.secondarySize)||11));
       const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
       for(const item of items){
         const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
         const x=p.x-origin.x;
         const y=p.y-origin.y;
+        const icon=secondaryIconForRow(item.row);
+        const configuredSize=icon ? Number(state.markerConfig?.secondaryIconSizes?.[icon.key]) : fallbackSize;
+        const markerSize=Math.max(6,Math.min(48,Number.isFinite(configuredSize)&&configuredSize>0?configuredSize:fallbackSize));
+        const image=icon?loadSecondaryMarkerImage(icon):secondaryMarkerImage;
         ctx.save();
-        if(secondaryMarkerImage.complete && secondaryMarkerImage.naturalWidth>0){
-          ctx.drawImage(secondaryMarkerImage, x-markerSize/2, y-markerSize/2, markerSize, markerSize);
+        if(image.complete && image.naturalWidth>0){
+          ctx.drawImage(image, x-markerSize/2, y-markerSize/2, markerSize, markerSize);
         }else{
           ctx.fillStyle='#c90000';
           ctx.beginPath();
@@ -769,7 +801,9 @@
     const maxW=Math.max(220,mapSize.x-margin*2),maxH=Math.max(160,mapSize.y-margin*2);
     state.secondaryPopupCard.style.maxWidth=`${maxW}px`;state.secondaryPopupCard.style.maxHeight=`${maxH}px`;
     const markerPoint=map.latLngToContainerPoint([item.lat,item.lng]);
-    const secondaryMarkerSize=Math.max(6,Math.min(48,Number(state.markerConfig?.secondarySize)||12));
+    const secondaryIcon=secondaryIconForRow(item.row);
+    const configuredSecondarySize=secondaryIcon ? Number(state.markerConfig?.secondaryIconSizes?.[secondaryIcon.key]) : Number(state.markerConfig?.secondarySize);
+    const secondaryMarkerSize=Math.max(6,Math.min(48,Number.isFinite(configuredSecondarySize)&&configuredSecondarySize>0?configuredSecondarySize:11));
     const markerRadius=secondaryMarkerSize/2;
     const cardRect=state.secondaryPopupCard.getBoundingClientRect();
     const w=Math.min(cardRect.width||410,maxW),h=Math.min(cardRect.height||220,maxH);
@@ -812,12 +846,12 @@
     return {headers,rows:valid,lat,lon};
   }
   function clearSecondaryLocations(){
-    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
+    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
     setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
   function afterSecondaryLoaded(file,parsed){
-    state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;loadSecondaryConfigs();buildSecondarySpatialIndex();
+    state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;state.secondaryCompetitorColumn=secondaryColumnCandidates(parsed.headers,['competitor banner']);loadSecondaryConfigs();buildSecondarySpatialIndex();
     el('secondaryFileStatus').textContent=`Loaded • ${file.name} • ${state.secondaryLocations.length.toLocaleString()} locations`;
     el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
     if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
@@ -4275,29 +4309,54 @@
 
   // ---------- Marker configuration ----------
   const MARKER_CONFIG_STORAGE_KEY='store_explorer_marker_config_v1';
+  function defaultSecondaryIconSizes(){
+    return Object.fromEntries(SECONDARY_MARKER_ICONS.map(icon=>[icon.key,11]));
+  }
   function loadMarkerConfig(){
-    const defaults={primarySize:22,secondarySize:11};
+    const defaults={primarySize:22,secondarySize:11,secondaryIconSizes:defaultSecondaryIconSizes()};
     try{
       const raw=localStorage.getItem(MARKER_CONFIG_STORAGE_KEY);
       const parsed=raw?JSON.parse(raw):{};
+      const savedIconSizes=parsed?.secondaryIconSizes && typeof parsed.secondaryIconSizes==='object' ? parsed.secondaryIconSizes : {};
+      const iconSizes=defaultSecondaryIconSizes();
+      SECONDARY_MARKER_ICONS.forEach(icon=>{
+        if(Number.isFinite(Number(savedIconSizes[icon.key]))) iconSizes[icon.key]=normalizeMarkerSize(savedIconSizes[icon.key],6,48,11);
+      });
       state.markerConfig={
         primarySize:Number.isFinite(Number(parsed?.primarySize))?Math.max(8,Math.min(64,Number(parsed.primarySize))):defaults.primarySize,
-        secondarySize:Number.isFinite(Number(parsed?.secondarySize))?Math.max(6,Math.min(48,Number(parsed.secondarySize))):defaults.secondarySize
+        secondarySize:Number.isFinite(Number(parsed?.secondarySize))?Math.max(6,Math.min(48,Number(parsed.secondarySize))):defaults.secondarySize,
+        secondaryIconSizes:iconSizes
       };
     }catch(_){state.markerConfig=defaults;}
   }
-  function saveMarkerConfig(){try{localStorage.setItem(MARKER_CONFIG_STORAGE_KEY,JSON.stringify(state.markerConfig));}catch(_){}}
+  function saveMarkerConfig(){try{localStorage.setItem(MARKER_CONFIG_STORAGE_KEY,JSON.stringify(state.markerConfig));}catch(_){}
+  }
   function refreshMarkerConfigUI(){
     const p=el('primaryMarkerSizeInput'),s=el('secondaryMarkerSizeInput');
     if(p)p.value=String(state.markerConfig.primarySize);
     if(s)s.value=String(state.markerConfig.secondarySize);
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const input=el(`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`);
+      if(input)input.value=String(state.markerConfig.secondaryIconSizes?.[icon.key]??11);
+    });
     const status=el('markerConfigStatus');
-    if(status)status.textContent=`Primary ${state.markerConfig.primarySize}px • Secondary ${state.markerConfig.secondarySize}px`;
+    if(status)status.textContent=`Primary ${state.markerConfig.primarySize}px • Secondary ${state.markerConfig.secondarySize}px • Branded secondary icons ${Math.min(...SECONDARY_MARKER_ICONS.map(icon=>Number(state.markerConfig.secondaryIconSizes?.[icon.key]??11)))}–${Math.max(...SECONDARY_MARKER_ICONS.map(icon=>Number(state.markerConfig.secondaryIconSizes?.[icon.key]??11)))}px`;
   }
-  function normalizeMarkerSize(value,min,max,fallback){const n=Number(value);return Number.isFinite(n)?Math.max(min,Math.min(max,Math.round(n))):fallback;}
+  function renderSecondaryIconConfig(){
+    const wrap=el('secondaryMarkerIconConfig'); if(!wrap)return;
+    wrap.innerHTML=SECONDARY_MARKER_ICONS.map(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      return `<label class="marker-config-row marker-config-icon-row" for="${id}"><span><img class="marker-config-icon-preview" src="${esc(icon.asset)}" alt="">${esc(icon.label)}</span><input id="${id}" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>`;
+    }).join('');
+  }
   function applyMarkerConfig(){
     state.markerConfig.primarySize=normalizeMarkerSize(el('primaryMarkerSizeInput')?.value,8,64,state.markerConfig.primarySize);
     state.markerConfig.secondarySize=normalizeMarkerSize(el('secondaryMarkerSizeInput')?.value,6,48,state.markerConfig.secondarySize);
+    state.markerConfig.secondaryIconSizes=state.markerConfig.secondaryIconSizes||defaultSecondaryIconSizes();
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      state.markerConfig.secondaryIconSizes[icon.key]=normalizeMarkerSize(el(id)?.value,6,48,state.markerConfig.secondaryIconSizes[icon.key]??11);
+    });
     saveMarkerConfig();
     refreshMarkerConfigUI();
     rebuildMarkers();
@@ -4305,16 +4364,21 @@
   }
   function initMarkerConfig(){
     loadMarkerConfig();
+    renderSecondaryIconConfig();
     refreshMarkerConfigUI();
     const btn=el('markerConfigBtn');
     const dlg=el('markerConfigDialog');
-    if(btn&&dlg)btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();refreshMarkerConfigUI();dlg.showModal();});
+    if(btn&&dlg)btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();renderSecondaryIconConfig();refreshMarkerConfigUI();dlg.showModal();});
     ['primaryMarkerSizeInput','secondaryMarkerSizeInput'].forEach(id=>{
       const input=el(id);
       if(input){input.addEventListener('input',applyMarkerConfig);input.addEventListener('change',applyMarkerConfig);}
     });
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      const input=el(id);
+      if(input){input.addEventListener('input',applyMarkerConfig);input.addEventListener('change',applyMarkerConfig);}
+    });
   }
-
   // ---------- Marker colour compatibility (UI removed in v1.233) ----------
   const MARKER_COLORS = [
     {name:'Red', value:'#d34c4c'},

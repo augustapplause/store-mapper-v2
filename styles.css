@@ -1207,7 +1207,8 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .marker-config-body{padding:14px 16px;}
 .marker-config-row{display:grid;grid-template-columns:1fr 74px 22px;align-items:center;gap:8px;margin:0 0 10px;color:var(--navy);font-size:12px;font-weight:700;}
 .marker-config-row input{width:74px;box-sizing:border-box;border:1px solid var(--line);border-radius:6px;padding:6px 7px;font-size:12px;text-align:right;}
-.marker-config-row>span:last-child{color:var(--muted);font-weight:600;}
+.marker-config-row>span:last-child{color:var(--muted);font-weight:600;}.marker-config-subtitle{margin:8px 0 6px;color:var(--muted);font-size:11px;font-weight:700}.secondary-marker-icon-config{max-height:300px;overflow:auto;padding-right:2px}.marker-config-icon-row>span:first-child{display:flex;align-items:center;gap:7px;min-width:0}.marker-config-icon-preview{width:20px;height:20px;object-fit:contain;display:block;flex:0 0 20px}.marker-config-icon-row{margin-bottom:7px;}
+
 
 
 /* v1.239: Subjects distribution popup */

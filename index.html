@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.265</title>
+  <title>Store Explorer v1.266</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.265.0.secondary-toggle" />
+      <link rel="stylesheet" href="styles.css?v=1.266.0.brand-markers" />
 </head>
 <body>
   <header class="topbar">
@@ -410,7 +410,9 @@
       <div class="dialog-header"><div><h2>Marker config</h2><p>Set the visible screen size of the primary and secondary markers.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
       <div class="marker-config-body">
         <label class="marker-config-row" for="primaryMarkerSizeInput"><span>Primary marker</span><input id="primaryMarkerSizeInput" type="number" min="8" max="64" step="1" value="22"><span>px</span></label>
-        <label class="marker-config-row" for="secondaryMarkerSizeInput"><span>Secondary marker</span><input id="secondaryMarkerSizeInput" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>
+        <label class="marker-config-row" for="secondaryMarkerSizeInput"><span>Default secondary marker</span><input id="secondaryMarkerSizeInput" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>
+        <div class="marker-config-subtitle">Competitor-specific secondary markers (default 11 px)</div>
+        <div id="secondaryMarkerIconConfig" class="secondary-marker-icon-config"></div>
         <div id="markerConfigStatus" class="small muted"></div>
       </div>
       <div class="dialog-footer"><button value="cancel" class="secondary">Close</button></div>
@@ -481,7 +483,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.265.0.secondary-toggle"></script>
+  <script src="app.js?v=1.266.0.brand-markers"></script>
 
 
 </body>
