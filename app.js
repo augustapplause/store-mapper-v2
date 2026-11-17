@@ -1,4 +1,4 @@
-/* Store Explorer - v1.273
+/* Store Explorer - v1.274
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -45,31 +45,50 @@
   const HELP_STORAGE_KEY='storeExplorer.help.v1';
   const SUBJECT_STORAGE_KEY='storeExplorer.subjects.v1';
   const HELP_DEFAULTS={
-    'financial-file':'Start here: load your Excel or CSV workbook to populate the store data and enable the analysis controls.',
+    'financial-file':'Start here: load Excel / CSV to populate store data.  Only first tab is read, header s/b one row, will be autodetected, must have at least "latitude", "longitude", "store profile number", "province", columns',
     'secondary-file':'Load a separate set of locations that remain independent of the primary store data and analysis.',
-    'clear-financial':'Remove the current workbook and reset the store data. Census map tools remain available.',
-    'circle':'Draw a circular Census catchment. Click a map location or store marker to place its centre.',
-    'box':'Draw a rectangular Census catchment. Click a map location or store marker to place its centre.',
-    'clear-census':'Remove the active Census catchment and its calculated DA results.',
-    'go-search':'Jump the map to a city, postal code, or address.',
-    'store-jump':'Jump directly to a store using its Store Profile number.',
-    'filter-config':'Build and apply filters to the workbook data.',
-    'filter-clear':'Remove all active workbook filters.',
-    'animate-when':'Choose the workbook condition that controls marker animation.',
-    'popup-config':'Configure the information shown when a store marker popup opens.',
-    'subjects-config':'Configure workbook-based metrics shown in the Subjects panel.',
-    'groups-config':'Choose workbook columns used to group stores for comparison.',
-    'distribution-config':'Choose the workbook field used for the distribution view.',
-    'distribution2-config':'Choose the second workbook field used for the comparison distribution view.',
-    'selected-config':'Choose which store columns appear in the Selected Stores list.',
-    'selected-export':'Export the currently selected stores to a file.',
-    'selected-da-export':'Export the currently selected Census DAs with their displayed Census fields and overlap.',
-    'ticker-config':'Configure the metrics shown in the header ticker.',
-    'marker-red':'Set the default store marker colour to red.',
-    'marker-blue':'Set the default store marker colour to royal blue.',
-    'marker-purple':'Set the default store marker colour to purple.',
-    'marker-black':'Set the default store marker colour to black.',
-    'help-config':'Customize the short hover help shown for the main controls in this app.'
+    'clear-financial':'Remove current workbook and reset store data. Census map tools remain available.',
+    'circle':'Draw circular Census catchment. Click on map to place its centre.',
+    'box':'Draw rectangular Census catchment. Click on map to place its centre.',
+    'clear-census':'Remove active Census catchment & its calculated DA results.',
+    'go-search':'Jump to a city, postal code, or address.',
+    'store-jump':'Jump to a Store Profile number.',
+    'filter-config':'Build filters to isolate workbook data.',
+    'filter-clear':'Remove all workbook filters.',
+    'animate-when':'Choose single data file column filter that controls marker animation.',
+    'popup-config':'Choose data file columns to be shown in a map marker popup.',
+    'subjects-config':'Configure table of average values below',
+    'groups-config':'Choose data file column on which to group stores for comparison.',
+    'distribution-config':'Build distribution bar chart for chosen data file column (all data file rows incl)',
+    'distribution2-config':'Build distribution bar chart for chosen data file column (all data file rows incl)',
+    'selected-config':'Choose data file columns shown for the Selected Stores list.',
+    'selected-export':'Export currently selected stores to XLS',
+    'selected-da-export':'Export the currently selected Census DAs to XLS',
+    'ticker-config':'Configure metrics streamed in header ticker.',
+    'marker-red':'Set map marker colour to red.',
+    'marker-blue':'Set map marker colour to royal blue.',
+    'marker-purple':'Set map marker colour to purple.',
+    'marker-black':'Set map marker colour to black.',
+    'help-config':'Customize hover help shown for the main controls in this app.',
+    'secondaryPopupConfigBtn':'',
+    'secondaryHoverConfigBtn':'',
+    'clearSecondaryBtn':'',
+    'markerConfigBtn':'Set size of map markers',
+    'button-retail':'',
+    'button-food-leisure':'',
+    'button-health-services':'',
+    'button-community-recreation':'',
+    'exportSubjectsBtn':'Export Subject table to xls',
+    'button-total-sales':'',
+    'button-gross-profit':'',
+    'button-total-labour-expense':'',
+    'button-total-occupancy-expense':'',
+    'button-store-4-wall-profit-ebit':'',
+    'button-shrink':'',
+    'button-prescription-count':'',
+    'button-fs-sales':'',
+    'button-cosmetics-sales':'',
+    'button-prescription-sales':''
   };
 
   const state = {
@@ -147,7 +166,7 @@
       if(!Array.isArray(payload))throw new Error('Manifest must be an array.');
       const next=payload
         .filter(item=>item&&typeof item.key==='string'&&typeof item.label==='string'&&typeof item.asset==='string')
-        .map(item=>({key:item.key.toLowerCase(),label:item.label,asset:item.asset}));
+        .map(item=>({key:item.key.toLowerCase(),label:item.label,asset:item.asset,defaultSize:normalizeMarkerSize(item.defaultSize,6,48,17)}));
       if(!next.length)throw new Error('Manifest contains no valid icons.');
       SECONDARY_MARKER_ICONS=next;
 
@@ -160,7 +179,7 @@
         const existing=state.markerConfig.secondaryIconSizes||{};
         const nextSizes=Object.fromEntries(SECONDARY_MARKER_ICONS.map(icon=>[
           icon.key,
-          normalizeMarkerSize(existing[icon.key]??11,6,48,11)
+          normalizeMarkerSize(existing[icon.key]??icon.defaultSize??17,6,48,icon.defaultSize??17)
         ]));
         state.markerConfig.secondaryIconSizes=nextSizes;
         saveMarkerConfig();
