@@ -5074,6 +5074,27 @@
     el('popupDialog').close();
   }
   function popupTickerSelectedSet(){return new Set((state.popupTickerDraft||[]).map(m=>String(m.formula||'').trim()).filter(Boolean));}
+  function renderPopupTickerConfig(){
+    const wrap=el('popupTickerFieldList');
+    if(!wrap)return;
+    const headers=state.headers||[];
+    const options=[...headers,...popupVirtualNames()];
+    const selected=popupTickerSelectedSet();
+    wrap.replaceChildren();
+    if(!options.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
+    const head=document.createElement('div');
+    head.className='popup-ticker-config-head';
+    head.innerHTML='<span>Column / field</span><span>Use</span>';
+    wrap.appendChild(head);
+    options.forEach(name=>{
+      const row=document.createElement('label');
+      row.className='popup-ticker-option-row';
+      const type=isPopupVirtualOperand(name)?'Census virtual':(state.types[name]==='numeric'?'Numeric':'Text');
+      row.innerHTML=`<span class="popup-ticker-option-title">${esc(name)} <small>${esc(type)}</small></span><input type="checkbox" class="popup-ticker-option-check" data-formula="${esc(name)}" ${selected.has(name)?'checked':''}>`;
+      wrap.appendChild(row);
+    });
+  }
+
   function openPopupTickerConfig(){
     state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
     renderPopupTickerConfig();el('popupTickerDialog').showModal();
