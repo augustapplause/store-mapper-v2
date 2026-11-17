@@ -1,4 +1,4 @@
-/* Store Explorer - v1.268
+/* Store Explorer - v1.269
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4349,28 +4349,34 @@
       return `<label class="marker-config-row marker-config-icon-row" for="${id}"><span><img class="marker-config-icon-preview" src="${esc(icon.asset)}" alt="">${esc(icon.label)}</span><input id="${id}" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>`;
     }).join('');
   }
-  function applyMarkerConfig(){
+  function applyPrimaryMarkerConfig(){
     state.markerConfig.primarySize=normalizeMarkerSize(el('primaryMarkerSizeInput')?.value,8,64,state.markerConfig.primarySize);
+    state.markerConfig.secondarySize=normalizeMarkerSize(el('secondaryMarkerSizeInput')?.value,6,48,state.markerConfig.secondarySize);
+    saveMarkerConfig();
+    refreshMarkerConfigUI();
+    rebuildMarkers();
+  }
+  function applySecondaryMarkerConfig(){
     state.markerConfig.secondarySize=normalizeMarkerSize(el('secondaryMarkerSizeInput')?.value,6,48,state.markerConfig.secondarySize);
     state.markerConfig.secondaryIconSizes=state.markerConfig.secondaryIconSizes||defaultSecondaryIconSizes();
     SECONDARY_MARKER_ICONS.forEach(icon=>{
       const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
-      state.markerConfig.secondaryIconSizes[icon.key]=normalizeMarkerSize(el(id)?.value,6,48,state.markerConfig.secondaryIconSizes[icon.key]??11);
+      const input=el(id);
+      if(input) state.markerConfig.secondaryIconSizes[icon.key]=normalizeMarkerSize(input.value,6,48,state.markerConfig.secondaryIconSizes[icon.key]??11);
     });
     saveMarkerConfig();
     refreshMarkerConfigUI();
-    rebuildMarkers();
-    if(state.secondaryCanvasLayer)state.secondaryCanvasLayer.redraw();
+    state.secondaryCanvasLayer?.redraw();
   }
   function bindMarkerConfigInputs(){
-    ['primaryMarkerSizeInput','secondaryMarkerSizeInput'].forEach(id=>{
-      const input=el(id);
-      if(input){input.addEventListener('input',applyMarkerConfig);input.addEventListener('change',applyMarkerConfig);}
-    });
+    const primary=el('primaryMarkerSizeInput');
+    if(primary){primary.addEventListener('input',applyPrimaryMarkerConfig);primary.addEventListener('change',applyPrimaryMarkerConfig);}
+    const secondary=el('secondaryMarkerSizeInput');
+    if(secondary){secondary.addEventListener('input',applySecondaryMarkerConfig);secondary.addEventListener('change',applySecondaryMarkerConfig);}
     SECONDARY_MARKER_ICONS.forEach(icon=>{
       const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
       const input=el(id);
-      if(input){input.addEventListener('input',applyMarkerConfig);input.addEventListener('change',applyMarkerConfig);}
+      if(input){input.addEventListener('input',applySecondaryMarkerConfig);input.addEventListener('change',applySecondaryMarkerConfig);}
     });
   }
   function initMarkerConfig(){
