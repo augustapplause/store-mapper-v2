@@ -1,4 +1,4 @@
-/* Store Explorer - v1.270
+/* Store Explorer - v1.271
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -151,6 +151,16 @@
     secondaryMarkerImageCache.set(icon.asset,image);
     return image;
   }
+  function drawSecondaryIconContained(ctx,image,x,y,maxSize){
+    const sourceWidth=Number(image?.naturalWidth||image?.width||0);
+    const sourceHeight=Number(image?.naturalHeight||image?.height||0);
+    if(!(sourceWidth>0&&sourceHeight>0&&maxSize>0))return false;
+    const scale=Math.min(maxSize/sourceWidth,maxSize/sourceHeight);
+    const drawWidth=Math.max(1,sourceWidth*scale);
+    const drawHeight=Math.max(1,sourceHeight*scale);
+    ctx.drawImage(image,x-drawWidth/2,y-drawHeight/2,drawWidth,drawHeight);
+    return true;
+  }
   const secondaryMarkerImage = new Image();
   secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
   secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
@@ -207,8 +217,10 @@
         const markerSize=Math.max(6,Math.min(48,Number.isFinite(configuredSize)&&configuredSize>0?configuredSize:fallbackSize));
         const image=icon?loadSecondaryMarkerImage(icon):secondaryMarkerImage;
         ctx.save();
-        if(image.complete && image.naturalWidth>0){
-          ctx.drawImage(image, x-markerSize/2, y-markerSize/2, markerSize, markerSize);
+        if(icon && image.complete && image.naturalWidth>0){
+          drawSecondaryIconContained(ctx,image,x,y,markerSize);
+        }else if(!icon && image.complete && image.naturalWidth>0){
+          drawSecondaryIconContained(ctx,image,x,y,markerSize);
         }else{
           ctx.fillStyle='#c90000';
           ctx.beginPath();
