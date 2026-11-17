@@ -1,4 +1,4 @@
-/* Store Explorer - v1.272
+/* Store Explorer - v1.273
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4440,8 +4440,8 @@
       if(input){input.addEventListener('input',applySecondaryMarkerConfig);input.addEventListener('change',applySecondaryMarkerConfig);}
     });
   }
-  function initMarkerConfig(){
-    loadMarkerConfig();
+  function initMarkerConfig(skipLoad=false){
+    if(!skipLoad)loadMarkerConfig();
     renderSecondaryIconConfig();
     refreshMarkerConfigUI();
     bindMarkerConfigInputs();
@@ -5753,8 +5753,11 @@
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
   applyAllHelpTooltips();
   loadHeaderCsdLookup();
+  // Load the user's saved marker sizes BEFORE the icon manifest is allowed to merge/save.
+  // The manifest may add new icon types, but must never overwrite existing user settings.
+  loadMarkerConfig();
   loadSecondaryMarkerIconManifest().finally(()=>{
-    initMarkerConfig();
+    initMarkerConfig(true);
     updateSelection();
     updateHeaderGeography();
   });
