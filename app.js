@@ -1,4 +1,4 @@
-/* Store Explorer - v1.271
+/* Store Explorer - v1.272
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -123,18 +123,58 @@
   state.municipalityLabelLayer = L.layerGroup().addTo(map);
   const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
   const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
-  const SECONDARY_MARKER_ICONS = [
+  let SECONDARY_MARKER_ICONS = [
     {key:'calgary coop',label:'Calgary Coop',asset:'calgary coop.png'},
     {key:'calgary co-op',label:'Calgary Co-op',asset:'calgary co-op.png'},
     {key:'freshco',label:'FreshCo',asset:'freshco.png'},
     {key:'brunet',label:'Brunet',asset:'brunet.png'},
     {key:'metro',label:'Metro',asset:'metro.png'},
-    {key:'safeway',label:'Safeway',asset:'safeway.png'},
+    {key:'safeway (sobeys)',label:'SAFEWAY (SOBEYS)',asset:'safeway.png'},
     {key:'sobeys',label:'Sobeys',asset:'sobeys.png'},
     {key:'pharmacie jean coutu',label:'Pharmacie Jean Coutu',asset:'pharmacie jean coutu.png'},
-    {key:'wal-mart',label:'Wal-Mart',asset:'wal-mart.jpg'}
+    {key:'wal-mart',label:'Wal-Mart',asset:'wal-mart.png'},
+    {key:'sav-on foods',label:'Sav-On Foods',asset:'sav-on foods.png'}
   ];
+
+  const SECONDARY_MARKER_ICON_MANIFEST='secondary-marker-icons.json';
   const secondaryMarkerImageCache = new Map();
+
+  async function loadSecondaryMarkerIconManifest(){
+    try{
+      const response=await fetch(SECONDARY_MARKER_ICON_MANIFEST,{cache:'no-store'});
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      const payload=await response.json();
+      if(!Array.isArray(payload))throw new Error('Manifest must be an array.');
+      const next=payload
+        .filter(item=>item&&typeof item.key==='string'&&typeof item.label==='string'&&typeof item.asset==='string')
+        .map(item=>({key:item.key.toLowerCase(),label:item.label,asset:item.asset}));
+      if(!next.length)throw new Error('Manifest contains no valid icons.');
+      SECONDARY_MARKER_ICONS=next;
+
+      // Preserve a user's prior Safeway size when migrating the old hard-coded key.
+      const saved=state.markerConfig?.secondaryIconSizes;
+      if(saved&&saved.safeway!==undefined&&saved['safeway (sobeys)']===undefined){
+        saved['safeway (sobeys)']=saved.safeway;
+      }
+      if(state.markerConfig){
+        const existing=state.markerConfig.secondaryIconSizes||{};
+        const nextSizes=Object.fromEntries(SECONDARY_MARKER_ICONS.map(icon=>[
+          icon.key,
+          normalizeMarkerSize(existing[icon.key]??11,6,48,11)
+        ]));
+        state.markerConfig.secondaryIconSizes=nextSizes;
+        saveMarkerConfig();
+      }
+      secondaryMarkerImageCache.clear();
+      if(typeof renderSecondaryIconConfig==='function')renderSecondaryIconConfig();
+      if(typeof refreshMarkerConfigUI==='function')refreshMarkerConfigUI();
+      if(typeof bindMarkerConfigInputs==='function')bindMarkerConfigInputs();
+      state.secondaryCanvasLayer?.redraw();
+    }catch(err){
+      console.warn('Secondary marker icon manifest unavailable; using built-in fallback list.',err);
+    }
+    return SECONDARY_MARKER_ICONS;
+  }
   function secondaryIconKey(value){ return String(value ?? '').toLowerCase(); }
   function secondaryIconForRow(row){
     const col=state.secondaryCompetitorColumn;
@@ -4335,6 +4375,10 @@
       const raw=localStorage.getItem(MARKER_CONFIG_STORAGE_KEY);
       const parsed=raw?JSON.parse(raw):{};
       const savedIconSizes=parsed?.secondaryIconSizes && typeof parsed.secondaryIconSizes==='object' ? parsed.secondaryIconSizes : {};
+      // Migrate the prior Safeway key to the new SAFEWAY (SOBEYS) manifest key.
+      if(savedIconSizes.safeway!==undefined && savedIconSizes['safeway (sobeys)']===undefined){
+        savedIconSizes['safeway (sobeys)']=savedIconSizes.safeway;
+      }
       const iconSizes=defaultSecondaryIconSizes();
       SECONDARY_MARKER_ICONS.forEach(icon=>{
         if(Number.isFinite(Number(savedIconSizes[icon.key]))) iconSizes[icon.key]=normalizeMarkerSize(savedIconSizes[icon.key],6,48,11);
@@ -5704,12 +5748,14 @@
   wireMarkerAnimationControls();
   setupTicker();
   loadHelpConfig();
-  initMarkerConfig();
   el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
   el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
   applyAllHelpTooltips();
   loadHeaderCsdLookup();
-  updateSelection();
-  updateHeaderGeography();
+  loadSecondaryMarkerIconManifest().finally(()=>{
+    initMarkerConfig();
+    updateSelection();
+    updateHeaderGeography();
+  });
 })();
