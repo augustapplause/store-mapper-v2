@@ -1,12 +1,52 @@
 [
-  {"key":"calgary coop","label":"Calgary Coop","asset":"calgary coop.png"},
-  {"key":"calgary co-op","label":"Calgary Co-op","asset":"calgary co-op.png"},
-  {"key":"freshco","label":"FreshCo","asset":"freshco.png"},
-  {"key":"brunet","label":"Brunet","asset":"brunet.png"},
-  {"key":"metro","label":"Metro","asset":"metro.png"},
-  {"key":"safeway (sobeys)","label":"SAFEWAY (SOBEYS)","asset":"safeway.png"},
-  {"key":"sobeys","label":"Sobeys","asset":"sobeys.png"},
-  {"key":"pharmacie jean coutu","label":"Pharmacie Jean Coutu","asset":"pharmacie jean coutu.png"},
-  {"key":"wal-mart","label":"Wal-Mart","asset":"wal-mart.png"},
-  {"key":"sav-on foods","label":"Sav-On Foods","asset":"sav-on foods.png"}
+  {
+    "key": "calgary coop",
+    "label": "Calgary Coop",
+    "asset": "calgary coop.png"
+  },
+  {
+    "key": "calgary co-op",
+    "label": "Calgary Co-op",
+    "asset": "calgary co-op.png"
+  },
+  {
+    "key": "freshco",
+    "label": "FreshCo",
+    "asset": "freshco.png"
+  },
+  {
+    "key": "brunet",
+    "label": "Brunet",
+    "asset": "brunet.png"
+  },
+  {
+    "key": "metro",
+    "label": "Metro",
+    "asset": "metro.png"
+  },
+  {
+    "key": "safeway (sobeys)",
+    "label": "SAFEWAY (SOBEYS)",
+    "asset": "safeway (sobeys).png"
+  },
+  {
+    "key": "sobeys",
+    "label": "Sobeys",
+    "asset": "sobeys.png"
+  },
+  {
+    "key": "pharmacie jean coutu",
+    "label": "Pharmacie Jean Coutu",
+    "asset": "pharmacie jean coutu.png"
+  },
+  {
+    "key": "wal-mart",
+    "label": "Wal-Mart",
+    "asset": "wal-mart.png"
+  },
+  {
+    "key": "sav-on foods",
+    "label": "Sav-On Foods",
+    "asset": "sav-on foods.png"
+  }
 ]
