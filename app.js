@@ -1,4 +1,4 @@
-/* Store Explorer - v1.274
+/* Store Explorer - v1.277
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -93,7 +93,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, popupAmenityRadius:1, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
@@ -952,7 +952,7 @@
     const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.subjectVirtualCache=new WeakMap();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
@@ -1585,6 +1585,10 @@
   const AMENITY_BIN_URL='aportee_amenities_v1.bin';
   const AMENITY_MANIFEST_URL='aportee_amenities_v1_manifest.json';
   const AMENITY_RADIUS_KM=1;
+  const AMENITY_RADIUS_STORAGE_KEY='storeExplorer.popupAmenityRadius.v1';
+  function loadPopupAmenityRadius(){try{const n=Number(localStorage.getItem(AMENITY_RADIUS_STORAGE_KEY));return Number.isFinite(n)&&n>=0.1&&n<=25?n:AMENITY_RADIUS_KM;}catch(_){return AMENITY_RADIUS_KM;}}
+  function savePopupAmenityRadius(){try{localStorage.setItem(AMENITY_RADIUS_STORAGE_KEY,String(Number(state.popupAmenityRadius).toFixed(1)));}catch(_){}}
+  function popupAmenityRadiusLabel(){return `${Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1)} km`;}
   const AMENITY_GRID_DEG=0.01;
   const AMENITY_RECORD_BYTES=12;
   const AMENITY_CATEGORY_MASKS={retail:1,food:2,health:4,community:8};
@@ -1621,8 +1625,8 @@
 
     function renderPopupAmenityStatic(profile){
     const fmt=(v)=>Number.isFinite(Number(v))?Number(v).toLocaleString('en-CA'):'—';
-    if(!profile)return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · 1 km</div><div class="popup-amenity-loading">Calculating…</div></div>`;
-    return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · 1 km</div><div class="popup-amenity-grid"><div class="popup-amenity-category"><span>Retail</span><strong>${fmt(profile.retail)}</strong></div><div class="popup-amenity-category"><span>Food &amp; Leisure</span><strong>${fmt(profile.food)}</strong></div><div class="popup-amenity-category"><span>Health &amp; Services</span><strong>${fmt(profile.health)}</strong></div><div class="popup-amenity-category"><span>Community &amp; Recreation</span><strong>${fmt(profile.community)}</strong></div></div><div class="popup-amenity-grid-total"><span>Total</span><strong>${fmt(profile.total)}</strong></div></div>`;
+    if(!profile)return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · ${popupAmenityRadiusLabel()}</div><div class="popup-amenity-loading">Calculating…</div></div>`;
+    return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · ${popupAmenityRadiusLabel()}</div><div class="popup-amenity-grid"><div class="popup-amenity-category"><span>Retail</span><strong>${fmt(profile.retail)}</strong></div><div class="popup-amenity-category"><span>Food &amp; Leisure</span><strong>${fmt(profile.food)}</strong></div><div class="popup-amenity-category"><span>Health &amp; Services</span><strong>${fmt(profile.health)}</strong></div><div class="popup-amenity-category"><span>Community &amp; Recreation</span><strong>${fmt(profile.community)}</strong></div></div><div class="popup-amenity-grid-total"><span>Total</span><strong>${fmt(profile.total)}</strong></div></div>`;
   }
 
   async function popupCardContent(row,censusValues={},amenityProfile=null){
@@ -1803,7 +1807,7 @@
       const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
       const c=state.columns;
       const lat=toNumber(row[c?.lat]), lng=toNumber(row[c?.lon]);
-      const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,AMENITY_RADIUS_KM).catch(()=>null):Promise.resolve(null);
+      const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,state.popupAmenityRadius).catch(()=>null):Promise.resolve(null);
       const values=await valuesPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       await computePopupQuartiles(row);
@@ -2454,6 +2458,45 @@
   const SUBJECT_TABLE_ROWS_DEFAULT=11;
   const SUBJECT_TABLE_COLS_DEFAULT=3;
   function blankSubjectCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'average'};}
+  function subjectVirtualNames(){return popupVirtualNames();}
+  function isSubjectVirtualOperand(name){return isPopupVirtualOperand(name);}
+  function subjectFormulaTokens(formula){return tokenizePopup(String(formula??'').trim());}
+  function subjectFormulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    if(state.headers.includes(text)||isSubjectVirtualOperand(text))return '';
+    const tokens=subjectFormulaTokens(text);
+    if(!tokens||!tokens.length)return 'Invalid formula';
+    const operands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const invalid=operands.filter(t=>!state.headers.includes(t.value)&&!isSubjectVirtualOperand(t.value));
+    if(invalid.length)return 'Invalid formula';
+    const nonNumeric=operands.filter(t=>state.headers.includes(t.value)&&state.types[t.value]!=='numeric');
+    if(nonNumeric.length)return 'Invalid formula: choose numeric columns for calculations.';
+    let depth=0,expect=true,seen=false;
+    for(const t of tokens){
+      if(t.type==='operand'){if(!expect)return 'Invalid formula';expect=false;seen=true;continue;}
+      if(t.value==='('){if(!expect)return 'Invalid formula';depth++;continue;}
+      if(t.value===')'){if(expect||depth===0)return 'Invalid formula';depth--;expect=false;continue;}
+      if(expect&&t.value!=='-')return 'Invalid formula';
+      expect=true;
+    }
+    return seen&&depth===0&&!expect?'':'Invalid formula';
+  }
+  function subjectFormulaVirtualOperands(formula){return [...new Set((subjectFormulaTokens(formula)||[]).filter(t=>t.type==='operand'&&isSubjectVirtualOperand(t.value)).map(t=>t.value))];}
+  async function ensureSubjectVirtualValues(rows,formulas){
+    const needed=[...new Set((formulas||[]).flatMap(subjectFormulaVirtualOperands))];
+    if(!needed.length||!rows?.length)return;
+    const fields=needed.map(name=>({formula:name,type:'virtual'}));
+    for(const row of rows){
+      const cached=state.subjectVirtualCache.get(row)||{};
+      const missing=needed.filter(name=>!Object.prototype.hasOwnProperty.call(cached,name));
+      if(!missing.length)continue;
+      const values=await calculatePopupCensusForStore(row,fields);
+      state.subjectVirtualCache.set(row,{...cached,...values});
+    }
+  }
+  function firstSubjectOperand(formula){const tokens=subjectFormulaTokens(formula)||[];const t=tokens.find(x=>x.type==='operand'&&String(x.value||'').trim());return t?String(t.value).trim():'';}
+
   function normalizeSubjectCell(cell){
     const type=['text','value','formula'].includes(cell?.type)?cell.type:'text';
     const content=String(cell?.content??cell?.formula??'');
@@ -2479,19 +2522,36 @@
     for(let r=1;r<t.rows;r++){const label=t.cells[r]?.[0],src=t.cells[r]?.[1];const title=String(label?.content||'').trim(),formula=String(src?.content||'').trim();if(title&&formula&&(src.type==='value'||src.type==='formula'))metrics.push(normalizeSubjectMetric({title,formula,aggregation:src.aggregation,numberFormat:src.numberFormat,decimalPlaces:src.decimalPlaces}));}
     return metrics;
   }
+  function evaluateSubjectFormula(expr,rows,aggregation='sum'){
+    const tokens=subjectFormulaTokens(expr);if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      const vals=[];
+      for(const row of rows||[]){
+        const raw=isSubjectVirtualOperand(t.value) ? (state.subjectVirtualCache.get(row)||{})[t.value] : row[t.value];
+        const n=toNumber(raw);if(Number.isFinite(n))vals.push(n);
+      }
+      if(!vals.length)return NaN;
+      const v=aggregation==='average'?avg(vals):aggregation==='median'?median(vals):vals.reduce((a,b)=>a+b,0);
+      operandValues.set(t.value,v);
+    }
+    return evaluateTickerExpressionWithTokens(tokens,operandValues);
+  }
   function subjectTableCellDisplay(cell,rows){
     const c=normalizeSubjectCell(cell),text=String(c.content||'').trim();if(!text)return '';
     if(c.type==='text')return text;
     const metric=normalizeSubjectMetric({title:'',formula:text,aggregation:c.aggregation,numberFormat:c.numberFormat,decimalPlaces:c.decimalPlaces});
-    return formatTickerValue(evaluateTickerFormula(metric.formula,rows,c.aggregation),metric.numberFormat,metric.formula,metric.decimalPlaces);
+    const value=evaluateSubjectFormula(metric.formula,rows,c.aggregation);
+    return Number.isFinite(value)?formatTickerValue(value,metric.numberFormat,metric.formula,metric.decimalPlaces):(subjectFormulaVirtualOperands(metric.formula).length?'Calculating…':'—');
   }
   function sanitizeSubjectTableForHeaders(table,headers){
     const t=normalizeSubjectTable(table);const exact=new Set(headers||[]);
     for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){
       const cell=t.cells[r][c];if(cell.type==='text')continue;
       const formula=String(cell.content||'').trim();if(!formula)continue;
-      if(cell.type==='formula'&&exact.has(formula)){cell.type='value';continue;}
-      const tokens=tokenizeTicker(formula)||[];const valid=tokens.length>0 && tokens.filter(tok=>tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)).every(tok=>exact.has(tok.value));
+      if(cell.type==='formula'&&(exact.has(formula)||isSubjectVirtualOperand(formula))){cell.type='value';continue;}
+      const tokens=subjectFormulaTokens(formula)||[];const valid=tokens.length>0 && tokens.filter(tok=>tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)).every(tok=>exact.has(tok.value)||isSubjectVirtualOperand(tok.value));
       if(!valid)t.cells[r][c]=blankSubjectCell();
     }
     return t;
@@ -2520,7 +2580,7 @@
     return normalizeSubjectMetric({title,formula,aggregation:sourceCell.aggregation,numberFormat:sourceCell.numberFormat,decimalPlaces:sourceCell.decimalPlaces});
   }
   function subjectDistributionRows(metric){const scopeRows=Array.isArray(state.selectedRows)?state.selectedRows:[];if(!scopeRows.length||!metric?.formula)return [];return scopeRows.map(row=>({row,value:subjectFormulaRowValue(metric,row)})).filter(x=>x.value!==null&&Number.isFinite(x.value));}
-  function subjectFormulaRowValue(metric,row){const formula=String(metric?.formula||'').trim();if(!formula)return NaN;const tokens=tokenizeTicker(formula);if(!tokens)return NaN;const operandValues=new Map();for(const t of tokens){if(t.type!=='operand'||/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;const raw=toNumber(row[t.value]);if(raw===null)return NaN;operandValues.set(t.value,raw);}return evaluateTickerExpression(formula,operandValues);}
+  function subjectFormulaRowValue(metric,row){const formula=String(metric?.formula||'').trim();if(!formula)return NaN;const tokens=subjectFormulaTokens(formula);if(!tokens)return NaN;const operandValues=new Map();const virtuals=state.subjectVirtualCache.get(row)||{};for(const t of tokens){if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;const raw=isSubjectVirtualOperand(t.value)?virtuals[t.value]:row[t.value];const value=toNumber(raw);if(value===null)return NaN;operandValues.set(t.value,value);}return evaluateTickerExpressionWithTokens(tokens,operandValues);}
   function buildSubjectDistribution(metric){const points=subjectDistributionRows(metric).map(x=>x.value);if(points.length<2)return {points,bins:[]};const min=Math.min(...points),max=Math.max(...points);if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));const width=(max-min)/bucketCount;const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));for(const v of points){let idx=Math.floor((v-min)/width);if(idx<0)idx=0;if(idx>=bucketCount)idx=bucketCount-1;bins[idx].count++;}bins.forEach(b=>{b.label=`${formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces)} – ${formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces)}`;});return {points,bins};}
   function openSubjectDistribution(rowIndex){state.subjectDistributionIndex=rowIndex;const metric=getSubjectRowForDistribution(rowIndex);if(!metric)return;const data=buildSubjectDistribution(metric);const popup=ensureSubjectDistributionPopup();const title=esc(tickerMetricTitle(metric));const scopeCount=(state.selectedRows||[]).length;const tools=`<button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button>`;if(!data.points.length)popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;else{const maxCount=Math.max(...data.bins.map(b=>b.count),1);const bars=data.bins.map(b=>{const pct=Math.max(2,(b.count/maxCount)*100);return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;}).join('');popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;}popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+(Number(btn.dataset.bucketDelta)||0)));openSubjectDistribution(state.subjectDistributionIndex);}));popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);positionSubjectDistributionPopup(popup.card);popup.layer.classList.add('open');popup.layer.setAttribute('aria-hidden','false');requestAnimationFrame(()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);});}
   function subjectCellFormulaFragment(cell){const text=String(cell?.content||'').trim();if(!text)return '';return cell.type==='formula'?(text.length>22?`${text.slice(0,21)}…`:text):subjectTableCellDisplay(cell,state.selectedRows||[]);}
@@ -2531,7 +2591,7 @@
     state.subjectDistributionAnchor=null;state.subjectDistributionIndex=null;
   }
   function renderSubjectTableOutput(){const box=el('subjectsSummary');if(!box)return;const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}if(!t.cells.some(row=>row.some(c=>String(c.content||'').trim()))){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}let html='<table class="subject-table"><tbody>';for(let r=0;r<t.rows;r++){html+='<tr>';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);let display=subjectTableCellDisplay(cell,state.selectedRows||[]);if(c===0&&r>0&&String(cell.content||'').trim())html+=`<td><button type="button" class="subject-name subject-name-button" data-subject-row="${r}">${esc(display)}</button></td>`;else html+=`<td>${esc(display)}</td>`;}html+='</tr>';}html+='</tbody></table>';box.innerHTML=html;box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectRow));}));}
-  function updateSubjects(){renderSubjectTableOutput();}
+  async function updateSubjects(){renderSubjectTableOutput();const formulas=subjectTableToMetrics(state.subjectTable||ensureSubjectTableState()).map(m=>m.formula);const rows=Array.isArray(state.selectedRows)?state.selectedRows:[];if(subjectVirtualNames().some(n=>formulas.some(f=>subjectFormulaVirtualOperands(f).includes(n)))&&rows.length){await ensureSubjectVirtualValues(rows,formulas);if(rows===state.selectedRows)renderSubjectTableOutput();}}
 
   const DEFAULT_GROUP_FIELDS=['location type'];
   function defaultSelectedStoreFields(){
@@ -4962,25 +5022,26 @@
       if(!list.some(m=>String(m.formula||'').trim()===formula))list.push({formula,title:formula});
     }else{
       state.popupTickerDraft=list.filter(m=>String(m.formula||'').trim()!==formula);
-      return;
     }
     state.popupTickerDraft=list;
   });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
+  el('popupAmenityRadius')?.addEventListener('input',e=>{const n=Number(e.target.value);if(!Number.isFinite(n)||n<0.1||n>25)return;state.popupAmenityRadius=Math.round(n*10)/10;savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
+  el('popupAmenityRadius')?.addEventListener('blur',e=>{const n=Number(e.target.value);const v=Number.isFinite(n)?Math.max(0.1,Math.min(25,Math.round(n*10)/10)):AMENITY_RADIUS_KM;state.popupAmenityRadius=v;e.target.value=v.toFixed(1);savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
   // ---------- Subjects configuration ----------
   function ensureDraftTable(){if(!state.subjectConfigDraftTable)state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));return state.subjectConfigDraftTable;}
   function selectedSubjectCell(){const t=ensureDraftTable();state.subjectSelectedCell=state.subjectSelectedCell||{r:0,c:0};const r=Math.max(0,Math.min(t.rows-1,Number(state.subjectSelectedCell.r)||0));const c=Math.max(0,Math.min(t.cols-1,Number(state.subjectSelectedCell.c)||0));state.subjectSelectedCell={r,c};return {t,r,c,cell:t.cells[r][c]};}
   function subjectCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
-  function syncSubjectCellEditor(){const {cell,r,c}=selectedSubjectCell();el('subjectSelectedCellLabel').textContent=subjectCellLabel(r,c);el('subjectCellType').value=cell.type;const select=el('subjectCellColumn');select.innerHTML='<option value="">Choose column</option>'+(state.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');if(cell.type==='value'&&cell.content)select.value=cell.content;else if(cell.type==='formula'){const first=firstTickerOperand(cell.content);if(first)select.value=first;}el('subjectCellExpression').value=cell.content;el('subjectCellNumberFormat').value=cell.numberFormat;el('subjectCellDecimals').value=String(cell.decimalPlaces);el('subjectCellAggregation').value=cell.aggregation;const show=cell.type!=='text';el('subjectChooseColumnWrap').style.display=show?'grid':'none';['subjectCellNumberFormat','subjectCellDecimals','subjectCellAggregation'].forEach(id=>{const node=el(id);if(node)node.closest('label').style.display=show?'grid':'none';});const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':formulaIssue(String(cell.content||''));warning.textContent=issue||'';warning.hidden=!issue;}
-  function bindSubjectEditor(){el('subjectCellType').addEventListener('change',()=>{const {cell}=selectedSubjectCell();cell.type=el('subjectCellType').value;syncSubjectCellEditor();});el('subjectCellExpression').addEventListener('input',e=>{const {cell}=selectedSubjectCell();cell.content=e.target.value;const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':formulaIssue(cell.content);warning.textContent=issue||'';warning.hidden=!issue;});el('subjectCellColumn').addEventListener('change',e=>{const chosen=e.target.value;if(!chosen)return;const {cell}=selectedSubjectCell();const current=String(cell.content||'').trim();if(cell.type==='value')cell.content=chosen;else if(cell.type==='formula')cell.content=current?`${current}${chosen}`:chosen;else{cell.type='value';cell.content=chosen;}syncSubjectCellEditor();});el('subjectCellNumberFormat').addEventListener('change',e=>{const {cell}=selectedSubjectCell();cell.numberFormat=e.target.value;cell.decimalPlaces=defaultTickerDecimals(cell.numberFormat);syncSubjectCellEditor();});el('subjectCellDecimals').addEventListener('change',e=>{selectedSubjectCell().cell.decimalPlaces=Number(e.target.value)||0;});el('subjectCellAggregation').addEventListener('change',e=>{selectedSubjectCell().cell.aggregation=e.target.value;});}
+  function syncSubjectCellEditor(){const {cell,r,c}=selectedSubjectCell();el('subjectSelectedCellLabel').textContent=subjectCellLabel(r,c);el('subjectCellType').value=cell.type;const select=el('subjectCellColumn');select.innerHTML='<option value="">Choose column</option><optgroup label="Workbook columns">'+(state.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup><optgroup label="Census virtual fields">'+subjectVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup>';if(cell.type==='value'&&cell.content)select.value=cell.content;else if(cell.type==='formula'){const first=firstSubjectOperand(cell.content);if(first)select.value=first;}el('subjectCellExpression').value=cell.content;el('subjectCellNumberFormat').value=cell.numberFormat;el('subjectCellDecimals').value=String(cell.decimalPlaces);el('subjectCellAggregation').value=cell.aggregation;const show=cell.type!=='text';el('subjectChooseColumnWrap').style.display=show?'grid':'none';['subjectCellNumberFormat','subjectCellDecimals','subjectCellAggregation'].forEach(id=>{const node=el(id);if(node)node.closest('label').style.display=show?'grid':'none';});const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':subjectFormulaIssue(String(cell.content||''));warning.textContent=issue||'';warning.hidden=!issue;}
+  function bindSubjectEditor(){el('subjectCellType').addEventListener('change',()=>{const {cell}=selectedSubjectCell();cell.type=el('subjectCellType').value;syncSubjectCellEditor();});el('subjectCellExpression').addEventListener('input',e=>{const {cell}=selectedSubjectCell();cell.content=e.target.value;const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':subjectFormulaIssue(cell.content);warning.textContent=issue||'';warning.hidden=!issue;});el('subjectCellColumn').addEventListener('change',e=>{const chosen=e.target.value;if(!chosen)return;const {cell}=selectedSubjectCell();const current=String(cell.content||'').trim();if(cell.type==='value')cell.content=chosen;else if(cell.type==='formula')cell.content=current?`${current}${chosen}`:chosen;else{cell.type='value';cell.content=chosen;}syncSubjectCellEditor();});el('subjectCellNumberFormat').addEventListener('change',e=>{const {cell}=selectedSubjectCell();cell.numberFormat=e.target.value;cell.decimalPlaces=defaultTickerDecimals(cell.numberFormat);syncSubjectCellEditor();});el('subjectCellDecimals').addEventListener('change',e=>{selectedSubjectCell().cell.decimalPlaces=Number(e.target.value)||0;});el('subjectCellAggregation').addEventListener('change',e=>{selectedSubjectCell().cell.aggregation=e.target.value;});}
   function focusSubjectCell(r,c,{scroll=true}={}){const t=ensureDraftTable();if(t.rows<1||t.cols<1)return;const nextR=Math.max(0,Math.min(t.rows-1,r));const nextC=Math.max(0,Math.min(t.cols-1,c));state.subjectSelectedCell={r:nextR,c:nextC};syncSubjectCellEditor();renderSubjectCanvas();const canvas=el('subjectCanvas');const cell=canvas?.querySelector(`.subject-canvas-cell[data-row="${nextR}"][data-col="${nextC}"]`);if(scroll)cell?.scrollIntoView({block:'nearest',inline:'nearest'});cell?.focus({preventScroll:true});}
   function handleSubjectCanvasKeydown(e){const {r,c}=selectedSubjectCell();const t=ensureDraftTable();let nr=r,nc=c,moved=false;if(e.key==='ArrowUp'){nr=Math.max(0,r-1);moved=nr!==r;}else if(e.key==='ArrowDown'){nr=Math.min(t.rows-1,r+1);moved=nr!==r;}else if(e.key==='ArrowLeft'){nc=Math.max(0,c-1);moved=nc!==c;}else if(e.key==='ArrowRight'){nc=Math.min(t.cols-1,c+1);moved=nc!==c;}else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();syncSubjectCellEditor();const input=el('subjectCellExpression');if(input){input.focus();const pos=input.value.length;try{input.setSelectionRange(pos,pos);}catch(_){}}return;}else{return;}e.preventDefault();e.stopPropagation();if(moved)focusSubjectCell(nr,nc);}
   function renderSubjectCanvas(){const canvas=el('subjectCanvas');if(!canvas)return;const t=ensureDraftTable();canvas.style.setProperty('--subject-cols',t.cols);canvas.innerHTML='';for(let r=0;r<t.rows;r++){const row=document.createElement('div');row.className='subject-canvas-row';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const div=document.createElement('button');div.type='button';div.className='subject-canvas-cell';div.dataset.row=r;div.dataset.col=c;div.setAttribute('role','gridcell');div.tabIndex=state.subjectSelectedCell?.r===r&&state.subjectSelectedCell?.c===c?0:-1;div.classList.toggle('selected',state.subjectSelectedCell?.r===r&&state.subjectSelectedCell?.c===c);const text=String(cell.content||'').trim();div.innerHTML=cell.type==='formula'&&text?`<span class="subject-canvas-formula-fragment">${esc(subjectCellFormulaFragment(cell))}</span>`:esc(text);if(cell.type==='formula'&&text)div.title=text;div.addEventListener('click',()=>{focusSubjectCell(r,c);});div.addEventListener('focus',()=>{if(state.subjectSelectedCell?.r!==r||state.subjectSelectedCell?.c!==c){state.subjectSelectedCell={r,c};syncSubjectCellEditor();}});row.appendChild(div);}canvas.appendChild(row);}}
   function addSubjectRow(){const t=ensureDraftTable();t.cells.push(Array.from({length:t.cols},()=>blankSubjectCell()));t.rows++;state.subjectSelectedCell={r:t.rows-1,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
   function addSubjectColumn(){const t=ensureDraftTable();for(const row of t.cells)row.push(blankSubjectCell());t.cols++;state.subjectSelectedCell={r:0,c:t.cols-1};renderSubjectCanvas();syncSubjectCellEditor();}
   function openSubjectConfig(){if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();el('subjectsDialog').showModal();}
-  function validateSubjectTableDraft(){const t=ensureDraftTable();const exactHeaders=new Set(state.headers);for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const formula=String(cell.content||'').trim();if(!formula||cell.type==='text')continue;const issue=formulaIssue(formula);if(issue)return `Cell ${subjectCellLabel(r,c)}: ${issue}.`;for(const tok of tokenizeTicker(formula)||[]){if(tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)&&!exactHeaders.has(tok.value))return `Cell ${subjectCellLabel(r,c)} uses a column that is not present in the workbook: ${tok.value}`;}}return '';}
+  function validateSubjectTableDraft(){const t=ensureDraftTable();const exactHeaders=new Set(state.headers);for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const formula=String(cell.content||'').trim();if(!formula||cell.type==='text')continue;const issue=subjectFormulaIssue(formula);if(issue)return `Cell ${subjectCellLabel(r,c)}: ${issue}.`;for(const tok of subjectFormulaTokens(formula)||[]){if(tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)&&!exactHeaders.has(tok.value)&&!isSubjectVirtualOperand(tok.value))return `Cell ${subjectCellLabel(r,c)} uses a column that is not present in the workbook: ${tok.value}`;}}return '';}
   function applySubjectConfig(){state.subjectTable=sanitizeSubjectTableForHeaders(ensureDraftTable(),state.headers||[]);state.subjects=subjectTableToMetrics(state.subjectTable);saveSubjectConfig();refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();renderSubjectCanvas();syncSubjectCellEditor();}
   function resetSubjectDefaults(){state.subjectConfigDraftTable=canonicalSubjectDefaultTable();state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
   async function exportSubjectsTable(){
@@ -5010,6 +5071,7 @@
     state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
     if(!Array.isArray(state.popupConfig)||!state.popupConfig.length) loadPopupConfig(); state.popupConfigDraft=state.popupConfig.map(normalizePopupField);state.popupQuartileDraftChanged=false;
     renderPopupHeaderConfig();bindPopupHeaderConfig();
+    const amenityRadiusInput=el('popupAmenityRadius');if(amenityRadiusInput)amenityRadiusInput.value=Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1);
     state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
     renderPopupConfig();
     el('popupDialog').showModal();
@@ -5784,6 +5846,7 @@
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
   if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
+  state.popupAmenityRadius=loadPopupAmenityRadius();
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();
