@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.279</title>
+  <title>Store Explorer v1.280</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.279.0.rx-site-analysis" />
+      <link rel="stylesheet" href="styles.css?v=1.280.0.rx-site-analysis" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.279</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.280</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -505,7 +505,7 @@
               <div id="rxSiteAnalysisPieWrap" class="rx-site-analysis-pie-wrap">
                 <canvas id="rxSiteAnalysisPie" width="260" height="220" aria-label="Historical Rx performance split"></canvas>
               </div>
-              <div id="rxSiteAnalysisPieLegend" class="rx-site-analysis-pie-legend"></div>
+              
               <div class="resize-handle" data-resize-handle="rxSiteAnalysisPieWrap" aria-label="Resize historical outcome chart"></div>
             </div>
           </div>
@@ -513,7 +513,7 @@
             <div class="rx-site-analysis-section-title">Site archetype</div>
             <label class="rx-site-size-input"><span>Proposed Gross Sq Ft</span><input id="rxSiteGrossSqFtInput" type="number" min="1000" max="1000000" step="100" value="16159"></label>
             <div id="rxSiteAnalysisArchetype" class="rx-site-analysis-archetype"></div>
-            <div id="rxSiteAnalysisPrecedent" class="rx-site-analysis-precedent"></div>
+            
           </div>
         </div>
         <div class="rx-site-analysis-section">
@@ -522,7 +522,7 @@
             <div id="rxSiteAnalysisGraphWrap" class="rx-site-analysis-graph-wrap">
               <canvas id="rxSiteAnalysis3d" width="960" height="560" aria-label="Interactive three dimensional historical store performance graph"></canvas>
             </div>
-            <div class="rx-site-analysis-graph-help">Drag to rotate • Wheel to zoom • Red = bottom half Rx • Green = top half Rx • Star = subject site</div>
+            <div class="rx-site-analysis-graph-help">Drag to rotate • Wheel to zoom • Red = bottom-half Rx • Green = top-half Rx • Star = subject site • Drag to rotate • Wheel to zoom</div>
             <div class="resize-handle" data-resize-handle="rxSiteAnalysisGraphWrap" aria-label="Resize historical universe graph"></div>
           </div>
         </div>
@@ -553,7 +553,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.279.0.rx-site-analysis"></script>
+  <script src="app.js?v=1.280.0.rx-site-analysis"></script>
 
 
 </body>
