@@ -116,7 +116,8 @@
     userMapInteraction: false,
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
-    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70
+    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
+    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,graph:null,graphZoom:1,graphYaw:-0.7,graphPitch:0.35,graphDrag:null,resizeState:null} 
   };
 
   const el = id => document.getElementById(id);
@@ -909,6 +910,162 @@
     requestSecondaryPopupLayout();
   }
   function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
+  // ---------- RX COUNT SITE ANALYSIS (isolated add-on) ----------
+  const RX_SITE_AMENITY_RADIUS_KM=0.75;
+  const RX_SITE_ANALYSIS_MIN_MATCHES=10;
+  const RX_SITE_RED='#ef4444';
+  const RX_SITE_GREEN='#22a447';
+  const RX_SITE_PALE_RED='#fdecec';
+  const RX_SITE_PALE_GREEN='#eaf7ee';
+
+  function rxSiteProvinceGroup(code){ return String(code||'').toUpperCase()==='QC'?'QC':'NONQC'; }
+  function rxSiteStateReady(){
+    const ready=!!(state.rows?.length && state.secondaryLocations?.length && state.secondarySpatialIndex);
+    state.rxSiteAnalysis.enabled=ready;
+    const card=el('rxSiteAnalysisCard'),go=el('rxSiteAnalysisGo');
+    if(card)card.classList.toggle('rx-site-analysis-disabled',!ready);
+    if(go)go.disabled=!ready;
+    const status=el('rxSiteAnalysisStatus');
+    if(status && !state.rxSiteAnalysis.modelReady) status.textContent=ready?'Ready • first analysis builds the historical site model.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
+    return ready;
+  }
+  function rxSiteNumeric(row,names){
+    for(const name of names){ const key=state.headers.find(h=>norm(h)===norm(name)); if(key){const n=toNumber(row[key]); if(n!==null)return n;} }
+    return null;
+  }
+  function rxSiteProvinceFromRow(row){
+    const key=state.columns?.province || state.headers.find(h=>['province','prov','state','province code'].includes(norm(h)));
+    return provinceCodeFromText(key?row[key]:'') || provinceCodeFromAddress(String(row?.Address||''),null) || '';
+  }
+  function rxSiteGrossSqFt(row){ return rxSiteNumeric(row,['Gross Area (Sq. Ft.)','Gross Sq Ft','Gross Square Feet','Gross Area']); }
+  function rxSiteRxCount(row){ return rxSiteNumeric(row,['Prescription Count','Rx Count','PrescriptionCount']); }
+  function rxSiteLatLng(row){ const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]); return Number.isFinite(lat)&&Number.isFinite(lng)?{lat,lng}:null; }
+  function rxSitePercentile(values,value){
+    const finite=values.filter(Number.isFinite).sort((a,b)=>a-b); if(!finite.length||!Number.isFinite(value))return null;
+    let lo=0,hi=finite.length; while(lo<hi){const m=(lo+hi)>>1;if(finite[m]<=value)lo=m+1;else hi=m;} return finite.length===1?50:Math.max(0,Math.min(100,((lo-0.5)/finite.length)*100));
+  }
+  function rxSiteMedian(values){ const a=values.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return null; const m=Math.floor(a.length/2); return a.length%2?a[m]:(a[m-1]+a[m])/2; }
+  function rxSiteTopHalf(value,median){ return Number.isFinite(value)&&Number.isFinite(median)&&value>=median; }
+  function rxSiteOutcomeThresholds(rows){
+    const out={}; for(const group of ['QC','NONQC']){const vals=rows.filter(r=>r.provinceGroup===group&&Number.isFinite(r.rx)).map(r=>r.rx); out[group]={median:rxSiteMedian(vals)};} return out;
+  }
+  function rxSiteOutcomeLabel(rx,q){ if(!Number.isFinite(rx)||!q||!Number.isFinite(q.median))return 'Unknown'; return rx<=q.median?'Weak':'Strong'; }
+  function rxSiteCountSecondary(lat,lng,radiusKm=1){
+    if(!state.secondarySpatialIndex)return 0;
+    const candidates=secondaryProximityCandidates(lat,lng,radiusKm),maxMeters=radiusKm*1000,origin=L.latLng(lat,lng);
+    let count=0; for(const item of candidates){if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;} return count;
+  }
+  function rxSiteAmenityKey(a){ return `rxsite|${a.toFixed(5)}`; }
+  async function rxSiteAmenities(lat,lng){ return calculateAmenityProfile(lat,lng,RX_SITE_AMENITY_RADIUS_KM); }
+  async function rxSitePopulation(row,lat,lng,provinceOverride=null){
+    const pre=rxSiteNumeric(row,['pop_1km','Population 1 km','1 km population','Population']); if(Number.isFinite(pre))return pre;
+    const province=provinceOverride||rxSiteProvinceFromRow(row); if(!province)return null;
+    try{
+      const radius=1, boundary=turf.circle([lng,lat],radius,{units:'kilometers',steps:180});
+      const result=await selectCensusBoundary(boundary,[province],10,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:1000},shouldRender:false,provinceModes:[{provinceCode:province,mode:'partial'}]});
+      return Number(result?.aggregate?.totalPopulation)||0;
+    }catch(_){return null;}
+  }
+  async function rxSiteHistoricalRow(row){
+    const ll=rxSiteLatLng(row); if(!ll)return null;
+    const provinceGroup=rxSiteProvinceGroup(rxSiteProvinceFromRow(row));
+    const comp=rxSiteCountSecondary(ll.lat,ll.lng,1);
+    const pop=await rxSitePopulation(row,ll.lat,ll.lng);
+    let amenity=null;
+    const preRetail=rxSiteNumeric(row,['am_retail_075']),preFood=rxSiteNumeric(row,['am_food_075']),preHealth=rxSiteNumeric(row,['am_health_075']),preCommunity=rxSiteNumeric(row,['am_community_075']);
+    if([preRetail,preFood,preHealth,preCommunity].every(Number.isFinite)) amenity={retail:preRetail,food:preFood,health:preHealth,community:preCommunity,total:[preRetail,preFood,preHealth,preCommunity].reduce((a,b)=>a+b,0)};
+    else amenity=await rxSiteAmenities(ll.lat,ll.lng);
+    const sqft=rxSiteGrossSqFt(row),rx=rxSiteRxCount(row);
+    return {row,ll,provinceGroup,pop,comp,amenity,sqft,rx};
+  }
+  function rxSiteArchetype(record,med){
+    if(!record?.amenity)return 'No amenity profile';
+    const h={retail:record.amenity.retail>=med.retail,food:record.amenity.food>=med.food,health:record.amenity.health>=med.health,community:record.amenity.community>=med.community};
+    const parts=[]; if(h.retail)parts.push('Retail'); if(h.food)parts.push('Food & Leisure'); if(h.health)parts.push('Health & Services'); if(h.community)parts.push('Community & Recreation');
+    return parts.length===4?'All four above median':parts.length?parts.join(' + '):'All four below median';
+  }
+  function rxSiteProfileKey(record,med){
+    if(!record)return '';
+    const b=v=>v?'H':'L';
+    return [b(record.pop>=med.pop),b(record.comp>=med.comp),b(record.amenity.retail>=med.retail),b(record.amenity.food>=med.food),b(record.amenity.health>=med.health),b(record.amenity.community>=med.community),b(record.sqft>=med.sqft)].join('|');
+  }
+  function rxSitePrecedentLabel(n){ if(n>=100)return 'High precedent'; if(n>=50)return 'Moderate precedent'; if(n>=10)return 'Limited precedent'; return n>0?'Very limited precedent':'Untested'; }
+  function rxSitePrecomputedMedian(rows,field,group){ return rxSiteMedian(rows.filter(r=>r.provinceGroup===group).map(r=>r[field]).filter(Number.isFinite)); }
+  async function buildRxSiteAnalysisModel(){
+    if(!rxSiteStateReady())return null;
+    if(state.rxSiteAnalysis.modelPromise)return state.rxSiteAnalysis.modelPromise;
+    state.rxSiteAnalysis.modelPromise=(async()=>{
+      const base=[]; const rows=state.rows.slice();
+      const total=rows.length; let done=0;
+      for(let i=0;i<rows.length;i+=12){
+        const batch=rows.slice(i,i+12); const vals=await Promise.all(batch.map(rxSiteHistoricalRow)); for(const v of vals)if(v)base.push(v); done+=batch.length;
+        if(i===0||done%60===0){const status=el('rxSiteAnalysisStatus');if(status)status.textContent=`Preparing historical site model… ${Math.min(done,total).toLocaleString()} / ${total.toLocaleString()}`; await new Promise(r=>setTimeout(r,0));}
+      }
+      const quartiles=rxSiteOutcomeThresholds(base);
+      for(const r of base)r.outcome=rxSiteOutcomeLabel(r.rx,quartiles[r.provinceGroup]);
+      const med={};
+      for(const group of ['QC','NONQC']){
+        const g=base.filter(r=>r.provinceGroup===group);
+        med[group]={pop:rxSiteMedian(g.map(r=>r.pop)),comp:rxSiteMedian(g.map(r=>r.comp)),retail:rxSiteMedian(g.map(r=>r.amenity?.retail)),food:rxSiteMedian(g.map(r=>r.amenity?.food)),health:rxSiteMedian(g.map(r=>r.amenity?.health)),community:rxSiteMedian(g.map(r=>r.amenity?.community)),sqft:rxSiteMedian(g.map(r=>r.sqft))};
+      }
+      for(const r of base){ const m=med[r.provinceGroup]; r.profileKey=rxSiteProfileKey(r,m); r.archetype=rxSiteArchetype(r,m); r.compPct=rxSitePercentile(base.filter(x=>x.provinceGroup===r.provinceGroup).map(x=>x.comp),r.comp); r.sqftPct=rxSitePercentile(base.filter(x=>x.provinceGroup===r.provinceGroup).map(x=>x.sqft),r.sqft); const ai=(Number(r.amenity?.retail)||0)+(Number(r.amenity?.food)||0)+(Number(r.amenity?.health)||0)+(Number(r.amenity?.community)||0); r.amenityIndex=ai; }
+      for(const group of ['QC','NONQC']){const vals=base.filter(r=>r.provinceGroup===group); const a=vals.map(v=>v.amenityIndex); for(const r of vals)r.amenityPct=rxSitePercentile(a,r.amenityIndex);}
+      const lookup={QC:new Map(),NONQC:new Map()}; for(const group of ['QC','NONQC']){for(const r of base.filter(x=>x.provinceGroup===group)){let b=lookup[group].get(r.profileKey);if(!b)lookup[group].set(r.profileKey,b={n:0,weak:0,strong:0,stores:[]}); if(r.outcome==='Weak'||r.outcome==='Strong'){b.n++; if(r.outcome==='Weak')b.weak++;else b.strong++; b.stores.push(r);} }}
+      state.rxSiteAnalysis.model={rows:base,medians:med,outcomeQuartiles:quartiles,lookup}; state.rxSiteAnalysis.modelReady=true;
+      const status=el('rxSiteAnalysisStatus'); if(status)status.textContent=`Ready • ${base.length.toLocaleString()} historical stores calibrated`;
+      rxSiteStateReady(); return state.rxSiteAnalysis.model;
+    })().catch(err=>{state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.modelReady=false;const status=el('rxSiteAnalysisStatus');if(status)status.textContent=`Analysis preparation failed: ${err.message}`;throw err;});
+    return state.rxSiteAnalysis.modelPromise;
+  }
+  function rxSiteFmtValue(v){return Number.isFinite(v)?Math.round(v).toLocaleString('en-CA'):'—';}
+  function rxSiteProfileHtml(record,med){
+    const items=[['Population — 1 km',record.pop,med.pop],['Competitors — 1 km',record.comp,med.comp],['Retail — 0.75 km',record.amenity.retail,med.retail],['Food & Leisure — 0.75 km',record.amenity.food,med.food],['Health & Services — 0.75 km',record.amenity.health,med.health],['Community & Recreation — 0.75 km',record.amenity.community,med.community],['Gross Sq Ft',record.sqft,med.sqft]];
+    return items.map(([label,val,m])=>{const high=Number.isFinite(val)&&Number.isFinite(m)&&val>=m;return `<div class="rx-profile-row"><div class="rx-profile-label">${esc(label)}</div><div class="rx-profile-value ${high?'above':'below'}"><strong>${rxSiteFmtValue(val)}</strong><span>Median ${rxSiteFmtValue(m)}</span><em>${high?'Above median':'Below median'}</em></div></div>`;}).join('');
+  }
+  function rxSiteDrawPie(weak,strong){
+    const canvas=el('rxSiteAnalysisPie'); if(!canvas)return; const wrap=el('rxSiteAnalysisPieWrap'); const w=Math.max(220,wrap?.clientWidth||260),h=Math.max(180,wrap?.clientHeight||220),dpr=window.devicePixelRatio||1; canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);canvas.style.width=`${w}px`;canvas.style.height=`${h}px`; const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const total=weak+strong||1,r=Math.min(w,h)*0.36,cx=w*0.5,cy=h*0.45,start=-Math.PI/2; const a1=start+Math.PI*2*(weak/total);ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,start,a1);ctx.closePath();ctx.fillStyle=RX_SITE_RED;ctx.fill();ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,a1,start+Math.PI*2);ctx.closePath();ctx.fillStyle=RX_SITE_GREEN;ctx.fill();ctx.beginPath();ctx.arc(cx,cy,r*0.58,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();const leg=el('rxSiteAnalysisPieLegend');if(leg)leg.innerHTML=`<div><span class="rx-legend-swatch red"></span><strong>Bottom half</strong> ${fmtPct(weak/total)}</div><div><span class="rx-legend-swatch green"></span><strong>Top half</strong> ${fmtPct(strong/total)}</div><div class="rx-pie-n">${total.toLocaleString('en-CA')} comparable stores</div>`;
+  }
+  function rxSiteDraw3d(model,subject){
+    const canvas=el('rxSiteAnalysis3d'); const wrap=el('rxSiteAnalysisGraphWrap');if(!canvas||!wrap)return;const w=Math.max(520,wrap.clientWidth||960),h=Math.max(360,wrap.clientHeight||560),dpr=window.devicePixelRatio||1;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);canvas.style.width=`${w}px`;canvas.style.height=`${h}px`;const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle='#fbfdfe';ctx.fillRect(0,0,w,h);
+    const pts=model.rows.filter(r=>r.outcome==='Weak'||r.outcome==='Strong').map(r=>({x:r.compPct??50,y:r.sqftPct??50,z:r.amenityPct??50,c:r.outcome==='Weak'?RX_SITE_RED:RX_SITE_GREEN}));
+    const subj={x:subject.compPct??50,y:subject.sqftPct??50,z:subject.amenityPct??50,c:'#111',s:true}; const yaw=state.rxSiteAnalysis.graphYaw,pitch=state.rxSiteAnalysis.graphPitch,zoom=state.rxSiteAnalysis.graphZoom,ox=w/2,oy=h*0.62,scale=Math.min(w,h)*0.0048*zoom;
+    const project=(p)=>{let x=(p.x-50)/50,y=(p.y-50)/50,z=(p.z-50)/50;const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);let x1=x*cy-z*sy,z1=x*sy+z*cy;let y1=y*cp-z1*sp;return {x:ox+x1*scale*100,y:oy-y1*scale*100,d:z1};};
+    const all=pts.map(project).sort((a,b)=>a.d-b.d);const drawPoint=(p,r,c)=>{ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fillStyle=c;ctx.globalAlpha=.58;ctx.fill();ctx.globalAlpha=1;};
+    // axes
+    const O=project({x:0,y:0,z:0}),X=project({x:100,y:0,z:0}),Y=project({x:0,y:100,z:0}),Z=project({x:0,y:0,z:100});ctx.strokeStyle='#aab7c4';ctx.lineWidth=1;[[O,X],[O,Y],[O,Z]].forEach(([a,b])=>{ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();});
+    for(let i=0;i<=100;i+=25){for(const [axisA,axisB] of [[{x:i,y:0,z:0},{x:i,y:100,z:0}],[{x:0,y:i,z:0},{x:100,y:i,z:0}],[{x:0,y:0,z:i},{x:0,y:100,z:i}]]){const a=project(axisA),b=project(axisB);ctx.strokeStyle='#d7e0e7';ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
+    for(const p of all)drawPoint(p,2.6,p.c);const sp=project(subj);ctx.save();ctx.fillStyle='#fff';ctx.strokeStyle='#111';ctx.lineWidth=2.5;ctx.beginPath();const rays=[];for(let i=0;i<5;i++){const a=-Math.PI/2+i*Math.PI*2/5;rays.push([sp.x+Math.cos(a)*10,sp.y+Math.sin(a)*10]);}ctx.moveTo(rays[0][0],rays[0][1]);rays.slice(1).forEach(r=>ctx.lineTo(r[0],r[1]));ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+    ctx.fillStyle='#334155';ctx.font='600 12px Inter, system-ui, sans-serif';ctx.fillText('Competitive pressure percentile',Math.max(18,Math.min(w-210,O.x+20)),Math.max(24,Math.min(h-12,O.y+36)));ctx.save();ctx.translate(X.x+18,X.y);ctx.rotate(-0.15);ctx.fillText('Gross Sq Ft percentile',0,0);ctx.restore();ctx.save();ctx.translate(Z.x+12,Z.y-12);ctx.rotate(-0.85);ctx.fillText('Amenity intensity percentile',0,0);ctx.restore();ctx.font='700 11px Inter, system-ui, sans-serif';ctx.fillStyle='#111';ctx.fillText('Subject site',Math.min(w-90,sp.x+12),Math.max(14,sp.y-12));
+  }
+  function rxSiteBindGraph(){
+    const canvas=el('rxSiteAnalysis3d');if(!canvas||canvas.dataset.bound)return;canvas.dataset.bound='1';canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);state.rxSiteAnalysis.graphDrag={x:e.clientX,y:e.clientY,yaw:state.rxSiteAnalysis.graphYaw,pitch:state.rxSiteAnalysis.graphPitch};canvas.style.cursor='grabbing';});canvas.addEventListener('pointermove',e=>{const d=state.rxSiteAnalysis.graphDrag;if(!d||!state.rxSiteAnalysis.model||!state.rxSiteAnalysis.subject)return;state.rxSiteAnalysis.graphYaw=d.yaw+(e.clientX-d.x)*0.01;state.rxSiteAnalysis.graphPitch=Math.max(-1.1,Math.min(1.1,d.pitch-(e.clientY-d.y)*0.008));rxSiteDraw3d(state.rxSiteAnalysis.model,state.rxSiteAnalysis.subject);});canvas.addEventListener('pointerup',()=>{state.rxSiteAnalysis.graphDrag=null;canvas.style.cursor='grab';});canvas.addEventListener('pointercancel',()=>{state.rxSiteAnalysis.graphDrag=null;canvas.style.cursor='grab';});canvas.addEventListener('wheel',e=>{e.preventDefault();state.rxSiteAnalysis.graphZoom=Math.max(.65,Math.min(2.2,state.rxSiteAnalysis.graphZoom*(e.deltaY<0?1.08:.93)));rxSiteDraw3d(state.rxSiteAnalysis.model,state.rxSiteAnalysis.subject);},{passive:false});
+  }
+  function rxSiteBindResize(){
+    document.querySelectorAll('.resize-handle[data-resize-handle]').forEach(handle=>{if(handle.dataset.bound)return;handle.dataset.bound='1';handle.addEventListener('pointerdown',e=>{e.preventDefault();const id=handle.dataset.resizeHandle,wrap=el(id);if(!wrap)return;const start={x:e.clientX,y:e.clientY,w:wrap.getBoundingClientRect().width,h:wrap.getBoundingClientRect().height};state.rxSiteAnalysis.resizeState={id,start};handle.setPointerCapture(e.pointerId);});handle.addEventListener('pointermove',e=>{const r=state.rxSiteAnalysis.resizeState;if(!r||r.id!==handle.dataset.resizeHandle)return;const wrap=el(r.id);const nw=Math.max(240,r.start.w+(e.clientX-r.start.x)),nh=Math.max(170,r.start.h+(e.clientY-r.start.y));wrap.style.width=`${nw}px`;wrap.style.height=`${nh}px`;if(r.id==='rxSiteAnalysisGraphWrap'&&state.rxSiteAnalysis.model&&state.rxSiteAnalysis.subject)rxSiteDraw3d(state.rxSiteAnalysis.model,state.rxSiteAnalysis.subject);if(r.id==='rxSiteAnalysisPieWrap'&&state.rxSiteAnalysis.subject)rxSiteDrawPie(state.rxSiteAnalysis.subject.weak,state.rxSiteAnalysis.subject.strong);});handle.addEventListener('pointerup',()=>{state.rxSiteAnalysis.resizeState=null;});});
+  }
+  function rxSiteRender(subject){
+    const model=state.rxSiteAnalysis.model,group=subject.provinceGroup,med=model.medians[group],lookup=model.lookup[group].get(subject.profileKey)||{n:0,weak:0,strong:0,stores:[]};
+    const hero=el('rxSiteAnalysisHero'); if(hero){const strong=lookup.n?lookup.strong/lookup.n:null;hero.innerHTML=`<div class="rx-hero-main"><div class="rx-hero-label">${esc(subject.address)}</div><div class="rx-hero-probs"><div class="strong">${fmtPct(strong)} <span>Top half Rx</span></div><div class="weak">${fmtPct(lookup.n?lookup.weak/lookup.n:null)} <span>Bottom half Rx</span></div></div></div><div class="rx-hero-meta"><span>${lookup.n.toLocaleString('en-CA')} exact comparable stores</span><span>${esc(rxSitePrecedentLabel(lookup.n))}</span><span>${esc(group==='QC'?'Québec benchmark':'Non-Québec benchmark')}</span></div>`;}
+    const prof=el('rxSiteAnalysisProfile');if(prof)prof.innerHTML=rxSiteProfileHtml(subject,med);
+    const arch=el('rxSiteAnalysisArchetype');if(arch)arch.innerHTML=`<div class="rx-archetype-name">${esc(subject.archetype)}</div><div class="rx-archetype-sub">Four amenity categories, each classified above/below the ${group==='QC'?'Québec':'non-Québec'} median.</div>`;
+    const prec=el('rxSiteAnalysisPrecedent');if(prec)prec.innerHTML=`<strong>${lookup.n.toLocaleString('en-CA')}</strong> comparable stores<br><span>${esc(rxSitePrecedentLabel(lookup.n))}</span>`;
+    const conclusion=el('rxSiteAnalysisConclusion');if(conclusion){if(!lookup.n)conclusion.innerHTML=`<strong>Untested configuration.</strong> No historical ${group==='QC'?'Québec':'non-Québec'} stores match this full above/below-median profile.`;else conclusion.innerHTML=`Historical stores matching this full profile split <strong>${fmtPct(lookup.strong/lookup.n)} top half</strong> and <strong>${fmtPct(lookup.weak/lookup.n)} bottom half</strong> (${lookup.n} stores). Treat the result as ${rxSitePrecedentLabel(lookup.n).toLowerCase()} evidence, not a point forecast.`;}
+    rxSiteDrawPie(lookup.weak,lookup.strong);rxSiteBindGraph();rxSiteBindResize();rxSiteDraw3d(model,subject);
+  }
+  async function rxSiteAnalyzeAddress(address){
+    if(!state.rxSiteAnalysis.enabled)return; const token=++state.searchToken; const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
+    try{const qs=new URLSearchParams({SingleLine:address,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});if(token!==state.searchToken)return;const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');const lat=c.location.y,lng=c.location.x;let province=provinceCodeFromAddress(address,c);if(!province){if(!state.headerLookupReady)await loadHeaderCsdLookup();const csd=getCsdAtPoint(lat,lng);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
+      const group=rxSiteProvinceGroup(province),model=state.rxSiteAnalysis.model,m= model.medians[group];const amenity=await rxSiteAmenities(lat,lng);const comp=rxSiteCountSecondary(lat,lng,1);const pop=await rxSitePopulation({},lat,lng,province);const sqft=Number(el('rxSiteGrossSqFtInput')?.value);const subject={address:c.address||address,lat,lng,provinceCode:province,provinceGroup:group,pop,comp,amenity,sqft:Number.isFinite(sqft)?sqft:m.sqft};const values={pop:subject.pop,comp:subject.comp,sqft:subject.sqft,amenityIndex:amenity.retail+amenity.food+amenity.health+amenity.community}; if(el('rxSiteGrossSqFtInput'))el('rxSiteGrossSqFtInput').value=String(Math.round(subject.sqft));subject.compPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.comp),subject.comp);subject.sqftPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.sqft),subject.sqft);subject.amenityPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.amenityIndex),values.amenityIndex);subject.archetype=rxSiteArchetype(subject,m);subject.profileKey=rxSiteProfileKey(subject,m);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);el('rxSiteAnalysisDialog').showModal();
+      if(status)status.textContent='Analysis ready.';
+    }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;alert(`Rx Count Site Analysis failed: ${err.message}`);}
+  }
+  function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; if(!state.rxSiteAnalysis.modelReady){el('rxSiteAnalysisStatus').textContent='Preparing historical site model…';buildRxSiteAnalysisModel().then(()=>el('rxSiteAnalysisDialog').showModal()).catch(()=>{});} else el('rxSiteAnalysisDialog').showModal(); }
+  function rxSiteWire(){
+    const form=el('rxSiteAnalysisForm');if(form&&!form.dataset.bound){form.dataset.bound='1';form.addEventListener('submit',async e=>{e.preventDefault();const address=el('rxSiteAnalysisAddress')?.value.trim();if(!address||!state.rxSiteAnalysis.enabled)return;const btn=el('rxSiteAnalysisGo');if(btn)btn.disabled=true;try{if(!state.rxSiteAnalysis.modelReady){el('rxSiteAnalysisStatus').textContent='Preparing historical site model… this happens once per loaded data set.';await buildRxSiteAnalysisModel();}await rxSiteAnalyzeAddress(address);}catch(_){ }finally{if(btn)btn.disabled=!state.rxSiteAnalysis.enabled;}});}
+    const g=el('rxSiteAnalysisGo');if(g)g.disabled=!state.rxSiteAnalysis.enabled; const size=el('rxSiteGrossSqFtInput'); if(size&&!size.dataset.bound){size.dataset.bound='1';size.addEventListener('change',()=>{if(state.rxSiteAnalysis.subject&&state.rxSiteAnalysis.model){const subject=state.rxSiteAnalysis.subject;subject.sqft=Number(size.value);const group=subject.provinceGroup;subject.sqftPct=rxSitePercentile(state.rxSiteAnalysis.model.rows.filter(r=>r.provinceGroup===group).map(r=>r.sqft),subject.sqft);subject.archetype=rxSiteArchetype(subject,state.rxSiteAnalysis.model.medians[group]);subject.profileKey=rxSiteProfileKey(subject,state.rxSiteAnalysis.model.medians[group]);rxSiteRender(subject);}});} rxSiteBindResize();
+  }
+  async function rxSiteMaybeBuild(){ if(!rxSiteStateReady())return; rxSiteWire(); }
+
   async function readSecondaryLocationsFile(file){
     if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
     const ext=file.name.toLowerCase().split('.').pop(); const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
@@ -923,7 +1080,7 @@
   }
   function clearSecondaryLocations(){
     state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
-    setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
   function afterSecondaryLoaded(file,parsed){
@@ -932,6 +1089,7 @@
     el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
     if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
     renderSecondaryCanvas();
+    rxSiteMaybeBuild();
   }
 
   function afterWorkbookLoaded(file,parsed){
@@ -956,8 +1114,9 @@
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
+    state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteMaybeBuild();
   }
-  function clearFinancial(){closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -5195,6 +5354,7 @@
   el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
   el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();goToStoreNumber();}});
   el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
+  rxSiteWire();
   function getLeafletScaleKm(){
     const node=document.querySelector('.leaflet-control-scale-line');
     const text=String(node?.textContent||'').trim().replace(/\s+/g,' ');
