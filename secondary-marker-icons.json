@@ -9,5 +9,9 @@
   {"key":"sobeys","label":"Sobeys","asset":"sobeys.png","defaultSize":17},
   {"key":"pharmacie jean coutu","label":"Pharmacie Jean Coutu","asset":"pharmacie jean coutu.png","defaultSize":17},
   {"key":"wal-mart","label":"Wal-Mart","asset":"wal-mart.png","defaultSize":17},
+  {"key":"uniprix","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
+  {"key":"uniprix sante","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
+  {"key":"uniprix clinique","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
+  {"key":"familiprix","label":"familiprix","asset":"familiprix.png","defaultSize":17},
   {"key":"save-on-foods","label":"Save-On-Foods","asset":"save-on-foods.png","defaultSize":17}
 ]
