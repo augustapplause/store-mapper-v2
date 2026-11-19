@@ -1,4 +1,4 @@
-/* Store Explorer - v1.277
+/* Store Explorer - v1.278
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -4458,9 +4458,17 @@
       if(savedIconSizes.safeway!==undefined && savedIconSizes['safeway (sobeys)']===undefined){
         savedIconSizes['safeway (sobeys)']=savedIconSizes.safeway;
       }
-      const iconSizes=defaultSecondaryIconSizes();
+      // Preserve every saved icon size, including icons that were added to the manifest
+      // after the user's previous session. The old code only copied keys that existed in
+      // the built-in icon list, so newly manifested icons fell back to their JSON default.
+      const iconSizes={...defaultSecondaryIconSizes()};
+      Object.entries(savedIconSizes).forEach(([key,value])=>{
+        if(typeof key==='string' && Number.isFinite(Number(value))){
+          iconSizes[key.toLowerCase()]=normalizeMarkerSize(value,6,48,11);
+        }
+      });
       SECONDARY_MARKER_ICONS.forEach(icon=>{
-        if(Number.isFinite(Number(savedIconSizes[icon.key]))) iconSizes[icon.key]=normalizeMarkerSize(savedIconSizes[icon.key],6,48,11);
+        if(Number.isFinite(Number(iconSizes[icon.key]))) iconSizes[icon.key]=normalizeMarkerSize(iconSizes[icon.key],6,48,11);
       });
       state.markerConfig={
         primarySize:Number.isFinite(Number(parsed?.primarySize))?Math.max(8,Math.min(64,Number(parsed.primarySize))):defaults.primarySize,
