@@ -1388,8 +1388,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:900px){.popup-config-dialog .subject-cell-editor-grid{grid-template-columns:1fr 1fr 2fr}.popup-config-dialog .subject-cell-editor-grid label:nth-child(3){grid-column:1 / -1}}
 
 /* v1.291 popup configuration layout refinements */
-.popup-config-dialog .subject-cell-editor-grid{grid-template-columns:110px 180px minmax(0,1fr) 44px 34px 88px;gap:8px;align-items:start;width:100%;box-sizing:border-box;}
+.popup-config-dialog .subject-cell-editor-grid{grid-template-columns:100px 150px minmax(240px,1fr) 96px 76px 94px;gap:8px;align-items:start;width:100%;box-sizing:border-box;}
 .popup-config-dialog .subject-cell-editor-grid label{font-weight:600;min-width:0;overflow:hidden;}
+.popup-config-dialog .subject-cell-editor-grid label.is-disabled{opacity:.45;}
+.popup-config-dialog .subject-cell-editor-grid select:disabled,.popup-config-dialog .subject-cell-editor-grid input:disabled{background:#eef1f3;color:#7b8790;cursor:not-allowed;}
 .popup-config-dialog .subject-cell-editor-grid .subject-cell-expression-field{min-width:0;}
 .popup-config-dialog .subject-cell-editor-grid input,
 .popup-config-dialog .subject-cell-editor-grid select{min-width:0;max-width:100%;}
@@ -1409,13 +1411,13 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-grid-clear-btn{border-color:#b7c3cc;background:#fff;color:#425b6d;}
 .popup-grid-clear-btn:hover{background:#edf3f7;}
 .popup-config-dialog .subject-table-edit-actions{flex-wrap:wrap;}
-.popup-configured-tab-grid-wrap{overflow-x:auto;max-width:100%;}
-.popup-configured-tab-grid{border-collapse:collapse;width:max-content;min-width:100%;table-layout:auto;white-space:nowrap;}
-.popup-configured-tab-grid td{border:0;padding:5px 12px;min-width:0;background:transparent;white-space:nowrap;vertical-align:middle;}
-.popup-configured-tab-grid tr+tr td{padding-top:6px;}
-.popup-configured-tab-grid td:first-child{padding-left:0;}
-.popup-configured-tab-grid td:last-child{padding-right:0;}
+.popup-configured-tab-grid-wrap{overflow-x:auto;max-width:100%;min-width:0;}
+.popup-configured-tab-grid{display:grid;grid-template-columns:repeat(var(--popup-output-cols),155px);width:max-content;min-width:100%;white-space:nowrap;}
+.popup-configured-tab-grid-row{display:contents;}
+.popup-configured-tab-grid-cell{min-width:0;width:155px;box-sizing:border-box;padding:5px 12px;background:transparent;white-space:nowrap;overflow:visible;}
+.popup-configured-tab-grid-cell:first-child{padding-left:0;}
+.popup-configured-tab-grid-cell:nth-child(n+1){align-self:center;}
 
 @media (max-width:900px){
-  .popup-config-dialog .subject-cell-editor-grid{grid-template-columns:105px 165px minmax(0,1fr) 44px 34px 82px;}
+  .popup-config-dialog .subject-cell-editor-grid{grid-template-columns:92px 130px minmax(200px,1fr) 88px 68px 86px;}
 }

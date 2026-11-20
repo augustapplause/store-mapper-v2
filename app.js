@@ -1829,15 +1829,15 @@
       const key=tab.storeProfileHeader||tab.headers.find(h=>norm(h)==='store profile number');
       if(cfg.filterOnProfile&&key)rows=rows.filter(r=>String(r[key]??'').trim()===profileValue);
       for(const f of (cfg.filters||[]).filter(x=>x?.column))rows=rows.filter(r=>norm(r[f.column])===norm(f.value));
-      let table='<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">'+esc(cfg.name)+'</div><table class="popup-configured-tab-grid">';
+      let table='<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">'+esc(cfg.name)+'</div><div class="popup-configured-tab-grid" style="--popup-output-cols:'+cfg.grid.cols+'">';
       for(const r of cfg.grid.cells){
         const hasContent=r.some(raw=>String(raw?.content??'').trim()!=='');
         if(!hasContent)continue;
-        table+='<tr>';
-        for(const raw of r){const c=normalizePopupGridCell(raw);const value=c.type==='text'?String(c.content||''):popupTabAggregate(rows,c,tab.headers);table+='<td>'+esc(value)+'</td>';}
-        table+='</tr>';
+        table+='<div class="popup-configured-tab-grid-row">';
+        for(const raw of r){const c=normalizePopupGridCell(raw);const value=c.type==='text'?String(c.content||''):popupTabAggregate(rows,c,tab.headers);table+='<div class="popup-configured-tab-grid-cell">'+esc(value)+'</div>';}
+        table+='</div>';
       }
-      table+='</table><div class="popup-configured-tab-note">'+rows.length.toLocaleString('en-CA')+' matching rows</div></div>';
+      table+='</div><div class="popup-configured-tab-note">'+rows.length.toLocaleString('en-CA')+' matching rows</div></div>';
       html+=table;
     }
     return html;
@@ -5326,7 +5326,7 @@
   function popupTabSelectedCell(i){const d=state.popupTabDrafts?.[i];if(!d)return null;const r=Math.max(0,Math.min(d.grid.rows-1,state.popupTabSelected?.tab===i?state.popupTabSelected.r:0)),c=Math.max(0,Math.min(d.grid.cols-1,state.popupTabSelected?.tab===i?state.popupTabSelected.c:0));state.popupTabSelected={tab:i,r,c};return {draft:d,cell:d.grid.cells[r][c],r,c};}
   function popupCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
   function popupTabSourceOptions(i){const t=state.primaryTabs?.[i],hs=t?.headers||[];let html='<option value="">Choose column</option><optgroup label="Worksheet">';html+=hs.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup>';if(i===0)html+=`<optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup>`;return html;}
-  function popupTabRenderEditor(section,i){const sel=popupTabSelectedCell(i);if(!sel)return;const {cell,r,c}=sel;section.querySelector('[data-role="cell-label"]').textContent=popupCellLabel(r,c);section.querySelector('[data-role="cell-type"]').value=cell.type;const col=section.querySelector('[data-role="cell-column"]');col.innerHTML=popupTabSourceOptions(i);col.value=cell.type!=='text'?cell.content:'';section.querySelector('[data-role="cell-expression"]').value=cell.content;section.querySelector('[data-role="cell-format"]').value=cell.numberFormat;section.querySelector('[data-role="cell-decimals"]').value=String(cell.decimalPlaces);section.querySelector('[data-role="cell-aggregation"]').value=cell.aggregation;section.querySelector('[data-role="cell-column-wrap"]').style.display=cell.type==='text'?'none':'grid';}
+  function popupTabRenderEditor(section,i){const sel=popupTabSelectedCell(i);if(!sel)return;const {cell,r,c}=sel;section.querySelector('[data-role="cell-label"]').textContent=popupCellLabel(r,c);section.querySelector('[data-role="cell-type"]').value=cell.type;const col=section.querySelector('[data-role="cell-column"]');const colWrap=section.querySelector('[data-role="cell-column-wrap"]');const fmt=section.querySelector('[data-role="cell-format"]');const dec=section.querySelector('[data-role="cell-decimals"]');const agg=section.querySelector('[data-role="cell-aggregation"]');col.innerHTML=popupTabSourceOptions(i);col.value=cell.type!=='text'?cell.content:'';section.querySelector('[data-role="cell-expression"]').value=cell.content;fmt.value=cell.numberFormat;dec.value=String(cell.decimalPlaces);agg.value=cell.aggregation;const locked=cell.type==='text';[col,fmt,dec,agg].forEach(el=>{el.disabled=locked;el.closest('label')?.classList.toggle('is-disabled',locked);});colWrap.style.display='flex';}
   function popupTabRenderGrid(section,i){
     const d=state.popupTabDrafts?.[i];if(!d)return;const canvas=section.querySelector('.popup-tab-canvas');const rail=section.querySelector('.popup-tab-quartile-rail');canvas.style.setProperty('--popup-cols',d.grid.cols);canvas.replaceChildren();if(rail)rail.replaceChildren();
     const anchor=state.popupTabSelectionAnchor?.tab===i?state.popupTabSelectionAnchor:{tab:i,r:0,c:0};const selected=state.popupTabSelected?.tab===i?state.popupTabSelected:{tab:i,r:0,c:0};const minR=Math.min(anchor.r,selected.r),maxR=Math.max(anchor.r,selected.r),minC=Math.min(anchor.c,selected.c),maxC=Math.max(anchor.c,selected.c);
