@@ -1853,16 +1853,18 @@
     for(const t of tokens){if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;if(!values.has(t.value))values.set(t.value,popupAggregateColumn(tab,rows,t.value,'sum'));}
     return evaluateTickerExpressionWithTokens(tokens,values);
   }
-  function popupTabCellValue(cell,tab,rows){
+  function popupTabCellValue(cell,tab,rows,censusValues={}){
     const n=normalizePopupTabCell(cell,{primary:tab.sheetIndex===0});
     if(n.type==='blank')return '';
     if(n.type==='text')return n.content;
     if(n.type==='value'){
-      const v=popupAggregateColumn(tab,rows,n.source||n.content,n.aggregation);
+      const source=n.source||n.content;
+      if(tab.sheetIndex===0&&isPopupVirtualOperand(source))return formatTickerValue(Number(censusValues?.[source]),n.numberFormat,source,n.decimalPlaces);
+      const v=popupAggregateColumn(tab,rows,source,n.aggregation);
       if(typeof v==='string')return v;
-      return formatTickerValue(v,n.numberFormat,n.source||n.content,n.decimalPlaces);
+      return formatTickerValue(v,n.numberFormat,source,n.decimalPlaces);
     }
-    const v=evaluatePopupTabFormula(n.content,tab,rows);
+    const v=tab.sheetIndex===0?evaluatePopupFormula(n.content,rows?.[0]||{},censusValues):evaluatePopupTabFormula(n.content,tab,rows);
     return formatTickerValue(v,n.numberFormat,n.content,n.decimalPlaces);
   }
   function popupTabFilterRows(cfg,tab,markerRow){
@@ -1875,12 +1877,12 @@
   function popupTabOutputHTML(cfg,tab,markerRow){
     const rows=popupTabFilterRows(cfg,tab,markerRow);
     let html=`<section class="store-popup-data-section popup-data-tab-${cfg.sheetIndex}"><div class="store-popup-data-title">${esc(tab.name||cfg.sheetName)}</div><div class="store-popup-data-scroll"><div class="store-popup-data-grid" style="--popup-cols:${cfg.cols}">`;
-    for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=cfg.cells[r][c]||blankPopupTabCell();const val=popupTabCellValue(cell,tab,rows);const cls=`store-popup-data-cell popup-data-cell-${cell.type||'blank'}`;html+=`<div class="${cls}" data-row="${r}" data-col="${c}">${esc(val)}</div>`;}
+    for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=cfg.cells[r][c]||blankPopupTabCell();const val=popupTabCellValue(cell,tab,rows,censusValues);const cls=`store-popup-data-cell popup-data-cell-${cell.type||'blank'}`;html+=`<div class="${cls}" data-row="${r}" data-col="${c}">${esc(val)}</div>`;}
     html+=`</div></div></section>`;return html;
   }
-  function popupOutputSectionsHTML(markerRow){
+  function popupOutputSectionsHTML(markerRow,censusValues={}){
     const configs=state.popupTabConfigs||[];const tabs=state.primaryTabs||[];
-    return configs.map((cfg,i)=>{if(!tabs[i])return '';const hasContent=popupTabCellList(cfg).some(x=>['text','value','formula'].includes(x.cell.type)&&String(x.cell.content||x.cell.source||'').trim());return hasContent?popupTabOutputHTML(cfg,tabs[i],markerRow):'';}).join('');
+    return configs.map((cfg,i)=>{if(!tabs[i])return '';const hasContent=popupTabCellList(cfg).some(x=>['text','value','formula'].includes(x.cell.type)&&String(x.cell.content||x.cell.source||'').trim());return hasContent?popupTabOutputHTML(cfg,tabs[i],markerRow,censusValues):'';}).join('');
   }
   function popupConfigCellsToLegacy(){return popupPrimaryConfiguredFields();}
   function evaluatePopupFormula(formula,row,censusValues){
@@ -1973,7 +1975,7 @@
     const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
     const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
-    const dataHtml=popupOutputSectionsHTML(row);
+    const dataHtml=popupOutputSectionsHTML(row,values);
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll">${dataHtml}${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
@@ -2152,6 +2154,10 @@
     });
     setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
       startPopupTicker();
+    } catch(err) {
+      console.error('Store popup render failed:', err);
+      storePopupCard.innerHTML='<div class="store-popup-error">Unable to render store information.</div>';
+      if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
     } finally {
       if(hasPopulationWork)hidePopulationCalcStatus();
     }
@@ -2395,6 +2401,7 @@
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
     storePopupLayer.classList.add('open');
     storePopupLayer.setAttribute('aria-hidden','false');
+    storePopupCard.style.visibility='visible';
     requestStorePopupLayout();
     await refreshOpenPopupCard();
   }
@@ -5411,19 +5418,19 @@
   function popupSelectionCells(tabIndex){const cfg=currentPopupDraftConfig(tabIndex),sel=popupGridSelection(tabIndex);if(!cfg)return[];const r1=Math.min(sel.anchor.r,sel.focus.r),r2=Math.max(sel.anchor.r,sel.focus.r),c1=Math.min(sel.anchor.c,sel.focus.c),c2=Math.max(sel.anchor.c,sel.focus.c);const out=[];for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)out.push({r,c});return out;}
   function popupCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
   function selectedPopupCell(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);const sel=popupGridSelection(tabIndex);const cell=cfg?.cells?.[sel.focus.r]?.[sel.focus.c]||blankPopupTabCell();return {cfg,sel,cell,r:sel.focus.r,c:sel.focus.c};}
-  function popupEditorSourceOptions(tab){return (tab?.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');}
+  function popupEditorSourceOptions(tab,{includeVirtual=false}={}){const base=(tab?.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');const virtual=includeVirtual?`<optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup>`:'';return base+virtual;}
   function popupFilterValueOptions(tab,column,current=''){
     if(!column)return '';
     const vals=[];const seen=new Set();for(const r of (tab?.rows||[])){const v=String(r?.[column]??'').trim();if(!v||seen.has(v))continue;seen.add(v);vals.push(v);if(vals.length>=250)break;}
     return vals.map(v=>`<option value="${esc(v)}"></option>`).join('');
   }
-  function popupFilterRowHTML(tabIndex,idx,filter){const tab=state.primaryTabs?.[tabIndex]||{};const options=popupEditorSourceOptions(tab);const listId=`popup-filter-values-${tabIndex}-${idx}`;return `<div class="popup-filter-row" data-filter-index="${idx}"><select class="popup-filter-column" data-tab-index="${tabIndex}" data-filter-index="${idx}"><option value="">Choose column</option>${options}</select><input class="popup-filter-value" data-tab-index="${tabIndex}" data-filter-index="${idx}" list="${listId}" value="${esc(filter?.value||'')}" placeholder="Filter value"><datalist id="${listId}">${popupFilterValueOptions(tab,filter?.column||'',filter?.value||'')}</datalist><button type="button" class="popup-filter-remove secondary" data-tab-index="${tabIndex}" data-filter-index="${idx}" aria-label="Remove filter">×</button></div>`;}
+  function popupFilterRowHTML(tabIndex,idx,filter){const tab=state.primaryTabs?.[tabIndex]||{};const options=popupEditorSourceOptions(tab,{includeVirtual:tabIndex===0});const listId=`popup-filter-values-${tabIndex}-${idx}`;return `<div class="popup-filter-row" data-filter-index="${idx}"><select class="popup-filter-column" data-tab-index="${tabIndex}" data-filter-index="${idx}"><option value="">Choose column</option>${options}</select><input class="popup-filter-value" data-tab-index="${tabIndex}" data-filter-index="${idx}" list="${listId}" value="${esc(filter?.value||'')}" placeholder="Filter value"><datalist id="${listId}">${popupFilterValueOptions(tab,filter?.column||'',filter?.value||'')}</datalist><button type="button" class="popup-filter-remove secondary" data-tab-index="${tabIndex}" data-filter-index="${idx}" aria-label="Remove filter">×</button></div>`;}
   function syncPopupCellEditor(tabIndex){
     const tab=state.primaryTabs?.[tabIndex];const cfg=currentPopupDraftConfig(tabIndex);const root=document.querySelector(`.popup-tab-config-section[data-tab-index="${tabIndex}"]`);if(!tab||!cfg||!root)return;const {cell,r,c}=selectedPopupCell(tabIndex);
     const q=id=>root.querySelector(`#${id}-${tabIndex}`);
     const label=q('popupSelectedCellLabel');if(label)label.textContent=popupCellLabel(r,c);
     const type=q('popupCellType');if(type)type.value=cell.type;
-    const source=q('popupCellSource');if(source){source.innerHTML=`<option value="">Choose source column</option>${popupEditorSourceOptions(tab)}`;if(cell.source)source.value=cell.source;}
+    const source=q('popupCellSource');if(source){source.innerHTML=`<option value="">Choose source column</option>${popupEditorSourceOptions(tab,{includeVirtual:tabIndex===0})}`;if(cell.source)source.value=cell.source;}
     const expr=q('popupCellExpression');if(expr)expr.value=cell.content||'';
     const nf=q('popupCellNumberFormat');if(nf)nf.value=cell.numberFormat||'auto';
     const dec=q('popupCellDecimals');if(dec)dec.value=String(cell.decimalPlaces??0);
@@ -5435,7 +5442,7 @@
     const warning=q('popupCellFormulaWarning');const issue=cell.type==='formula'?popupFormulaIssueForHeaders(cell.content,tab.headers||[]):'';if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
     root.querySelectorAll('.popup-config-grid-cell').forEach(node=>{const rr=Number(node.dataset.row),cc=Number(node.dataset.col);const selected=popupSelectionCells(tabIndex).some(x=>x.r===rr&&x.c===cc);node.classList.toggle('selected',selected);node.tabIndex=(rr===r&&cc===c)?0:-1;});
   }
-  function popupFormulaIssueForHeaders(formula,headers){const text=String(formula||'').trim();if(!text)return 'Invalid formula';const tokens=tokenizePopupForHeaders(text,headers);if(!tokens)return 'Invalid formula';const seen=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));const bad=seen.filter(t=>!headers.includes(t.value));if(bad.length)return `Unknown column: ${bad[0].value}`;return ''}
+  function popupFormulaIssueForHeaders(formula,headers,{allowVirtual=false}={}){const text=String(formula||'').trim();if(!text)return 'Invalid formula';const allowed=allowVirtual?[...headers,...popupVirtualNames()]:headers;const tokens=tokenizePopupForHeaders(text,allowed);if(!tokens)return 'Invalid formula';const seen=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));const bad=seen.filter(t=>!allowed.includes(t.value));if(bad.length)return `Unknown column: ${bad[0].value}`;return ''}
   function popupRenderGrid(tabIndex){const cfg=currentPopupDraftConfig(tabIndex),canvas=document.querySelector(`.popup-config-canvas[data-tab-index="${tabIndex}"]`);if(!cfg||!canvas)return;canvas.style.setProperty('--popup-config-cols',cfg.cols);canvas.innerHTML='';for(let r=0;r<cfg.rows;r++){const row=document.createElement('div');row.className='popup-config-grid-row';for(let cc=0;cc<cfg.cols;cc++){const cell=normalizePopupTabCell(cfg.cells[r][cc],{primary:tabIndex===0});const b=document.createElement('button');b.type='button';b.className='popup-config-grid-cell';b.dataset.row=r;b.dataset.col=cc;b.setAttribute('role','gridcell');const sel=popupGridSelection(tabIndex);const inSel=(()=>{const r1=Math.min(sel.anchor.r,sel.focus.r),r2=Math.max(sel.anchor.r,sel.focus.r),c1=Math.min(sel.anchor.c,sel.focus.c),c2=Math.max(sel.anchor.c,sel.focus.c);return r>=r1&&r<=r2&&cc>=c1&&cc<=c2;})();b.classList.toggle('selected',inSel);const content=cell.type==='formula'&&cell.content?cell.content:cell.content||'';b.textContent=content;b.title=content||'Blank cell';b.addEventListener('click',e=>{const focus={r,c:cc};if(e.shiftKey){const s=popupGridSelection(tabIndex);s.focus=focus;}else{state.popupTabSelected[tabIndex]={anchor:focus,focus:{...focus}};}syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);});b.addEventListener('focus',()=>{const s=popupGridSelection(tabIndex);s.focus={r,c:cc};syncPopupCellEditor(tabIndex);});row.appendChild(b);}canvas.appendChild(row);}}
   function popupMoveSelection(tabIndex,dr,dc,extend){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;const sel=popupGridSelection(tabIndex);const base=extend?sel.focus:sel.focus;const next={r:Math.max(0,Math.min(cfg.rows-1,base.r+dr)),c:Math.max(0,Math.min(cfg.cols-1,base.c+dc))};if(extend)sel.focus=next;else state.popupTabSelected[tabIndex]={anchor:next,focus:{...next}};syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);const node=document.querySelector(`.popup-config-canvas[data-tab-index="${tabIndex}"] .popup-config-grid-cell[data-row="${next.r}"][data-col="${next.c}"]`);node?.focus({preventScroll:true});node?.scrollIntoView({block:'nearest',inline:'nearest'});}
   function popupClearSelection(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;for(const {r,c} of popupSelectionCells(tabIndex))cfg.cells[r][c]=blankPopupTabCell();state.popupTabDraftDirty=true;syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);}
@@ -5460,7 +5467,7 @@
       section.querySelector('.popup-delete-selected').addEventListener('click',()=>popupClearSelection(cfgIndex));
       section.querySelector(`#popupCellType-${i}`).addEventListener('change',e=>{const x=selectedPopupCell(cfgIndex);x.cell.type=e.target.value;if(e.target.value==='blank'){x.cell.content='';x.cell.source='';}state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);popupRenderGrid(cfgIndex);});
       section.querySelector(`#popupCellSource-${i}`).addEventListener('change',e=>{const x=selectedPopupCell(cfgIndex);const chosen=e.target.value;x.cell.source=chosen;if(x.cell.type==='value')x.cell.content=chosen;else if(x.cell.type==='formula'){const current=String(x.cell.content||'').trim();x.cell.content=current?(current+chosen):chosen;}state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);popupRenderGrid(cfgIndex);});
-      section.querySelector(`#popupCellExpression-${i}`).addEventListener('input',e=>{const x=selectedPopupCell(cfgIndex);x.cell.content=e.target.value;state.popupTabDraftDirty=true;const warning=section.querySelector(`#popupCellFormulaWarning-${i}`);const issue=x.cell.type==='formula'?popupFormulaIssueForHeaders(x.cell.content,tab.headers||[]):'';warning.textContent=issue||'';warning.hidden=!issue;popupRenderGrid(cfgIndex);});
+      section.querySelector(`#popupCellExpression-${i}`).addEventListener('input',e=>{const x=selectedPopupCell(cfgIndex);x.cell.content=e.target.value;state.popupTabDraftDirty=true;const warning=section.querySelector(`#popupCellFormulaWarning-${i}`);const issue=x.cell.type==='formula'?popupFormulaIssueForHeaders(x.cell.content,tab.headers||[],{allowVirtual:tabIndex===0}):'';warning.textContent=issue||'';warning.hidden=!issue;popupRenderGrid(cfgIndex);});
       section.querySelector(`#popupCellAggregation-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.aggregation=e.target.value;state.popupTabDraftDirty=true;});
       section.querySelector(`#popupCellNumberFormat-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.numberFormat=e.target.value;selectedPopupCell(cfgIndex).cell.decimalPlaces=defaultTickerDecimals(e.target.value);state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);});
       section.querySelector(`#popupCellDecimals-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.decimalPlaces=Number(e.target.value)||0;state.popupTabDraftDirty=true;});
@@ -5469,7 +5476,7 @@
     tabs.forEach((_,i)=>popupRenderTabConfig(i));popupBindGridKeyboard();if(el('popupConfigUnsaved'))el('popupConfigUnsaved').textContent=state.popupTabDraftDirty?'Unsaved changes':'';
   }
   function validatePopupTabDrafts(){
-    const tabs=state.primaryTabs||[];for(let i=0;i<tabs.length;i++){const cfg=state.popupTabConfigDraft[i],tab=tabs[i];for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=normalizePopupTabCell(cfg.cells[r][c],{primary:i===0});if(cell.type==='formula'){const issue=popupFormulaIssueForHeaders(cell.content,tab.headers||[]);if(issue)return `${tab.name}: ${popupCellLabel(r,c)} ${issue}`;}if(cell.type==='value'&&!cell.source)return `${tab.name}: ${popupCellLabel(r,c)} needs a source column.`;}}return '';}
+    const tabs=state.primaryTabs||[];for(let i=0;i<tabs.length;i++){const cfg=state.popupTabConfigDraft[i],tab=tabs[i];for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=normalizePopupTabCell(cfg.cells[r][c],{primary:i===0});if(cell.type==='formula'){const issue=popupFormulaIssueForHeaders(cell.content,tab.headers||[],{allowVirtual:i===0});if(issue)return `${tab.name}: ${popupCellLabel(r,c)} ${issue}`;}if(cell.type==='value'&&!cell.source)return `${tab.name}: ${popupCellLabel(r,c)} needs a source column.`;}}return '';}
   function syncLegacyPopupConfigFromTabs(){state.popupConfig=popupPrimaryConfiguredFields().map(f=>({type:'formula',column:f.column||'',formula:f.formula,title:f.title,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:f.quartile}));}
   async function applyPopupConfig(){const error=validatePopupTabDrafts();if(error){alert(error);return;}const quartileChanged=!!state.popupQuartileDraftChanged;state.popupTabConfigs=clonePopupTabConfigs(state.popupTabConfigDraft).map((cfg,i)=>normalizePopupTabConfig(cfg,state.primaryTabs[i],i));state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;syncLegacyPopupConfigFromTabs();if(quartileChanged)state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupTabConfigs();savePopupConfig();savePopupHeaderConfig();refreshConfigUI();if(state.openPopupMarker)await refreshOpenPopupCard();el('popupDialog').close();}
   function resetPopupDefaults(){
