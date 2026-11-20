@@ -1775,12 +1775,21 @@
   }
   function clonePopupTabConfigs(configs){return JSON.parse(JSON.stringify(configs||[]));}
   function popupTabDefaultFromLegacy(tab,index){
-    const cfg=blankPopupTabConfig(tab,index); if(index!==0)return cfg;
+    const cfg=blankPopupTabConfig(tab,index);
+    if(index!==0)return cfg;
     const legacy=(state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);
-    if(!legacy.length)return cfg;
-    cfg.rows=legacy.length;cfg.cols=2;cfg.cells=legacy.map(f=>[
-      {type:'text',content:tickerMetricTitle(f),source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false},
-      {type:'formula',content:f.formula,source:f.column||'',aggregation:'sum',numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:!!f.quartile}
+    if(legacy.length){
+      cfg.rows=legacy.length;cfg.cols=2;cfg.cells=legacy.map(f=>[
+        {type:'text',content:tickerMetricTitle(f),source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false},
+        {type:'formula',content:f.formula,source:f.column||'',aggregation:'sum',numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:!!f.quartile}
+      ]);
+      return normalizePopupTabConfig(cfg,tab,index);
+    }
+    // Tab 1 retains the four built-in Census virtual measures as special default rows.
+    const virtuals=popupVirtualNames();
+    cfg.rows=virtuals.length;cfg.cols=2;cfg.cells=virtuals.map(name=>[
+      {type:'text',content:name,source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false},
+      {type:'value',content:name,source:name,aggregation:'value',numberFormat:'number',decimalPlaces:0,quartile:true}
     ]);
     return normalizePopupTabConfig(cfg,tab,index);
   }
@@ -1797,9 +1806,24 @@
         }
       }
     }catch(_){ }
-    state.popupTabConfigs=tabs.map((tab,i)=>popupTabDefaultFromLegacy(tab,i));
+    state.popupTabConfigs=tabs.map((tab,i)=>{const cfg=popupTabDefaultFromLegacy(tab,i);return i===0?ensureTab1VirtualFields(cfg):cfg;});
   }
   function savePopupTabConfigs(){try{localStorage.setItem(POPUP_TABS_STORAGE_KEY,JSON.stringify(state.popupTabConfigs||[]));}catch(_){} }
+  function ensureTab1VirtualFields(cfg){
+    if(!cfg||cfg.sheetIndex!==0)return cfg;
+    const virtuals=popupVirtualNames();
+    const present=new Set();
+    for(const {cell} of popupTabCellList(cfg)){
+      const source=String(cell?.source||cell?.content||'').trim();
+      if(isPopupVirtualOperand(source))present.add(source);
+    }
+    for(const name of virtuals){
+      if(present.has(name))continue;
+      const row=[{type:'text',content:name,source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false},{type:'value',content:name,source:name,aggregation:'value',numberFormat:'number',decimalPlaces:0,quartile:true}];
+      cfg.cells.push(row);cfg.rows++;
+    }
+    return cfg;
+  }
   function popupTabCellList(cfg,{includeBlank=false}={}){
     const out=[];
     for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){
@@ -2053,20 +2077,21 @@
     const fields=popupQuartileConfigFields();
     const result={};
     if(!fields.length||!state.rows.length){state.popupQuartileValues=result;return result;}
-    const wantVirtual=options.includeVirtual!==false;
+    const jobToken=Number(options.jobToken??state.popupRenderToken);
+    const includeVirtual=options.includeVirtual!==false;
     const virtualFields=fields.filter(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
     const directFields=fields.filter(f=>!virtualFields.includes(f));
-    const selectedNeedsVirtual=wantVirtual&&virtualFields.length>0;
-    const selectedCensus=selectedNeedsVirtual?await calculatePopupCensusForStore(selectedRow,virtualFields):{};
+    const selectedCensus=options.selectedCensus||{};
 
     for(const field of directFields){
+      if(jobToken!==state.popupRenderToken)return result;
       const cacheKey=popupQuartileCacheKey(field);
       let vals=state.popupQuartileDistributionCache.get(cacheKey);
       if(!vals){
         const computed=[];
-        const chunk=40;
-        for(let start=0;start<state.rows.length;start+=chunk){
-          const end=Math.min(state.rows.length,start+chunk);
+        for(let start=0;start<state.rows.length;start+=80){
+          if(jobToken!==state.popupRenderToken)return result;
+          const end=Math.min(state.rows.length,start+80);
           for(let i=start;i<end;i++){
             const value=popupFieldNumericValue(field,state.rows[i],{});
             if(Number.isFinite(value))computed.push(value);
@@ -2076,47 +2101,42 @@
         vals=computed.sort((a,b)=>a-b);
         state.popupQuartileDistributionCache.set(cacheKey,vals);
       }
-      const selectedValue=popupFieldNumericValue(field,selectedRow,{});
+      const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
       result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
     }
 
-    if(wantVirtual&&virtualFields.length){
-      const caches=new Map();
-      let ready=true;
-      for(const field of virtualFields){
-        const cacheKey=popupQuartileCacheKey(field);
-        const vals=state.popupQuartileDistributionCache.get(cacheKey);
-        if(vals){caches.set(field.formula,vals);continue;}
-        ready=false;
-      }
-      if(!ready){
-        const computed=new Map(virtualFields.map(f=>[f.formula,[]]));
-        const chunk=12;
-        for(let start=0;start<state.rows.length;start+=chunk){
-          const end=Math.min(state.rows.length,start+chunk);
+    if(includeVirtual&&virtualFields.length){
+      const missing=virtualFields.filter(field=>!state.popupQuartileDistributionCache.has(popupQuartileCacheKey(field)));
+      if(missing.length){
+        const computed=new Map(missing.map(f=>[f.formula,[]]));
+        for(let start=0;start<state.rows.length;start+=12){
+          if(jobToken!==state.popupRenderToken)return result;
+          const end=Math.min(state.rows.length,start+12);
           for(let i=start;i<end;i++){
-            const row=state.rows[i];
-            const census=await calculatePopupCensusForStore(row,virtualFields);
-            for(const field of virtualFields){
-              const value=popupFieldNumericValue(field,row,census);
+            if(jobToken!==state.popupRenderToken)return result;
+            const census=await calculatePopupCensusForStore(state.rows[i],missing);
+            if(jobToken!==state.popupRenderToken)return result;
+            for(const field of missing){
+              const value=popupFieldNumericValue(field,state.rows[i],census);
               if(Number.isFinite(value))computed.get(field.formula).push(value);
             }
           }
           if(end<state.rows.length)await new Promise(r=>setTimeout(r,0));
         }
-        for(const field of virtualFields){
+        for(const field of missing){
           const vals=computed.get(field.formula).sort((a,b)=>a-b);
           state.popupQuartileDistributionCache.set(popupQuartileCacheKey(field),vals);
-          caches.set(field.formula,vals);
         }
       }
       for(const field of virtualFields){
-        const vals=caches.get(field.formula)||state.popupQuartileDistributionCache.get(popupQuartileCacheKey(field))||[];
+        if(jobToken!==state.popupRenderToken)return result;
+        const vals=state.popupQuartileDistributionCache.get(popupQuartileCacheKey(field))||[];
         const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
         result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
       }
     }
-    state.popupQuartileValues=result;return result;
+    if(jobToken===state.popupRenderToken)state.popupQuartileValues=result;
+    return result;
   }
   function popupFieldNumericValue(field,row,censusValues){
     if(isPopupVirtualOperand(field.formula))return Number(censusValues?.[field.formula]);
@@ -2169,45 +2189,44 @@
     const row=marker.__row;
     const token=++state.popupRenderToken;
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
-    const hasPopulationWork=hasPopupVirtualFields()||popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
-    if(hasPopulationWork)await showPopulationCalcStatus();
+    const hasVirtual=hasPopupVirtualFields();
+    if(hasVirtual)await showPopulationCalcStatus();
     try{
-      const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
       const c=state.columns;
       const lat=toNumber(row[c?.lat]), lng=toNumber(row[c?.lon]);
+      const valuesPromise=hasVirtual?calculatePopupCensusForStore(row,popupItems()):Promise.resolve({});
       const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,state.popupAmenityRadius).catch(()=>null):Promise.resolve(null);
       const values=await valuesPromise;
-      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      const hasVirtualQuartiles=popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
-      await computePopupQuartiles(row,{includeVirtual:false});
       const amenityProfile=await amenityPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      // Render immediately from cached quartiles. Quartile distributions are no longer on the critical path.
+      state.popupQuartileValues={};
+      const quartileFields=popupQuartileConfigFields();
+      for(const field of quartileFields){
+        const vals=state.popupQuartileDistributionCache.get(popupQuartileCacheKey(field));
+        const selectedValue=popupFieldNumericValue(field,row,values);
+        state.popupQuartileValues[field.formula]=(vals&&vals.length&&Number.isFinite(selectedValue))?popupQuartileRank(vals,selectedValue):null;
+      }
       storePopupCard.innerHTML=await popupCardContent(row,values,amenityProfile);
       wirePopupCardActions(marker);
-      if(hasVirtualQuartiles){
-        void computePopupQuartiles(row,{includeVirtual:true}).then(()=>{
-          if(state.openPopupMarker!==marker||token!==state.popupRenderToken)return;
-          const q=renderPopupQuartileBar(row,popupQuartileConfigFields());
-          const existing=storePopupCard.querySelector('.store-popup-quartile');
-          if(existing){const tmp=document.createElement('div');tmp.innerHTML=q;existing.replaceWith(tmp.firstElementChild);requestStorePopupLayout();}
-        }).catch(err=>console.error('Store popup virtual quartile calculation failed:',err));
-      }
-    requestStorePopupLayout();
-    requestAnimationFrame(()=>{
       requestStorePopupLayout();
-      requestAnimationFrame(()=>{
-        requestStorePopupLayout();
-        if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
-      });
-    });
-    setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
+      requestAnimationFrame(()=>requestStorePopupLayout());
       startPopupTicker();
-    } catch(err) {
-      console.error('Store popup render failed:', err);
+      // Build any missing quartile distributions in the background. Closing or changing markers invalidates the job token.
+      void computePopupQuartiles(row,{includeVirtual:true,selectedCensus:values,jobToken:token}).then(()=>{
+        if(state.openPopupMarker!==marker||token!==state.popupRenderToken)return;
+        const q=renderPopupQuartileBar(row,popupQuartileConfigFields());
+        const existing=storePopupCard.querySelector('.store-popup-quartile');
+        if(existing){const tmp=document.createElement('div');tmp.innerHTML=q;existing.replaceWith(tmp.firstElementChild);requestStorePopupLayout();}
+      }).catch(err=>console.error('Store popup quartile calculation failed:',err));
+    } catch(err){
+      console.error('Store popup render failed:',err);
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       storePopupCard.innerHTML='<div class="store-popup-error">Unable to render store information.</div>';
-      if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
+      wirePopupCardActions(marker);
+      requestStorePopupLayout();
     } finally {
-      if(hasPopulationWork)hidePopulationCalcStatus();
+      if(hasVirtual)hidePopulationCalcStatus();
     }
   }
   function wirePopupCardActions(marker){
@@ -5525,15 +5544,33 @@
   }
   function validatePopupTabDrafts(){
     const tabs=state.primaryTabs||[];for(let i=0;i<tabs.length;i++){const cfg=state.popupTabConfigDraft[i],tab=tabs[i];for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=normalizePopupTabCell(cfg.cells[r][c],{primary:i===0});if(cell.type==='formula'){const issue=popupFormulaIssueForHeaders(cell.content,tab.headers||[],{allowVirtual:i===0});if(issue)return `${tab.name}: ${popupCellLabel(r,c)} ${issue}`;}if(cell.type==='value'&&!cell.source)return `${tab.name}: ${popupCellLabel(r,c)} needs a source column.`;}}return '';}
-  function syncLegacyPopupConfigFromTabs(){state.popupConfig=popupPrimaryConfiguredFields().map(f=>({type:'formula',column:f.column||'',formula:f.formula,title:f.title,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:f.quartile}));}
-  async function applyPopupConfig(){const error=validatePopupTabDrafts();if(error){alert(error);return;}const quartileChanged=!!state.popupQuartileDraftChanged;state.popupTabConfigs=clonePopupTabConfigs(state.popupTabConfigDraft).map((cfg,i)=>normalizePopupTabConfig(cfg,state.primaryTabs[i],i));state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;syncLegacyPopupConfigFromTabs();if(quartileChanged)state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupTabConfigs();savePopupConfig();savePopupHeaderConfig();refreshConfigUI();if(state.openPopupMarker)await refreshOpenPopupCard();el('popupDialog').close();}
+  function syncLegacyPopupConfigFromTabs(){
+    // Migration compatibility only. The unified tab configuration is the source of truth.
+    state.popupConfig=popupPrimaryConfiguredFields().map(f=>({type:'formula',column:f.column||'',formula:f.formula,title:f.title,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:f.quartile}));
+  }
+  async function applyPopupConfig(){
+    const error=validatePopupTabDrafts();
+    if(error){alert(error);return;}
+    const quartileChanged=!!state.popupQuartileDraftChanged;
+    state.popupTabConfigs=clonePopupTabConfigs(state.popupTabConfigDraft).map((cfg,i)=>normalizePopupTabConfig(cfg,state.primaryTabs[i],i));
+    state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;
+    if(quartileChanged)state.popupQuartileDistributionCache.clear();
+    state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);
+    savePopupTabConfigs();savePopupHeaderConfig();
+    syncLegacyPopupConfigFromTabs();savePopupConfig();
+    refreshConfigUI();
+    if(state.openPopupMarker) await refreshOpenPopupCard();
+    el('popupDialog').close();
+  }
   function resetPopupDefaults(){
     const tabs=state.primaryTabs||[];state.popupTabConfigDraft=tabs.map((tab,i)=>popupTabDefaultFromLegacy(tab,i));state.popupTabSelected={};state.popupTabDraftDirty=true;state.popupQuartileDraftChanged=true;renderPopupConfig();
   }
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
     if(!state.popupHeader)loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
-    if(!state.popupTabConfigs?.length)loadPopupTabConfigs();state.popupTabConfigDraft=clonePopupTabConfigs(state.popupTabConfigs);state.popupTabSelected={};state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;
+    if(!state.popupTabConfigs?.length)loadPopupTabConfigs();
+    state.popupTabConfigs=state.popupTabConfigs.map((cfg,i)=>i===0?ensureTab1VirtualFields(cfg):cfg);
+    state.popupTabConfigDraft=clonePopupTabConfigs(state.popupTabConfigs);state.popupTabSelected={};state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;
     renderPopupHeaderConfig();bindPopupHeaderConfig();
     const amenityRadiusInput=el('popupAmenityRadius');if(amenityRadiusInput)amenityRadiusInput.value=Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1);
     state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));renderPopupConfig();el('popupDialog').showModal();
