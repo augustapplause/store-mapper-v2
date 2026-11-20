@@ -1349,7 +1349,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-pie-legend{display:none!important}
 .rx-site-analysis-precedent{display:none!important}
 
-/* v1.289: unified popup worksheet grid editor; legacy popup engine remains the calculation/rendering layer. */
+/* v1.290: unified popup worksheet grid editor; legacy popup engine remains the calculation/rendering layer. */
 .popup-tab-config-sections{display:flex;flex-direction:column;gap:12px;padding:14px 17px;overflow:auto;min-height:0;max-height:58vh;}
 .popup-tab-config-box{border:1px solid var(--line);padding:10px;background:#fff;display:flex;flex-direction:column;gap:10px;min-width:0;}
 .popup-tab-config-box.odd{background:#f7fafc}.popup-tab-config-box.even{background:#fff}
@@ -1366,3 +1366,23 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-configured-tab-grid td{border:1px solid #dfe6eb;padding:6px 8px;white-space:nowrap;min-width:100px;background:#fff}
 .popup-configured-tab-note{font-size:10px;color:var(--muted);margin-top:4px}
 .popup-tab-config-box .subject-canvas-cell.range-selected{background:#e8f2f9;}
+
+/* v1.290 popup configuration refinements */
+.popup-tab-config-box.odd{background:#fff7cc}.popup-tab-config-box.even{background:#fff}
+.popup-tab-config-head strong{font-weight:600}
+.popup-tab-config-head .small{font-weight:600}
+.popup-tab-subtitle,.popup-configured-tab-title{font-weight:600}
+.popup-config-dialog .subject-cell-editor-title-row strong{font-weight:600}
+.popup-config-dialog .subject-cell-editor-grid label{font-weight:600}
+.popup-config-dialog .subject-canvas-title{font-weight:600}
+.popup-config-dialog .subject-table-edit-actions .subject-canvas-add-zone{font-weight:600}
+.popup-config-dialog .popup-marker-filter{font-weight:600}
+.popup-config-dialog .popup-header-config-title,.popup-config-dialog .popup-header-config-grid>label,.popup-config-dialog .popup-ticker-config-head{font-weight:600}
+.popup-config-dialog .popup-amenity-radius-control{font-weight:600}
+.popup-config-dialog .subject-cell-editor-grid{grid-template-columns:145px 210px minmax(380px,1fr) 44px 31px 95px}
+.popup-config-dialog .subject-cell-editor-grid label:nth-child(3){min-width:0}
+.popup-tab-canvas-row-wrap{display:grid;grid-template-columns:30px max-content;min-width:max-content}
+.popup-row-quartile-toggle{display:flex;align-items:center;justify-content:center;width:30px;min-width:30px;border-right:1px solid #cfd8df;background:#fff;font-size:10px;font-weight:600;color:var(--muted);cursor:pointer}
+.popup-row-quartile-toggle input{width:15px;height:15px;margin:0;cursor:pointer}
+.popup-row-quartile-toggle:hover{background:#f7fafc}
+@media (max-width:900px){.popup-config-dialog .subject-cell-editor-grid{grid-template-columns:1fr 1fr 2fr}.popup-config-dialog .subject-cell-editor-grid label:nth-child(3){grid-column:1 / -1}}
