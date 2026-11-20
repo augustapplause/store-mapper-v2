@@ -741,9 +741,12 @@
     return {headers:first.headers,rows:first.rows,headerIndex:first.headerIndex,sheets};
   }
   function detectHeaderRow(matrix){
+    const keyNames=['store profile number','store profile #','store profile no','store number','store no','store id'];
+    for(let i=0;i<Math.min(50,matrix.length);i++){const cells=(matrix[i]||[]).map(v=>norm(v));if(cells.some(c=>keyNames.includes(c)||c.includes('store profile number')))return i;}
     const tokens=['province','city','location','store concept','location type','gross area','total sales','store 4 wall profit','ebit','latitude','longitude'];let best={i:0,score:-1};
     matrix.slice(0,30).forEach((row,i)=>{const cells=(row||[]).map(v=>norm(v));const nonempty=cells.filter(Boolean).length;const hits=tokens.filter(t=>cells.some(c=>c.includes(t))).length;const score=hits*100+nonempty;if(score>best.score)best={i,score};});return best.i;
   }
+
   function dedupeHeaders(headers){const seen={};return headers.map(h=>{seen[h]=(seen[h]||0)+1;return seen[h]===1?h:`${h} (${seen[h]})`;});}
   function detectColumns(headers,rows){
     const lookup=headers.map(h=>({h,n:norm(h)}));const findExact=terms=>lookup.find(x=>terms.includes(x.n))?.h||null;const findContains=terms=>lookup.find(x=>terms.some(t=>x.n===t||x.n.includes(t)))?.h||null;
@@ -1844,7 +1847,8 @@
     }
     return out.filter(f=>f.formula);
   }
-  function popupItems(){return popupPrimaryConfiguredFields();}
+  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);}
+
   function popupTabHeaders(tab){return tab?.headers||[];}
   function exactPopupOperandAt(expr,index,headers){
     const text=String(expr||'').slice(index);
@@ -1986,8 +1990,8 @@
   async function popupCardContent(row,censusValues={},amenityProfile=null){
     const c=state.columns;
     const popupFields=popupItems();
-    const needsCensus=false;
-    const values=censusValues||{};
+    const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    const values=needsCensus&&!Object.keys(censusValues).length?await calculatePopupCensusForStore(row):censusValues;
     const header=normalizePopupHeader(state.popupHeader||popupHeaderDefaultConfig());
     const titleA=popupHeaderValue(row,'titleA') || 'Location';
     const titleB=popupHeaderValue(row,'titleB') || '—';
@@ -1999,8 +2003,9 @@
     const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
     const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
-    const dataHtml=popupOutputSectionsHTML(row,values);
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll">${dataHtml}${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
+    for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
+    html+=`</table>${popupOutputSectionsHTML(row,values)}${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -2037,7 +2042,8 @@
     if(isPopupVirtualOperand(formula))return formatTickerValue(Number(censusValues?.[formula]),'auto',formula,0);
     return formatTickerValue(evaluatePopupFormula(formula,row,censusValues),'auto',formula,0);
   }
-  function popupQuartileConfigFields(){return popupPrimaryConfiguredFields().filter(f=>f.formula&&f.quartile);}
+  function popupQuartileConfigFields(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula&&f.quartile);}
+
   function popupQuartileRank(values,value){
     const n=values.length;if(!n||!Number.isFinite(value))return null;
     let lo=0,hi=values.length;
@@ -2073,27 +2079,24 @@
     const node=el('populationCalcStatus');
     if(node)node.classList.add('hidden');
   }
-  async function computePopupQuartiles(selectedRow, options={}){
+  async function computePopupQuartiles(selectedRow){
     const fields=popupQuartileConfigFields();
     const result={};
     if(!fields.length||!state.rows.length){state.popupQuartileValues=result;return result;}
-    const jobToken=Number(options.jobToken??state.popupRenderToken);
-    const includeVirtual=options.includeVirtual!==false;
-    const virtualFields=fields.filter(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
-    const directFields=fields.filter(f=>!virtualFields.includes(f));
-    const selectedCensus=options.selectedCensus||{};
-
-    for(const field of directFields){
-      if(jobToken!==state.popupRenderToken)return result;
+    const selectedCensus=hasPopupVirtualFields()?await calculatePopupCensusForStore(selectedRow,fields):{};
+    for(const field of fields){
       const cacheKey=popupQuartileCacheKey(field);
       let vals=state.popupQuartileDistributionCache.get(cacheKey);
       if(!vals){
+        const virtualNeeded=!!(tokenizePopup(field.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value));
         const computed=[];
-        for(let start=0;start<state.rows.length;start+=80){
-          if(jobToken!==state.popupRenderToken)return result;
-          const end=Math.min(state.rows.length,start+80);
+        const chunk=20;
+        for(let start=0;start<state.rows.length;start+=chunk){
+          const end=Math.min(state.rows.length,start+chunk);
           for(let i=start;i<end;i++){
-            const value=popupFieldNumericValue(field,state.rows[i],{});
+            const row=state.rows[i];
+            const census=virtualNeeded?await calculatePopupCensusForStore(row,[field]):{};
+            const value=popupFieldNumericValue(field,row,census);
             if(Number.isFinite(value))computed.push(value);
           }
           if(end<state.rows.length)await new Promise(r=>setTimeout(r,0));
@@ -2104,39 +2107,7 @@
       const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
       result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
     }
-
-    if(includeVirtual&&virtualFields.length){
-      const missing=virtualFields.filter(field=>!state.popupQuartileDistributionCache.has(popupQuartileCacheKey(field)));
-      if(missing.length){
-        const computed=new Map(missing.map(f=>[f.formula,[]]));
-        for(let start=0;start<state.rows.length;start+=12){
-          if(jobToken!==state.popupRenderToken)return result;
-          const end=Math.min(state.rows.length,start+12);
-          for(let i=start;i<end;i++){
-            if(jobToken!==state.popupRenderToken)return result;
-            const census=await calculatePopupCensusForStore(state.rows[i],missing);
-            if(jobToken!==state.popupRenderToken)return result;
-            for(const field of missing){
-              const value=popupFieldNumericValue(field,state.rows[i],census);
-              if(Number.isFinite(value))computed.get(field.formula).push(value);
-            }
-          }
-          if(end<state.rows.length)await new Promise(r=>setTimeout(r,0));
-        }
-        for(const field of missing){
-          const vals=computed.get(field.formula).sort((a,b)=>a-b);
-          state.popupQuartileDistributionCache.set(popupQuartileCacheKey(field),vals);
-        }
-      }
-      for(const field of virtualFields){
-        if(jobToken!==state.popupRenderToken)return result;
-        const vals=state.popupQuartileDistributionCache.get(popupQuartileCacheKey(field))||[];
-        const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
-        result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
-      }
-    }
-    if(jobToken===state.popupRenderToken)state.popupQuartileValues=result;
-    return result;
+    state.popupQuartileValues=result;return result;
   }
   function popupFieldNumericValue(field,row,censusValues){
     if(isPopupVirtualOperand(field.formula))return Number(censusValues?.[field.formula]);
@@ -2189,44 +2160,32 @@
     const row=marker.__row;
     const token=++state.popupRenderToken;
     storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
-    const hasVirtual=hasPopupVirtualFields();
-    if(hasVirtual)await showPopulationCalcStatus();
+    const hasPopulationWork=hasPopupVirtualFields()||popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    if(hasPopulationWork)await showPopulationCalcStatus();
     try{
+      const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
       const c=state.columns;
       const lat=toNumber(row[c?.lat]), lng=toNumber(row[c?.lon]);
-      const valuesPromise=hasVirtual?calculatePopupCensusForStore(row,popupItems()):Promise.resolve({});
       const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,state.popupAmenityRadius).catch(()=>null):Promise.resolve(null);
       const values=await valuesPromise;
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      await computePopupQuartiles(row);
       const amenityProfile=await amenityPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      // Render immediately from cached quartiles. Quartile distributions are no longer on the critical path.
-      state.popupQuartileValues={};
-      const quartileFields=popupQuartileConfigFields();
-      for(const field of quartileFields){
-        const vals=state.popupQuartileDistributionCache.get(popupQuartileCacheKey(field));
-        const selectedValue=popupFieldNumericValue(field,row,values);
-        state.popupQuartileValues[field.formula]=(vals&&vals.length&&Number.isFinite(selectedValue))?popupQuartileRank(vals,selectedValue):null;
-      }
       storePopupCard.innerHTML=await popupCardContent(row,values,amenityProfile);
       wirePopupCardActions(marker);
+    requestStorePopupLayout();
+    requestAnimationFrame(()=>{
       requestStorePopupLayout();
-      requestAnimationFrame(()=>requestStorePopupLayout());
+      requestAnimationFrame(()=>{
+        requestStorePopupLayout();
+        if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
+      });
+    });
+    setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
       startPopupTicker();
-      // Build any missing quartile distributions in the background. Closing or changing markers invalidates the job token.
-      void computePopupQuartiles(row,{includeVirtual:true,selectedCensus:values,jobToken:token}).then(()=>{
-        if(state.openPopupMarker!==marker||token!==state.popupRenderToken)return;
-        const q=renderPopupQuartileBar(row,popupQuartileConfigFields());
-        const existing=storePopupCard.querySelector('.store-popup-quartile');
-        if(existing){const tmp=document.createElement('div');tmp.innerHTML=q;existing.replaceWith(tmp.firstElementChild);requestStorePopupLayout();}
-      }).catch(err=>console.error('Store popup quartile calculation failed:',err));
-    } catch(err){
-      console.error('Store popup render failed:',err);
-      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      storePopupCard.innerHTML='<div class="store-popup-error">Unable to render store information.</div>';
-      wirePopupCardActions(marker);
-      requestStorePopupLayout();
     } finally {
-      if(hasVirtual)hidePopulationCalcStatus();
+      if(hasPopulationWork)hidePopulationCalcStatus();
     }
   }
   function wirePopupCardActions(marker){
