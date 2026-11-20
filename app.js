@@ -1817,6 +1817,38 @@
   }
   function popupTabEvaluateFormula(formula,values,headers){const tokens=popupTabTokenize(formula,headers);if(!tokens)return NaN;const ops=[],vals=[],prec=o=>(o==='+'||o==='-')?1:2;const apply=()=>{const op=ops.pop(),b=vals.pop(),a=vals.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){vals.push(NaN);return;}vals.push(op==='+'?a+b:op==='-'?a-b:op==='*'?a*b:b===0?NaN:a/b);};for(const t of tokens){if(t.type==='operand'){vals.push(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)?Number(t.value):Number(values[t.value]));continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)==='(')ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length)apply();return vals.length===1?vals[0]:NaN;}
   function popupTabAggregate(rows,cell,headers){const f=String(cell.content||'').trim();if(!f)return '';if(headers.includes(f)){if(cell.aggregation==='count')return rows.length.toLocaleString('en-CA');const nums=rows.map(r=>toNumber(r[f])).filter(v=>Number.isFinite(v));if(!nums.length)return '—';const v=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);return formatTickerValue(v,cell.numberFormat,f,cell.decimalPlaces);}const values={};for(const h of headers){const nums=rows.map(r=>toNumber(r[h])).filter(v=>Number.isFinite(v));if(nums.length)values[h]=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);}return formatTickerValue(popupTabEvaluateFormula(f,values,headers),cell.numberFormat,f,cell.decimalPlaces);}
+  function popupFilterMatches(row, filter){
+    if(!filter || !filter.column)return true;
+    const operator=String(filter.operator||'=');
+    const actual=row?.[filter.column];
+    const target=filter.value;
+    if(operator==='=')return norm(actual)===norm(target);
+    const aNum=toNumber(actual),tNum=toNumber(target);
+    if(Number.isFinite(aNum)&&Number.isFinite(tNum)){
+      if(operator==='<')return aNum<tNum;
+      if(operator==='<=' )return aNum<=tNum;
+      if(operator==='>')return aNum>tNum;
+      if(operator==='>=')return aNum>=tNum;
+      return false;
+    }
+    const a=String(actual??'').trim(),b=String(target??'').trim();
+    if(operator==='<')return a<b;
+    if(operator==='<=' )return a<=b;
+    if(operator==='>')return a>b;
+    if(operator==='>=')return a>=b;
+    return false;
+  }
+  function popupConfiguredGridColumnTemplate(rows, cells){
+    const widths=Array.from({length:Math.max(1, cells)},()=>72);
+    for(const row of rows){
+      for(let c=0;c<cells;c++){
+        const text=String(row?.[c]??'');
+        const estimate=Math.max(72,Math.min(300,Math.round(text.length*7.1+28)));
+        if(estimate>widths[c])widths[c]=estimate;
+      }
+    }
+    return widths.map(w=>`${w}px`).join(' ');
+  }
   async function popupConfiguredExtraTabsHtml(row){
     const configs=state.popupTabConfigs||[];
     if(configs.length<2)return '';
@@ -1825,20 +1857,26 @@
     for(let i=1;i<configs.length;i++){
       const cfg=configs[i],tab=state.primaryTabs?.[i];
       if(!cfg||!tab||!cfg.grid||!cfg.grid.cells.some(r=>r.some(c=>String(c?.content||'').trim())))continue;
-      let rows=tab.rows||[];
+      const grid=normalizePopupGrid(cfg.grid);
+      let baseRows=tab.rows||[];
       const key=tab.storeProfileHeader||tab.headers.find(h=>norm(h)==='store profile number');
-      if(cfg.filterOnProfile&&key)rows=rows.filter(r=>String(r[key]??'').trim()===profileValue);
-      for(const f of (cfg.filters||[]).filter(x=>x?.column))rows=rows.filter(r=>norm(r[f.column])===norm(f.value));
-      let table='<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">'+esc(cfg.name)+'</div><div class="popup-configured-tab-grid" style="--popup-output-cols:'+cfg.grid.cols+'">';
-      for(const r of cfg.grid.cells){
-        const hasContent=r.some(raw=>String(raw?.content??'').trim()!=='');
-        if(!hasContent)continue;
-        table+='<div class="popup-configured-tab-grid-row">';
-        for(const raw of r){const c=normalizePopupGridCell(raw);const value=c.type==='text'?String(c.content||''):popupTabAggregate(rows,c,tab.headers);table+='<div class="popup-configured-tab-grid-cell">'+esc(value)+'</div>';}
-        table+='</div>';
+      if(cfg.filterOnProfile&&key)baseRows=baseRows.filter(r=>String(r[key]??'').trim()===profileValue);
+      const activeFilters=Array.isArray(cfg.filters)?cfg.filters.filter(f=>f&&f.column):[];
+      const rendered=[];
+      const allOutputRows=[];
+      for(let r=0;r<grid.rows;r++){
+        const rowCells=grid.cells[r]||[];
+        if(!rowCells.some(raw=>String(raw?.content??'').trim()!==''))continue;
+        const rowId=grid.rowIds?.[r];
+        const scoped=activeFilters.filter(f=>!f.scope||f.scope==='all'||(f.scope==='row'&&f.rowId===rowId));
+        const rowsForOutput=baseRows.filter(sourceRow=>scoped.every(f=>popupFilterMatches(sourceRow,f)));
+        const values=rowCells.map(raw=>{const c=normalizePopupGridCell(raw);return c.type==='text'?String(c.content||''):popupTabAggregate(rowsForOutput,c,tab.headers);});
+        rendered.push(values); allOutputRows.push(rowsForOutput.length);
       }
-      table+='</div><div class="popup-configured-tab-note">'+rows.length.toLocaleString('en-CA')+' matching rows</div></div>';
-      html+=table;
+      const colTemplate=popupConfiguredGridColumnTemplate(rendered,grid.cols);
+      const maxMatches=allOutputRows.length?Math.max(...allOutputRows):0;
+      const gridHtml=rendered.map(values=>`<div class="popup-configured-tab-grid-row">${values.map(value=>`<div class="popup-configured-tab-grid-cell">${esc(value)}</div>`).join('')}</div>`).join('');
+      html+=`<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">${esc(cfg.name)}</div><div class="popup-configured-tab-grid" style="--popup-output-cols:${grid.cols};--popup-output-template:${colTemplate}">${gridHtml}</div><div class="popup-configured-tab-note">${maxMatches.toLocaleString('en-CA')} matching rows</div></div>`;
     }
     return html;
   }
@@ -5288,16 +5326,18 @@
   // ---------- Popup configuration ----------
   const POPUP_TABS_STORAGE_KEY='storeExplorer.popupTabs.v1';
   const POPUP_TAB_ROWS_DEFAULT=5, POPUP_TAB_COLS_DEFAULT=3;
+  let popupGridRowSeq=0;
+  function makePopupGridRowId(){popupGridRowSeq+=1;return `popup-row-${Date.now().toString(36)}-${popupGridRowSeq}`;}
   function blankPopupGridCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'sum',quartile:false};}
-  function makePopupGrid(rows=POPUP_TAB_ROWS_DEFAULT,cols=POPUP_TAB_COLS_DEFAULT){return {rows,cols,cells:Array.from({length:rows},()=>Array.from({length:cols},()=>blankPopupGridCell())),quartileRows:Array.from({length:rows},()=>false)};}
+  function makePopupGrid(rows=POPUP_TAB_ROWS_DEFAULT,cols=POPUP_TAB_COLS_DEFAULT){return {rows,cols,cells:Array.from({length:rows},()=>Array.from({length:cols},()=>blankPopupGridCell())),rowIds:Array.from({length:rows},()=>makePopupGridRowId()),quartileRows:Array.from({length:rows},()=>false)};}
   function normalizePopupGridCell(c){const type=['text','value','formula'].includes(c?.type)?c.type:'text';const nf=['auto','number','currency','percentage'].includes(c?.numberFormat)?c.numberFormat:'auto';const d=Number(c?.decimalPlaces);return {type,content:String(c?.content??''),numberFormat:nf,decimalPlaces:Number.isInteger(d)&&d>=0&&d<=4?d:defaultTickerDecimals(nf),aggregation:['sum','average','median','count'].includes(c?.aggregation)?c.aggregation:'sum',quartile:!!c?.quartile};}
-  function normalizePopupGrid(g){const rows=Math.max(1,Math.min(30,Number(g?.rows)||POPUP_TAB_ROWS_DEFAULT)),cols=Math.max(1,Math.min(20,Number(g?.cols)||POPUP_TAB_COLS_DEFAULT));const hasRowFlags=Array.isArray(g?.quartileRows);const quartileRows=Array.from({length:rows},(_,r)=>hasRowFlags?!!g.quartileRows[r]:Array.isArray(g?.cells?.[r])&&g.cells[r].some(c=>!!c?.quartile));return {rows,cols,cells:Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizePopupGridCell(g?.cells?.[r]?.[c]))),quartileRows};}
+  function normalizePopupGrid(g){const rows=Math.max(1,Math.min(30,Number(g?.rows)||POPUP_TAB_ROWS_DEFAULT)),cols=Math.max(1,Math.min(20,Number(g?.cols)||POPUP_TAB_COLS_DEFAULT));const hasRowFlags=Array.isArray(g?.quartileRows);const rowIds=Array.from({length:rows},(_,r)=>String(g?.rowIds?.[r]||makePopupGridRowId()));const quartileRows=Array.from({length:rows},(_,r)=>hasRowFlags?!!g.quartileRows[r]:Array.isArray(g?.cells?.[r])&&g.cells[r].some(c=>!!c?.quartile));return {rows,cols,cells:Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizePopupGridCell(g?.cells?.[r]?.[c]))),rowIds,quartileRows};}
   function popupTabDefaultConfig(i){
     const grid=makePopupGrid();
     if(i===0){
       const fields=(state.popupConfig||[]).map(normalizePopupField);
       const wanted=Math.max(grid.rows,fields.length+popupVirtualNames().length);
-      while(grid.rows<wanted){grid.cells.push(Array.from({length:grid.cols},()=>blankPopupGridCell()));grid.quartileRows.push(false);grid.rows++;}
+      while(grid.rows<wanted){grid.cells.push(Array.from({length:grid.cols},()=>blankPopupGridCell()));grid.rowIds.push(makePopupGridRowId());grid.quartileRows.push(false);grid.rows++;}
       fields.forEach((f,r)=>{
         grid.cells[r][0]={type:'text',content:f.title||f.formula};
         grid.cells[r][1]={type:'value',content:f.formula,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,aggregation:'sum',quartile:false};
@@ -5316,12 +5356,12 @@
     const tabs=state.primaryTabs||[];
     state.popupTabConfigs=tabs.map((t,i)=>{
       const fallback=popupTabDefaultConfig(i),saved=Array.isArray(raw)?raw[i]:null;
-      return {name:t.name||`Tab ${i+1}`,filterOnProfile:typeof saved?.filterOnProfile==='boolean'?saved.filterOnProfile:fallback.filterOnProfile,filters:Array.isArray(saved?.filters)?saved.filters.filter(x=>x&&x.column):[],grid:normalizePopupGrid(saved?.grid||fallback.grid)};
+      return {name:t.name||`Tab ${i+1}`,filterOnProfile:typeof saved?.filterOnProfile==='boolean'?saved.filterOnProfile:fallback.filterOnProfile,filters:Array.isArray(saved?.filters)?saved.filters.filter(x=>x&&x.column).map(x=>({column:x.column,value:String(x.value??''),operator:['=','<','<=','>','>='].includes(x.operator)?x.operator:'=',scope:x.scope==='row'&&normalizePopupGrid(saved?.grid||fallback.grid).rowIds.includes(x.rowId)?'row':'all',rowId:x.scope==='row'?x.rowId:''})):[],grid:normalizePopupGrid(saved?.grid||fallback.grid)};
     });
     state.popupTabDrafts=state.popupTabConfigs.map(x=>({name:x.name,filterOnProfile:x.filterOnProfile,filters:x.filters.map(f=>({...f})),grid:normalizePopupGrid(x.grid)}));
   }
   function savePopupTabConfigs(){try{localStorage.setItem(POPUP_TABS_STORAGE_KEY,JSON.stringify(state.popupTabConfigs||[]));}catch(_){} }
-  function addPopupTabFilter(i){const d=state.popupTabDrafts?.[i];if(!d)return;d.filters.push({column:'',value:''});renderPopupTabConfigSections();}
+  function addPopupTabFilter(i){const d=state.popupTabDrafts?.[i];if(!d)return;d.filters.push({column:'',value:'',operator:'=',scope:'all',rowId:''});renderPopupTabConfigSections();}
   function removePopupTabFilter(i,idx){const d=state.popupTabDrafts?.[i];if(!d)return;d.filters.splice(idx,1);renderPopupTabConfigSections();}
   function popupTabSelectedCell(i){const d=state.popupTabDrafts?.[i];if(!d)return null;const r=Math.max(0,Math.min(d.grid.rows-1,state.popupTabSelected?.tab===i?state.popupTabSelected.r:0)),c=Math.max(0,Math.min(d.grid.cols-1,state.popupTabSelected?.tab===i?state.popupTabSelected.c:0));state.popupTabSelected={tab:i,r,c};return {draft:d,cell:d.grid.cells[r][c],r,c};}
   function popupCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
@@ -5341,15 +5381,17 @@
     const host=el('popupTabConfigSections');if(!host)return;host.replaceChildren();
     (state.popupTabDrafts||[]).forEach((tab,i)=>{
       const section=document.createElement('section');section.className=`popup-tab-config-box ${i%2?'odd':'even'}`;section.dataset.tab=i;
-      const filterRows=(tab.filters||[]).map((f,idx)=>`<div class="popup-tab-filter-row"><select data-filter-column="${idx}"><option value="">Choose column</option>${(state.primaryTabs?.[i]?.headers||[]).map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select><input type="text" data-filter-value="${idx}" value="${esc(f.value||'')}" placeholder="Filter value"><button type="button" class="secondary" data-filter-remove="${idx}">×</button></div>`).join('');
+      const gridRows=normalizePopupGrid(tab.grid).rows,gridRowIds=normalizePopupGrid(tab.grid).rowIds||[];const filterRows=(tab.filters||[]).map((f,idx)=>{const scope=f.scope==='row'&&gridRowIds.includes(f.rowId)?'row':'all';const scopeOptions=[`<option value="all" ${scope==='all'?'selected':''}>All rows</option>`,...gridRowIds.map((id,r)=>`<option value="${esc(id)}" ${scope==='row'&&f.rowId===id?'selected':''}>Row ${r+1}</option>`)];const operator=['=','<','<=','>','>='].includes(f.operator)?f.operator:'=';return `<div class="popup-tab-filter-row"><select class="popup-tab-filter-scope" data-filter-scope="${idx}">${scopeOptions.join('')}</select><select data-filter-column="${idx}"><option value="">Choose column</option>${(state.primaryTabs?.[i]?.headers||[]).map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select><select class="popup-tab-filter-operator" data-filter-operator="${idx}">${['=','<','<=','>','>='].map(op=>`<option value="${op}" ${operator===op?'selected':''}>${op}</option>`).join('')}</select><input type="text" data-filter-value="${idx}" value="${esc(f.value||'')}" placeholder="Filter value"><button type="button" class="secondary" data-filter-remove="${idx}">×</button></div>`;}).join('');
       section.innerHTML=`<div class="popup-tab-config-head"><div><strong>Tab: ${esc(tab.name)}</strong><span class="small muted">${i===0?'Primary store data':'Additional worksheet'}</span></div><label class="popup-marker-filter"><input type="checkbox" data-profile-filter="1" ${tab.filterOnProfile?'checked':''}> Filter on marker store profile#</label></div>${i>0?`<div class="popup-tab-filters"><div class="popup-tab-subtitle">Additional filters — AND together</div>${filterRows}<button type="button" class="secondary" data-filter-add="1">+ Add filter</button></div>`:''}<div class="subject-cell-editor popup-grid-editor"><div class="subject-cell-editor-title-row"><div><strong>Edit cell</strong> <span data-role="cell-label" class="small muted">A1</span></div>${i===0?'<div class="small muted">Tab 1 only: value/formula cells may be included in quartiles.</div>':''}</div><div class="subject-cell-editor-grid"><label>Type<select data-role="cell-type"><option value="text">Text</option><option value="value">Value</option><option value="formula">Formula</option></select></label><label data-role="cell-column-wrap">Choose column<select data-role="cell-column"></select></label><label class="subject-cell-expression-field">Value / Formula<input data-role="cell-expression" type="text" autocomplete="off" placeholder="Enter text, value, or formula"></label><label>Number format<select data-role="cell-format"><option value="auto">Auto</option><option value="number">Number</option><option value="currency">Currency</option><option value="percentage">Percentage</option></select></label><label>Decimals<select data-role="cell-decimals"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label><label>Aggregation<select data-role="cell-aggregation"><option value="sum">Sum</option><option value="average">Average</option><option value="median">Median</option><option value="count">Count</option></select></label></div><div class="subject-table-edit-actions"><button type="button" class="subject-canvas-add-zone" data-add-row="1">＋ Add row</button><button type="button" class="subject-canvas-add-zone" data-add-col="1">＋ Add column</button><button type="button" class="subject-canvas-add-zone popup-grid-clear-btn" data-clear-selection="1">Clear</button></div></div><div class="subject-canvas-wrap"><div class="subject-canvas-title">Configured output grid</div><div class="subject-canvas-scroll"><div class="popup-tab-grid-surface"><div class="popup-tab-quartile-rail${i===0?'':' is-hidden'}" aria-hidden="${i===0?'false':'true'}"></div><div class="subject-canvas popup-tab-canvas" role="grid"></div></div></div></div>`;
       host.appendChild(section);popupTabRenderGrid(section,i);
       section.querySelector('[data-profile-filter]').addEventListener('change',e=>state.popupTabDrafts[i].filterOnProfile=!!e.target.checked);
-      section.querySelector('[data-filter-add]')?.addEventListener('click',()=>{state.popupTabDrafts[i].filters.push({column:'',value:''});renderPopupTabConfigSections();});
+      section.querySelector('[data-filter-add]')?.addEventListener('click',()=>{state.popupTabDrafts[i].filters.push({column:'',value:'',operator:'=',scope:'all',rowId:''});renderPopupTabConfigSections();});
+      section.querySelectorAll('[data-filter-scope]').forEach(n=>n.addEventListener('change',e=>{const f=state.popupTabDrafts[i].filters[Number(e.target.dataset.filterScope)];if(!f)return;const value=e.target.value;f.scope=value==='all'?'all':'row';f.rowId=value==='all'?'':value;}));
       section.querySelectorAll('[data-filter-column]').forEach(n=>n.addEventListener('change',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterColumn)].column=e.target.value));
+      section.querySelectorAll('[data-filter-operator]').forEach(n=>n.addEventListener('change',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterOperator)].operator=e.target.value));
       section.querySelectorAll('[data-filter-value]').forEach(n=>n.addEventListener('input',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterValue)].value=e.target.value));
       section.querySelectorAll('[data-filter-remove]').forEach(n=>n.addEventListener('click',()=>removePopupTabFilter(i,Number(n.dataset.filterRemove))));
-      section.querySelector('[data-add-row]').addEventListener('click',()=>{const d=state.popupTabDrafts[i];d.grid.rows++;d.grid.cells.push(Array.from({length:d.grid.cols},()=>blankPopupGridCell()));if(!Array.isArray(d.grid.quartileRows))d.grid.quartileRows=[];d.grid.quartileRows.push(false);popupTabRenderGrid(section,i);});
+      section.querySelector('[data-add-row]').addEventListener('click',()=>{const d=state.popupTabDrafts[i];d.grid.rows++;d.grid.cells.push(Array.from({length:d.grid.cols},()=>blankPopupGridCell()));d.grid.rowIds=Array.isArray(d.grid.rowIds)?d.grid.rowIds:[];d.grid.rowIds.push(makePopupGridRowId());if(!Array.isArray(d.grid.quartileRows))d.grid.quartileRows=[];d.grid.quartileRows.push(false);renderPopupTabConfigSections();});
       section.querySelector('[data-add-col]').addEventListener('click',()=>{const d=state.popupTabDrafts[i];d.grid.cols++;d.grid.cells.forEach(r=>r.push(blankPopupGridCell()));popupTabRenderGrid(section,i);});
       section.querySelector('[data-clear-selection]').addEventListener('click',()=>{const d=state.popupTabDrafts[i],anchor=state.popupTabSelectionAnchor?.tab===i?state.popupTabSelectionAnchor:{tab:i,r:0,c:0},selected=state.popupTabSelected?.tab===i?state.popupTabSelected:{tab:i,r:0,c:0},minR=Math.min(anchor.r,selected.r),maxR=Math.max(anchor.r,selected.r),minC=Math.min(anchor.c,selected.c),maxC=Math.max(anchor.c,selected.c);for(let rr=minR;rr<=maxR;rr++)for(let cc=minC;cc<=maxC;cc++)d.grid.cells[rr][cc]=blankPopupGridCell();popupTabRenderGrid(section,i);});
       section.querySelector('[data-role="cell-type"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i);z.cell.type=e.target.value;if(z.cell.type==='text')z.cell.quartile=false;popupTabRenderGrid(section,i);});
@@ -5367,7 +5409,7 @@
   }
   function applyPopupConfig(){
     const next=popupTabGridToLegacyFields();if(!next.length){alert('Tab 1 needs at least one Value or Formula cell.');return;}
-    state.popupConfig=next;state.popupConfigDraft=next.map(normalizePopupField);state.popupQuartileDraftChanged=true;state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupConfig();savePopupHeaderConfig();state.popupTabConfigs=(state.popupTabDrafts||[]).map(t=>({name:t.name,filterOnProfile:!!t.filterOnProfile,filters:(t.filters||[]).filter(f=>f&&f.column).map(f=>({column:f.column,value:String(f.value??'')})),grid:normalizePopupGrid(t.grid)}));savePopupTabConfigs();refreshConfigUI();if(state.openPopupMarker){refreshOpenPopupCard().catch(err=>console.error('Popup refresh failed after save',err));}el('popupDialog').close();
+    state.popupConfig=next;state.popupConfigDraft=next.map(normalizePopupField);state.popupQuartileDraftChanged=true;state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupConfig();savePopupHeaderConfig();state.popupTabConfigs=(state.popupTabDrafts||[]).map(t=>({name:t.name,filterOnProfile:!!t.filterOnProfile,filters:(t.filters||[]).filter(f=>f&&f.column&&((f.scope||'all')==='all'||normalizePopupGrid(t.grid).rowIds.includes(f.rowId))).map(f=>({column:f.column,value:String(f.value??''),operator:['=','<','<=','>','>='].includes(f.operator)?f.operator:'=',scope:f.scope==='row'?'row':'all',rowId:f.scope==='row'?f.rowId:''})),grid:normalizePopupGrid(t.grid)}));savePopupTabConfigs();refreshConfigUI();if(state.openPopupMarker){refreshOpenPopupCard().catch(err=>console.error('Popup refresh failed after save',err));}el('popupDialog').close();
   }
   function resetPopupDefaults(){loadPopupConfig();loadPopupTabConfigs();state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};renderPopupTabConfigSections();}
 

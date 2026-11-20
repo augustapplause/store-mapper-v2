@@ -1358,8 +1358,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-grid-editor{margin:0;background:rgba(255,255,255,.76)}.popup-tab-config-box .subject-canvas-scroll{max-height:240px;overflow:auto}.popup-tab-config-box .subject-canvas-row{grid-template-columns:repeat(var(--popup-cols),minmax(155px,1fr));min-width:max-content}.popup-tab-config-box .subject-canvas-cell{min-width:155px}
 .popup-tab-filters{display:flex;flex-direction:column;gap:7px;padding:8px 10px;border:1px solid var(--line);background:rgba(255,255,255,.6)}
 .popup-tab-subtitle{font-size:11px;font-weight:800;color:var(--navy)}
-.popup-tab-filter-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(120px,1fr) 32px;gap:6px;align-items:center}
+.popup-tab-filter-row{display:grid;grid-template-columns:minmax(110px,180px) 36px minmax(150px,1fr) 32px;gap:6px;align-items:center}
 .popup-tab-filter-row select,.popup-tab-filter-row input{min-width:0;font-size:12px;padding:7px 8px;border:1px solid var(--line);background:#fff;color:var(--text)}
+.popup-tab-filter-row .popup-tab-filter-scope{font-weight:600;color:var(--navy)}
 .popup-configured-tab-grid-wrap{margin-top:10px;border-top:1px solid var(--line);padding-top:9px;overflow-x:auto;max-width:100%}
 .popup-configured-tab-title{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:6px}
 .popup-configured-tab-grid{border-collapse:collapse;min-width:max-content;width:100%;font-size:12px}
@@ -1412,9 +1413,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-grid-clear-btn:hover{background:#edf3f7;}
 .popup-config-dialog .subject-table-edit-actions{flex-wrap:wrap;}
 .popup-configured-tab-grid-wrap{overflow-x:auto;max-width:100%;min-width:0;}
-.popup-configured-tab-grid{display:grid;grid-template-columns:repeat(var(--popup-output-cols),155px);width:max-content;min-width:100%;white-space:nowrap;}
+.popup-configured-tab-grid{display:grid;grid-template-columns:var(--popup-output-template);width:max-content;min-width:max-content;white-space:nowrap;}
 .popup-configured-tab-grid-row{display:contents;}
-.popup-configured-tab-grid-cell{min-width:0;width:155px;box-sizing:border-box;padding:5px 12px;background:transparent;white-space:nowrap;overflow:visible;}
+.popup-configured-tab-grid-cell{box-sizing:border-box;padding:5px 12px;background:transparent;white-space:nowrap;overflow:visible;min-width:0;}
 .popup-configured-tab-grid-cell:first-child{padding-left:0;}
 .popup-configured-tab-grid-cell:nth-child(n+1){align-self:center;}
 
