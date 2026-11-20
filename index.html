@@ -306,7 +306,7 @@
 
   <dialog id="distributionDialog" class="config-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Distribution</h2><p>Choose one workbook column to distribute the currently selected stores. Numeric columns use value intervals; text columns count occurrences of each value.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Distribution</h2><p>Choose one workbook column to distribute the currently selected stores. Numeric columns use value intervals; text columns count occurrences of each value.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="dialog-tools"><input id="distributionSearch" type="search" placeholder="Find a column…" /><button id="distributionClear" type="button" class="secondary">Clear</button></div>
       <div class="subject-list-head distribution-list-head"><span>Column</span><span>Type</span></div><div id="distributionList" class="checkbox-list"></div>
       <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="distributionApply" value="default">Apply</button></div>
@@ -315,7 +315,7 @@
 
   <dialog id="filterDialog" class="config-dialog filter-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Filter</h2><p>Build filter lines from workbook columns or numeric formulas. Each line explicitly uses AND or OR to relate it to the line above.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Filter</h2><p>Build filter lines from workbook columns or numeric formulas. Each line explicitly uses AND or OR to relate it to the line above.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="filter-config-scroll">
         <div id="filterError" class="filter-error" role="alert" aria-live="polite"></div><div class="filter-diagnostic-toggle-row"><button id="filterDiagnosticToggle" type="button" class="secondary">Show diagnostic</button></div><div id="filterDiagnostic" class="filter-diagnostic hidden" aria-live="polite"></div>
         <div class="filter-table-head" aria-hidden="true"><div>Type</div><div>Column / Secondary</div><div>Formula / Value</div><div>Condition / Distance</div><div>Value</div><div>AND / OR</div><div></div></div>
@@ -334,7 +334,7 @@
 
   <dialog id="selectedStoresDialog" class="config-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Selected Stores</h2><p>Choose additional workbook columns to display with the fixed Store Profile Number and Location columns.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Selected Stores</h2><p>Choose additional workbook columns to display with the fixed Store Profile Number and Location columns.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="dialog-tools"><input id="selectedStoresSearch" type="search" placeholder="Find a column…" /><button id="selectedStoresClear" type="button" class="secondary">Clear</button></div>
       <div class="subject-list-head selected-stores-list-head"><span>Column</span><span>Type</span></div>
       <div id="selectedStoresListConfig" class="checkbox-list"></div>
@@ -344,7 +344,7 @@
 
   <dialog id="groupsDialog" class="config-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Groups</h2><p>Subjects will be summarized for each selected grouping combination.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Groups</h2><p>Subjects will be summarized for each selected grouping combination.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="dialog-tools"><input id="groupSearch" type="search" placeholder="Find a column…" /><button id="groupsClear" type="button" class="secondary">Clear</button></div>
       <div id="groupsList" class="checkbox-list"></div>
       <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="groupsApply" value="default">Apply</button></div>
@@ -379,7 +379,7 @@
     <form method="dialog" id="popupForm">
       <div class="dialog-header ticker-dialog-header">
         <div><h2>Popup Configuration</h2><p>Configure the fields shown in store popup cards. Column fields may be numeric or text; formula fields must use numeric columns.</p></div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="ticker-config-main">
         <div class="ticker-config-toolbar"><label class="popup-amenity-radius-control" for="popupAmenityRadius"><span>Amenity radius (km):</span><input id="popupAmenityRadius" type="number" min="0.1" max="25" step="0.1" value="1.0" inputmode="decimal"></label><span class="small muted">Popup fields are independent of Tickers and Subjects.</span><button id="popupTickerConfigBtn" type="button" class="secondary" disabled>Choose ticker columns</button></div>
@@ -401,7 +401,7 @@
     <form method="dialog" id="popupTickerForm">
       <div class="dialog-header ticker-dialog-header">
         <div><h2>Popup Ticker Columns</h2><p>Choose which workbook columns or Census virtual fields appear in the popup ticker.</p></div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="ticker-config-main"><div id="popupTickerFieldList" class="popup-ticker-field-list"></div></div>
       <div class="dialog-footer ticker-dialog-footer"><label class="ticker-speed-control" for="popupTickerSpeed"><span>Popup ticker speed</span><input id="popupTickerSpeed" type="range" min="50" max="120" step="5" value="70"><strong id="popupTickerSpeedValue">70</strong></label><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="popupTickerApply" type="button">Save ticker</button></div></div>
@@ -412,7 +412,7 @@
     <form method="dialog" id="tickerForm">
       <div class="dialog-header ticker-dialog-header">
         <div><h2>Ticker Configuration</h2><p>Choose workbook columns or build simple calculations. Your ticker is saved locally in this browser.</p></div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="ticker-config-main">
         <div class="ticker-config-toolbar"><span class="small muted">Metrics are shown left to right; the ticker displays three at a time.</span></div>
@@ -425,7 +425,7 @@
 
   <dialog id="markerConfigDialog" class="marker-config-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Marker config</h2><p>Set the visible screen size of the primary and secondary markers.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Marker config</h2><p>Set the visible screen size of the primary and secondary markers.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="marker-config-body">
         <label class="marker-config-row" for="primaryMarkerSizeInput"><span>Primary marker</span><input id="primaryMarkerSizeInput" type="number" min="8" max="64" step="1" value="22"><span>px</span></label>
         <label class="marker-config-row" for="secondaryMarkerSizeInput"><span>Default secondary marker</span><input id="secondaryMarkerSizeInput" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>
@@ -439,7 +439,7 @@
 
   <dialog id="markerAnimationValueDialog" class="filter-value-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="filter-picker-toolbar"><button id="markerAnimationSelectAll" type="button" class="secondary">Select all</button></div>
       <div id="markerAnimationValuePickerList" class="filter-picker-list"></div>
       <div class="dialog-footer"><button id="markerAnimationValueCancel" type="button" class="secondary">Cancel</button><button id="markerAnimationValueApply" type="button">Apply</button></div>
@@ -448,7 +448,7 @@
 
   <dialog id="markerAnimationValueDialog" class="filter-value-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="filter-picker-toolbar"><button id="markerAnimationSelectAll" type="button" class="secondary">Select all</button></div>
       <div id="markerAnimationValuePickerList" class="filter-picker-list"></div>
       <div class="dialog-footer"><button id="markerAnimationValueCancel" type="button" class="secondary">Cancel</button><button id="markerAnimationValueApply" type="button">Apply</button></div>
@@ -457,7 +457,7 @@
 
   <dialog id="markerAnimationDialog" class="filter-dialog marker-animation-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2>Animate When</h2><p>Set one condition using the exact workbook headings and the same formula rules as filters and the ticker.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2>Animate When</h2><p>Set one condition using the exact workbook headings and the same formula rules as filters and the ticker.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="marker-animation-dialog-body">
         <div class="marker-animation-dialog-grid">
           <div><label for="markerAnimationColumn">Choose column</label><select id="markerAnimationColumn" class="marker-animation-control"><option value="">Choose column</option></select></div>
@@ -475,7 +475,7 @@
 
   <dialog id="filterValueDialog" class="filter-value-dialog">
     <form method="dialog">
-      <div class="dialog-header"><div><h2 id="filterValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div>
+      <div class="dialog-header"><div><h2 id="filterValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
       <div class="filter-picker-toolbar"><button id="filterPickerSelectAll" type="button" class="secondary">Select all</button></div>
       <div id="filterValuePickerList" class="filter-picker-list"></div>
       <div class="dialog-footer"><button id="filterPickerCancel" type="button" class="secondary">Cancel</button><button id="filterPickerApply" type="button">Apply</button></div>
@@ -490,7 +490,7 @@
           <h2>Rx Count Site Analysis</h2>
           <p>(Quartiled traits vs actuals)</p>
         </div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="rx-site-analysis-scroll">
         <div id="rxSiteAnalysisHero" class="rx-site-analysis-hero"></div>
@@ -530,7 +530,7 @@
           <div id="rxSiteAnalysisConclusion" class="rx-site-analysis-conclusion"></div>
         </div>
       </div>
-      <div class="dialog-footer rx-site-analysis-footer"><button value="cancel" class="secondary">Close</button></div>
+      <div class="dialog-footer rx-site-analysis-footer"><button type="button" class="secondary">Close</button></div>
     </form>
   </dialog>
 
@@ -538,7 +538,7 @@
     <form method="dialog" id="helpConfigForm">
       <div class="dialog-header ticker-dialog-header">
         <div><h2>Help Configuration</h2><p>Enter a short one- or two-sentence explanation for each left-panel, right-panel, and header Ticker button. Help appears on hover or keyboard focus.</p></div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
+        <button type="button" class="icon-btn" aria-label="Close">×</button>
       </div>
       <div class="help-config-main">
         <div id="helpConfigList" class="help-config-list"></div>
@@ -552,7 +552,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.282.0.rx-site-analysis"></script>
+  <script src="app.js?v=1.283.0.rx-site-analysis"></script>
 
 
 </body>

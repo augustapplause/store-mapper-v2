@@ -1340,7 +1340,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-profile-label{font-size:14px;font-weight:600;line-height:1.25;padding:12px 14px}
 .rx-profile-value{padding:10px 16px;display:flex;align-items:center;justify-content:flex-start;text-align:left;flex-direction:row;gap:0}
 .rx-profile-value strong{font-size:21px;line-height:1.1;letter-spacing:.01em}
-.rx-profile-vs{font-size:21px;font-weight:600;color:#314252}
+.rx-profile-value strong .rx-profile-vs{font-size:inherit;font-weight:600;color:#314252;line-height:inherit}
 .rx-profile-value.above{background:var(--rx-pale-green,#eaf7ee)}
 .rx-profile-value.below{background:var(--rx-pale-red,#fdecec)}
 .rx-site-analysis-pie-panel{min-height:250px;padding:8px}
