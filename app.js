@@ -93,7 +93,7 @@
 
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, popupAmenityRadius:1, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupTabConfigs: [], popupTabConfigDraft: [], popupTabSelected: {}, popupTabDraftDirty:false, primaryTabs: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, popupAmenityRadius:1, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
@@ -720,12 +720,25 @@
     if(ext==='csv')return workbookRows(XLSX.read(await file.text(),{type:'string'}));
     return workbookRows(XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}));
   }
+  function parseWorksheetRows(ws, sheetName='Sheet'){
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+    if(!matrix.length)return {name:sheetName,headers:[],rows:[],headerIndex:0};
+    const headerIndex=detectHeaderRow(matrix);
+    const rawHeaders=(matrix[headerIndex]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`);
+    const headers=dedupeHeaders(rawHeaders);const rows=[];
+    for(let r=headerIndex+1;r<matrix.length;r++){
+      const arr=matrix[r]||[];
+      if(arr.every(v=>v===null||v===''))continue;
+      const obj={};headers.forEach((hh,i)=>obj[hh]=arr[i]??null);rows.push(obj);
+    }
+    const d=detectColumns(headers,rows);
+    return {name:sheetName,headers,rows,headerIndex,types:d.types,columns:d.columns};
+  }
   function workbookRows(wb){
-    const ws=wb.Sheets[wb.SheetNames[0]];if(!ws)throw new Error('The first worksheet is empty.');
-    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});if(!matrix.length)throw new Error('The first worksheet is empty.');
-    const headerIndex=detectHeaderRow(matrix);const rawHeaders=(matrix[headerIndex]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`);const headers=dedupeHeaders(rawHeaders);const rows=[];
-    for(let r=headerIndex+1;r<matrix.length;r++){const arr=matrix[r]||[];if(arr.every(v=>v===null||v===''))continue;const obj={};headers.forEach((h,i)=>obj[h]=arr[i]??null);rows.push(obj);}
-    return {headers,rows,headerIndex};
+    const sheets=(wb.SheetNames||[]).map((name)=>parseWorksheetRows(wb.Sheets[name],name));
+    const first=sheets[0];
+    if(!first||!first.headers.length)throw new Error('The first worksheet is empty.');
+    return {headers:first.headers,rows:first.rows,headerIndex:first.headerIndex,sheets};
   }
   function detectHeaderRow(matrix){
     const tokens=['province','city','location','store concept','location type','gross area','total sales','store 4 wall profit','ebit','latitude','longitude'];let best={i:0,score:-1};
@@ -1109,7 +1122,7 @@
 
   function afterWorkbookLoaded(file,parsed){
     
-    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
+    state.fileName=file.name;state.headers=parsed.headers;state.rows=parsed.rows;state.primaryTabs=(parsed.sheets||[]).map((tab,i)=>({...tab,rows:i===0?parsed.rows:tab.rows}));const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
     const c=state.columns;
     const hasSavedTickerConfig=(()=>{
       try{
@@ -1125,13 +1138,13 @@
     const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
     const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
     state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
-    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.subjectVirtualCache=new WeakMap();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.subjectVirtualCache=new WeakMap();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTabConfigs();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);state.popupTabConfigDraft=clonePopupTabConfigs(state.popupTabConfigs);
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${parsed.headerIndex+1}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
     state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteMaybeBuild();
   }
-  function clearFinancial(){state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupTabConfigs=[];state.popupTabConfigDraft=[];state.popupTabSelected={};state.popupTabDraftDirty=false;state.primaryTabs=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
@@ -1728,7 +1741,148 @@
   function savePopupConfig(){
     try{localStorage.setItem(POPUP_STORAGE_KEY,JSON.stringify(state.popupConfig));}catch(_){}
   }
-  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);}
+  const POPUP_TABS_STORAGE_KEY='storeExplorer.popupTabs.v1';
+  function popupTabStoreProfileColumn(tab){
+    const headers=tab?.headers||[];const exact=headers.map(h=>({h,n:norm(h)}));
+    return exact.find(x=>['store profile number','store profile #','store profile no','store number','store no','store id'].includes(x.n))?.h
+      || exact.find(x=>x.n.includes('store profile number'))?.h
+      || exact.find(x=>x.n.includes('store number'))?.h
+      || null;
+  }
+  function blankPopupTabCell(){return {type:'blank',content:'',source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false};}
+  function normalizePopupTabCell(cell,{primary=false}={}){
+    const allowed=['blank','text','value','formula'];
+    const type=allowed.includes(cell?.type)?cell.type:'blank';
+    const content=String(cell?.content??'');
+    const source=String(cell?.source??'');
+    const aggregation=['value','sum','average','median','count'].includes(cell?.aggregation)?cell.aggregation:'sum';
+    const nf=['auto','number','currency','percentage'].includes(cell?.numberFormat)?cell.numberFormat:'auto';
+    const dec=Math.max(0,Math.min(4,Number.isInteger(Number(cell?.decimalPlaces))?Number(cell.decimalPlaces):defaultTickerDecimals(nf)));
+    return {type,content,source,aggregation,numberFormat:nf,decimalPlaces:dec,quartile:primary&&!!cell?.quartile};
+  }
+  function normalizePopupTabConfig(cfg,tab,index){
+    const primary=index===0;
+    const rows=Math.max(1,Math.min(50,Number(cfg?.rows)||1));
+    const cols=Math.max(1,Math.min(20,Number(cfg?.cols)||2));
+    const flat=Array.isArray(cfg?.cells)?cfg.cells:[];
+    const cells=Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizePopupTabCell(flat?.[r]?.[c],{primary})));
+    const filters=Array.isArray(cfg?.filters)?cfg.filters.map(f=>({column:String(f?.column??''),value:String(f?.value??'')})).filter(f=>f.column||f.value):[];
+    return {sheetIndex:index,sheetName:String(tab?.name||cfg?.sheetName||`Sheet ${index+1}`),filterOnMarkerProfile:cfg?.filterOnMarkerProfile!==false,filters,rows,cols,cells};
+  }
+  function blankPopupTabConfig(tab,index){
+    const cfg={sheetIndex:index,sheetName:tab?.name||`Sheet ${index+1}`,filterOnMarkerProfile:true,filters:[],rows:1,cols:2,cells:[[blankPopupTabCell(),blankPopupTabCell()]]};
+    return normalizePopupTabConfig(cfg,tab,index);
+  }
+  function clonePopupTabConfigs(configs){return JSON.parse(JSON.stringify(configs||[]));}
+  function popupTabDefaultFromLegacy(tab,index){
+    const cfg=blankPopupTabConfig(tab,index); if(index!==0)return cfg;
+    const legacy=(state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);
+    if(!legacy.length)return cfg;
+    cfg.rows=legacy.length;cfg.cols=2;cfg.cells=legacy.map(f=>[
+      {type:'text',content:tickerMetricTitle(f),source:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0,quartile:false},
+      {type:'formula',content:f.formula,source:f.column||'',aggregation:'sum',numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:!!f.quartile}
+    ]);
+    return normalizePopupTabConfig(cfg,tab,index);
+  }
+  function loadPopupTabConfigs(){
+    const tabs=state.primaryTabs||[];
+    if(!tabs.length){state.popupTabConfigs=[];return;}
+    try{
+      const raw=localStorage.getItem(POPUP_TABS_STORAGE_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw);
+        if(Array.isArray(parsed)&&parsed.length){
+          state.popupTabConfigs=tabs.map((tab,i)=>normalizePopupTabConfig(parsed[i]||popupTabDefaultFromLegacy(tab,i),tab,i));
+          return;
+        }
+      }
+    }catch(_){ }
+    state.popupTabConfigs=tabs.map((tab,i)=>popupTabDefaultFromLegacy(tab,i));
+  }
+  function savePopupTabConfigs(){try{localStorage.setItem(POPUP_TABS_STORAGE_KEY,JSON.stringify(state.popupTabConfigs||[]));}catch(_){} }
+  function popupTabCellList(cfg,{includeBlank=false}={}){
+    const out=[];
+    for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){
+      const cell=normalizePopupTabCell(cfg.cells[r][c],{primary:cfg.sheetIndex===0});
+      if(includeBlank||['value','formula','text'].includes(cell.type))out.push({r,c,cell});
+    }
+    return out;
+  }
+  function popupPrimaryConfiguredFields(){
+    const cfg=state.popupTabConfigs?.[0]; if(!cfg)return [];
+    const out=[];
+    for(const {r,c,cell} of popupTabCellList(cfg)){
+      if(cell.type==='value'||cell.type==='formula'){
+        const titleCell=c>0?cfg.cells[r][c-1]:null;
+        const title=String(titleCell?.type==='text'?titleCell.content:'').trim()||cell.source||cell.content||'Metric';
+        out.push({type:'formula',column:cell.source||'',formula:String(cell.source||cell.content||'').trim(),title,numberFormat:cell.numberFormat,decimalPlaces:cell.decimalPlaces,quartile:!!cell.quartile,__tabCell:true,__row:r,__col:c,aggregation:cell.aggregation});
+      }
+    }
+    return out.filter(f=>f.formula);
+  }
+  function popupItems(){return popupPrimaryConfiguredFields();}
+  function popupTabHeaders(tab){return tab?.headers||[];}
+  function exactPopupOperandAt(expr,index,headers){
+    const text=String(expr||'').slice(index);
+    let best='';
+    for(const h of headers){if(!h||!text.startsWith(h))continue;const before=index?String(expr)[index-1]:'';const after=index+h.length<String(expr).length?String(expr)[index+h.length]:'';if(before&&/[\w]/.test(before))continue;if(after&&/[\w]/.test(after))continue;if(h.length>best.length)best=h;}
+    return best;
+  }
+  function tokenizePopupForHeaders(expr,headers){
+    const tokens=[];let i=0;
+    while(i<String(expr||'').length){const text=String(expr);while(i<text.length&&/\s/.test(text[i]))i++;if(i>=text.length)break;const ch=text[i];if(/[()+*/×÷]/.test(ch)){tokens.push({type:'op',value:ch==='×'?'*':ch==='÷'?'/':ch});i++;continue;}if(ch==='-' ){tokens.push({type:'op',value:'-'});i++;continue;}const h=exactPopupOperandAt(text,i,headers);if(h){tokens.push({type:'operand',value:h});i+=h.length;continue;}const num=text.slice(i).match(/^(?:\d+(?:\.\d+)?|\.\d+)/);if(num){tokens.push({type:'operand',value:num[0]});i+=num[0].length;continue;}return null;}
+    return tokens;
+  }
+  function popupAggregateColumn(tab,rows,column,aggregation='sum'){
+    if(!column||!rows.length)return null;
+    const raw=rows.map(r=>r?.[column]).filter(v=>v!==null&&v!==undefined&&String(v).trim()!=='');
+    if(aggregation==='count')return raw.length;
+    const nums=raw.map(toNumber).filter(v=>v!==null);
+    if(nums.length){
+      if(aggregation==='average')return avg(nums);
+      if(aggregation==='median')return median(nums);
+      if(aggregation==='value')return nums[0];
+      return nums.reduce((a,b)=>a+b,0);
+    }
+    if(aggregation==='value')return String(raw[0]??'');
+    return raw.length?String(raw[0]):null;
+  }
+  function evaluatePopupTabFormula(expr,tab,rows){
+    const tokens=tokenizePopupForHeaders(expr,tab.headers||[]);if(!tokens)return NaN;
+    const values=new Map();
+    for(const t of tokens){if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;if(!values.has(t.value))values.set(t.value,popupAggregateColumn(tab,rows,t.value,'sum'));}
+    return evaluateTickerExpressionWithTokens(tokens,values);
+  }
+  function popupTabCellValue(cell,tab,rows){
+    const n=normalizePopupTabCell(cell,{primary:tab.sheetIndex===0});
+    if(n.type==='blank')return '';
+    if(n.type==='text')return n.content;
+    if(n.type==='value'){
+      const v=popupAggregateColumn(tab,rows,n.source||n.content,n.aggregation);
+      if(typeof v==='string')return v;
+      return formatTickerValue(v,n.numberFormat,n.source||n.content,n.decimalPlaces);
+    }
+    const v=evaluatePopupTabFormula(n.content,tab,rows);
+    return formatTickerValue(v,n.numberFormat,n.content,n.decimalPlaces);
+  }
+  function popupTabFilterRows(cfg,tab,markerRow){
+    let rows=tab?.rows||[];
+    const profileColumn=popupTabStoreProfileColumn(tab);
+    if(cfg.filterOnMarkerProfile&&profileColumn){const target=markerRow?.[state.columns?.storeId||''];const targetText=String(target??'').trim();rows=rows.filter(r=>String(r?.[profileColumn]??'').trim()===targetText);}
+    for(const f of cfg.filters||[]){if(!f.column)continue;const wanted=String(f.value??'').trim();if(wanted==='')continue;const aNum=toNumber(wanted);rows=rows.filter(r=>{const actual=String(r?.[f.column]??'').trim();if(actual===wanted)return true;const bNum=toNumber(actual);return aNum!==null&&bNum!==null&&aNum===bNum;});}
+    return rows;
+  }
+  function popupTabOutputHTML(cfg,tab,markerRow){
+    const rows=popupTabFilterRows(cfg,tab,markerRow);
+    let html=`<section class="store-popup-data-section popup-data-tab-${cfg.sheetIndex}"><div class="store-popup-data-title">${esc(tab.name||cfg.sheetName)}</div><div class="store-popup-data-scroll"><div class="store-popup-data-grid" style="--popup-cols:${cfg.cols}">`;
+    for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=cfg.cells[r][c]||blankPopupTabCell();const val=popupTabCellValue(cell,tab,rows);const cls=`store-popup-data-cell popup-data-cell-${cell.type||'blank'}`;html+=`<div class="${cls}" data-row="${r}" data-col="${c}">${esc(val)}</div>`;}
+    html+=`</div></div></section>`;return html;
+  }
+  function popupOutputSectionsHTML(markerRow){
+    const configs=state.popupTabConfigs||[];const tabs=state.primaryTabs||[];
+    return configs.map((cfg,i)=>{if(!tabs[i])return '';const hasContent=popupTabCellList(cfg).some(x=>['text','value','formula'].includes(x.cell.type)&&String(x.cell.content||x.cell.source||'').trim());return hasContent?popupTabOutputHTML(cfg,tabs[i],markerRow):'';}).join('');
+  }
+  function popupConfigCellsToLegacy(){return popupPrimaryConfiguredFields();}
   function evaluatePopupFormula(formula,row,censusValues){
     const tokens=tokenizePopup(formula);if(!tokens)return NaN;
     const operandValues=new Map();
@@ -1806,8 +1960,8 @@
   async function popupCardContent(row,censusValues={},amenityProfile=null){
     const c=state.columns;
     const popupFields=popupItems();
-    const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
-    const values=needsCensus&&!Object.keys(censusValues).length?await calculatePopupCensusForStore(row):censusValues;
+    const needsCensus=false;
+    const values=censusValues||{};
     const header=normalizePopupHeader(state.popupHeader||popupHeaderDefaultConfig());
     const titleA=popupHeaderValue(row,'titleA') || 'Location';
     const titleB=popupHeaderValue(row,'titleB') || '—';
@@ -1819,9 +1973,8 @@
     const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
     const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
     const quartileHtml=renderPopupQuartileBar(row,quartileFields);
-    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
-    for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
-    html+=`</table>${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    const dataHtml=popupOutputSectionsHTML(row);
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll">${dataHtml}${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -1858,7 +2011,7 @@
     if(isPopupVirtualOperand(formula))return formatTickerValue(Number(censusValues?.[formula]),'auto',formula,0);
     return formatTickerValue(evaluatePopupFormula(formula,row,censusValues),'auto',formula,0);
   }
-  function popupQuartileConfigFields(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula&&f.quartile);}
+  function popupQuartileConfigFields(){return popupPrimaryConfiguredFields().filter(f=>f.formula&&f.quartile);}
   function popupQuartileRank(values,value){
     const n=values.length;if(!n||!Number.isFinite(value))return null;
     let lo=0,hi=values.length;
@@ -2973,7 +3126,7 @@
     ensureSubjectTableState();
     if(!Array.isArray(state.popupConfigDraft)) state.popupConfigDraft=(state.popupConfig||[]).map(normalizePopupField);
     el('subjectCount').textContent=subjectTableToMetrics(state.subjectTable||ensureSubjectTableState()).length;if(el('exportSubjectsBtn'))el('exportSubjectsBtn').disabled=!state.headers.length;
-    el('popupCount').textContent=(state.popupConfig||[]).length;
+    el('popupCount').textContent=(state.popupTabConfigs||[]).reduce((n,cfg)=>n+popupTabCellList(cfg).filter(x=>x.cell.type==='value'||x.cell.type==='formula').length,0);
     el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
     el('groupCount').textContent=state.groups.length;
     if(el('distributionCount'))el('distributionCount').textContent=state.distributionSubject?1:0;
@@ -5193,7 +5346,6 @@
     el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
   }
   el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
-  el('popupAddField').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupConfigDraft.push({type:'formula',column:'',formula:'',title:'',numberFormat:'auto',decimalPlaces:0,quartile:false});renderPopupConfig();});
   el('popupTickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupTickerConfig();});
   el('popupTickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupTickerConfig();});
   document.addEventListener('change',e=>{
@@ -5209,6 +5361,7 @@
   });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
+  el('popupDialog').querySelector('.icon-btn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();el('popupDialog').close();});
   el('popupAmenityRadius')?.addEventListener('input',e=>{const n=Number(e.target.value);if(!Number.isFinite(n)||n<0.1||n>25)return;state.popupAmenityRadius=Math.round(n*10)/10;savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
   el('popupAmenityRadius')?.addEventListener('blur',e=>{const n=Number(e.target.value);const v=Number.isFinite(n)?Math.max(0.1,Math.min(25,Math.round(n*10)/10)):AMENITY_RADIUS_KM;state.popupAmenityRadius=v;e.target.value=v.toFixed(1);savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
   // ---------- Subjects configuration ----------
@@ -5247,109 +5400,89 @@
   el('subjectsBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openSubjectConfig();});
   // ---------- Popup configuration ----------
 
+  function popupTabConfigWorking(){return state.popupTabConfigDraft||[];}
+  function currentPopupDraftConfig(tabIndex){return popupTabConfigWorking()[tabIndex];}
+  function popupGridSelection(tabIndex){
+    const cfg=currentPopupDraftConfig(tabIndex); if(!cfg)return {anchor:{r:0,c:0},focus:{r:0,c:0}};
+    const sel=state.popupTabSelected[tabIndex]||{anchor:{r:0,c:0},focus:{r:0,c:0}};
+    const clamp=p=>({r:Math.max(0,Math.min(cfg.rows-1,p?.r??0)),c:Math.max(0,Math.min(cfg.cols-1,p?.c??0))});
+    sel.anchor=clamp(sel.anchor);sel.focus=clamp(sel.focus);state.popupTabSelected[tabIndex]=sel;return sel;
+  }
+  function popupSelectionCells(tabIndex){const cfg=currentPopupDraftConfig(tabIndex),sel=popupGridSelection(tabIndex);if(!cfg)return[];const r1=Math.min(sel.anchor.r,sel.focus.r),r2=Math.max(sel.anchor.r,sel.focus.r),c1=Math.min(sel.anchor.c,sel.focus.c),c2=Math.max(sel.anchor.c,sel.focus.c);const out=[];for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)out.push({r,c});return out;}
+  function popupCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
+  function selectedPopupCell(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);const sel=popupGridSelection(tabIndex);const cell=cfg?.cells?.[sel.focus.r]?.[sel.focus.c]||blankPopupTabCell();return {cfg,sel,cell,r:sel.focus.r,c:sel.focus.c};}
+  function popupEditorSourceOptions(tab){return (tab?.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');}
+  function popupFilterValueOptions(tab,column,current=''){
+    if(!column)return '';
+    const vals=[];const seen=new Set();for(const r of (tab?.rows||[])){const v=String(r?.[column]??'').trim();if(!v||seen.has(v))continue;seen.add(v);vals.push(v);if(vals.length>=250)break;}
+    return vals.map(v=>`<option value="${esc(v)}"></option>`).join('');
+  }
+  function popupFilterRowHTML(tabIndex,idx,filter){const tab=state.primaryTabs?.[tabIndex]||{};const options=popupEditorSourceOptions(tab);const listId=`popup-filter-values-${tabIndex}-${idx}`;return `<div class="popup-filter-row" data-filter-index="${idx}"><select class="popup-filter-column" data-tab-index="${tabIndex}" data-filter-index="${idx}"><option value="">Choose column</option>${options}</select><input class="popup-filter-value" data-tab-index="${tabIndex}" data-filter-index="${idx}" list="${listId}" value="${esc(filter?.value||'')}" placeholder="Filter value"><datalist id="${listId}">${popupFilterValueOptions(tab,filter?.column||'',filter?.value||'')}</datalist><button type="button" class="popup-filter-remove secondary" data-tab-index="${tabIndex}" data-filter-index="${idx}" aria-label="Remove filter">×</button></div>`;}
+  function syncPopupCellEditor(tabIndex){
+    const tab=state.primaryTabs?.[tabIndex];const cfg=currentPopupDraftConfig(tabIndex);const root=document.querySelector(`.popup-tab-config-section[data-tab-index="${tabIndex}"]`);if(!tab||!cfg||!root)return;const {cell,r,c}=selectedPopupCell(tabIndex);
+    const q=id=>root.querySelector(`#${id}-${tabIndex}`);
+    const label=q('popupSelectedCellLabel');if(label)label.textContent=popupCellLabel(r,c);
+    const type=q('popupCellType');if(type)type.value=cell.type;
+    const source=q('popupCellSource');if(source){source.innerHTML=`<option value="">Choose source column</option>${popupEditorSourceOptions(tab)}`;if(cell.source)source.value=cell.source;}
+    const expr=q('popupCellExpression');if(expr)expr.value=cell.content||'';
+    const nf=q('popupCellNumberFormat');if(nf)nf.value=cell.numberFormat||'auto';
+    const dec=q('popupCellDecimals');if(dec)dec.value=String(cell.decimalPlaces??0);
+    const agg=q('popupCellAggregation');if(agg)agg.value=cell.aggregation||'sum';
+    const quart=q('popupCellQuartile');if(quart)quart.checked=!!(tabIndex===0&&cell.quartile);
+    const quartWrap=q('popupCellQuartileWrap');if(quartWrap)quartWrap.style.display=tabIndex===0&&['value','formula'].includes(cell.type)?'flex':'none';
+    const sourceWrap=q('popupChooseSourceWrap');if(sourceWrap)sourceWrap.style.display=(cell.type==='value'||cell.type==='formula')?'flex':'none';
+    const aggWrap=q('popupCellAggregationWrap');if(aggWrap)aggWrap.style.display=cell.type==='value'?'flex':'none';
+    const warning=q('popupCellFormulaWarning');const issue=cell.type==='formula'?popupFormulaIssueForHeaders(cell.content,tab.headers||[]):'';if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
+    root.querySelectorAll('.popup-config-grid-cell').forEach(node=>{const rr=Number(node.dataset.row),cc=Number(node.dataset.col);const selected=popupSelectionCells(tabIndex).some(x=>x.r===rr&&x.c===cc);node.classList.toggle('selected',selected);node.tabIndex=(rr===r&&cc===c)?0:-1;});
+  }
+  function popupFormulaIssueForHeaders(formula,headers){const text=String(formula||'').trim();if(!text)return 'Invalid formula';const tokens=tokenizePopupForHeaders(text,headers);if(!tokens)return 'Invalid formula';const seen=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));const bad=seen.filter(t=>!headers.includes(t.value));if(bad.length)return `Unknown column: ${bad[0].value}`;return ''}
+  function popupRenderGrid(tabIndex){const cfg=currentPopupDraftConfig(tabIndex),canvas=document.querySelector(`.popup-config-canvas[data-tab-index="${tabIndex}"]`);if(!cfg||!canvas)return;canvas.style.setProperty('--popup-config-cols',cfg.cols);canvas.innerHTML='';for(let r=0;r<cfg.rows;r++){const row=document.createElement('div');row.className='popup-config-grid-row';for(let cc=0;cc<cfg.cols;cc++){const cell=normalizePopupTabCell(cfg.cells[r][cc],{primary:tabIndex===0});const b=document.createElement('button');b.type='button';b.className='popup-config-grid-cell';b.dataset.row=r;b.dataset.col=cc;b.setAttribute('role','gridcell');const sel=popupGridSelection(tabIndex);const inSel=(()=>{const r1=Math.min(sel.anchor.r,sel.focus.r),r2=Math.max(sel.anchor.r,sel.focus.r),c1=Math.min(sel.anchor.c,sel.focus.c),c2=Math.max(sel.anchor.c,sel.focus.c);return r>=r1&&r<=r2&&cc>=c1&&cc<=c2;})();b.classList.toggle('selected',inSel);const content=cell.type==='formula'&&cell.content?cell.content:cell.content||'';b.textContent=content;b.title=content||'Blank cell';b.addEventListener('click',e=>{const focus={r,c:cc};if(e.shiftKey){const s=popupGridSelection(tabIndex);s.focus=focus;}else{state.popupTabSelected[tabIndex]={anchor:focus,focus:{...focus}};}syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);});b.addEventListener('focus',()=>{const s=popupGridSelection(tabIndex);s.focus={r,c:cc};syncPopupCellEditor(tabIndex);});row.appendChild(b);}canvas.appendChild(row);}}
+  function popupMoveSelection(tabIndex,dr,dc,extend){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;const sel=popupGridSelection(tabIndex);const base=extend?sel.focus:sel.focus;const next={r:Math.max(0,Math.min(cfg.rows-1,base.r+dr)),c:Math.max(0,Math.min(cfg.cols-1,base.c+dc))};if(extend)sel.focus=next;else state.popupTabSelected[tabIndex]={anchor:next,focus:{...next}};syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);const node=document.querySelector(`.popup-config-canvas[data-tab-index="${tabIndex}"] .popup-config-grid-cell[data-row="${next.r}"][data-col="${next.c}"]`);node?.focus({preventScroll:true});node?.scrollIntoView({block:'nearest',inline:'nearest'});}
+  function popupClearSelection(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;for(const {r,c} of popupSelectionCells(tabIndex))cfg.cells[r][c]=blankPopupTabCell();state.popupTabDraftDirty=true;syncPopupCellEditor(tabIndex);popupRenderGrid(tabIndex);}
+  function popupBindGridKeyboard(){document.querySelectorAll('.popup-config-canvas').forEach(canvas=>{if(canvas.dataset.bound==='1')return;canvas.dataset.bound='1';canvas.addEventListener('keydown',e=>{const tabIndex=Number(canvas.dataset.tabIndex);if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();e.stopPropagation();popupClearSelection(tabIndex);return;}if(e.key==='ArrowUp'){e.preventDefault();popupMoveSelection(tabIndex,-1,0,e.shiftKey);}else if(e.key==='ArrowDown'){e.preventDefault();popupMoveSelection(tabIndex,1,0,e.shiftKey);}else if(e.key==='ArrowLeft'){e.preventDefault();popupMoveSelection(tabIndex,0,-1,e.shiftKey);}else if(e.key==='ArrowRight'){e.preventDefault();popupMoveSelection(tabIndex,0,1,e.shiftKey);}});});}
+  function popupAddRow(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;cfg.cells.push(Array.from({length:cfg.cols},()=>blankPopupTabCell()));cfg.rows++;state.popupTabSelected[tabIndex]={anchor:{r:cfg.rows-1,c:0},focus:{r:cfg.rows-1,c:0}};state.popupTabDraftDirty=true;renderPopupConfig();}
+  function popupAddColumn(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;for(const row of cfg.cells)row.push(blankPopupTabCell());cfg.cols++;state.popupTabSelected[tabIndex]={anchor:{r:0,c:cfg.cols-1},focus:{r:0,c:cfg.cols-1}};state.popupTabDraftDirty=true;renderPopupConfig();}
+  function popupAddFilter(tabIndex){const cfg=currentPopupDraftConfig(tabIndex);if(!cfg)return;cfg.filters.push({column:'',value:''});state.popupTabDraftDirty=true;renderPopupConfig();}
+  function popupRenderTabConfig(tabIndex){const root=document.querySelector(`.popup-tab-config-section[data-tab-index="${tabIndex}"]`);const cfg=currentPopupDraftConfig(tabIndex);const tab=state.primaryTabs?.[tabIndex];if(!root||!cfg||!tab)return;root.querySelector('.popup-filter-toggle').checked=!!cfg.filterOnMarkerProfile;const list=root.querySelector('.popup-filter-list');list.innerHTML=(cfg.filters||[]).map((f,i)=>popupFilterRowHTML(tabIndex,i,f)).join('');list.querySelectorAll('.popup-filter-column').forEach(sel=>{sel.value=cfg.filters[Number(sel.dataset.filterIndex)]?.column||'';sel.addEventListener('change',e=>{const i=Number(e.target.dataset.filterIndex);cfg.filters[i].column=e.target.value;cfg.filters[i].value='';state.popupTabDraftDirty=true;renderPopupConfig();});});list.querySelectorAll('.popup-filter-value').forEach(inp=>inp.addEventListener('input',e=>{const i=Number(e.target.dataset.filterIndex);cfg.filters[i].value=e.target.value;state.popupTabDraftDirty=true;}));list.querySelectorAll('.popup-filter-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();cfg.filters.splice(Number(btn.dataset.filterIndex),1);state.popupTabDraftDirty=true;renderPopupConfig();}));
+    const summary=root.querySelector('.popup-tab-config-grid');if(summary)summary.innerHTML=popupConfigGridPreviewHTML(cfg,tab);
+    popupRenderGrid(tabIndex);syncPopupCellEditor(tabIndex);
+  }
+  function popupConfigGridPreviewHTML(cfg,tab){let html=`<div class="popup-config-grid-head"><span>Cell layout</span><span>${cfg.cols} columns × ${cfg.rows} rows</span></div>`;return html;}
+  function renderPopupConfig(){
+    const wrap=el('popupTabConfigs');if(!wrap)return;const tabs=state.primaryTabs||[];wrap.innerHTML='';
+    if(!tabs.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
+    tabs.forEach((tab,i)=>{let cfg=currentPopupDraftConfig(i);if(!cfg){cfg=blankPopupTabConfig(tab,i);state.popupTabConfigDraft[i]=cfg;}const section=document.createElement('section');section.className=`popup-tab-config-section popup-tab-config-section-${i%2?'even':'odd'}`;section.dataset.tabIndex=i;section.innerHTML=`<div class="popup-tab-config-title-row"><div><h3>${esc(tab.name||`Sheet ${i+1}`)}</h3><span>${i===0?'Primary store data · quartile-capable':'Additional workbook data'}</span></div><label class="popup-profile-filter-toggle"><input type="checkbox" class="popup-filter-toggle"><span>Filter on marker store profile#</span></label></div><div class="popup-filter-tools"><div class="popup-filter-list"></div><button type="button" class="secondary popup-add-filter">+ Add filter</button></div><div class="popup-cell-editor"><div class="popup-cell-editor-title"><strong>Edit cell</strong><span class="small muted" id="popupSelectedCellLabel-${i}">A1</span></div><div class="popup-cell-editor-grid"><label>Type<select id="popupCellType-${i}"><option value="blank">Blank</option><option value="text">Text</option><option value="value">Value</option><option value="formula">Formula</option></select></label><label id="popupChooseSourceWrap-${i}">Source column<select id="popupCellSource-${i}"><option value="">Choose source column</option></select></label><label>Value / Formula<input id="popupCellExpression-${i}" type="text" autocomplete="off" placeholder="Text, value, or formula"><span id="popupCellFormulaWarning-${i}" class="formula-warning" hidden></span></label><label id="popupCellAggregationWrap-${i}">Operation<select id="popupCellAggregation-${i}"><option value="value">Value</option><option value="sum" selected>Sum</option><option value="average">Average</option><option value="median">Median</option><option value="count">Count</option></select></label><label>Format<select id="popupCellNumberFormat-${i}"><option value="auto">Auto</option><option value="number">Number</option><option value="currency">Currency</option><option value="percentage">Percentage</option></select></label><label>Decimals<select id="popupCellDecimals-${i}"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label><label id="popupCellQuartileWrap-${i}" class="popup-quartile-toggle"><input id="popupCellQuartile-${i}" type="checkbox"><span>Include in quartiles</span></label></div><div class="popup-cell-editor-hint">Select a cell in the grid. Blank, text, values, and formulas can be intermixed; cells do not need to be filled.</div><div class="popup-table-edit-actions"><button type="button" class="popup-add-row secondary">+ Add row</button><button type="button" class="popup-add-col secondary">+ Add column</button><button type="button" class="popup-delete-selected secondary">Delete selected</button></div></div><div class="popup-config-grid-wrap"><div class="popup-config-grid-scroll"><div class="popup-config-canvas" data-tab-index="${i}" role="grid" aria-label="${esc(tab.name||`Sheet ${i+1}`)} popup layout"></div></div></div>`;wrap.appendChild(section);
+      const cfgIndex=i;const sectionRoot=section;
+      section.querySelector('.popup-filter-toggle').addEventListener('change',e=>{cfg.filterOnMarkerProfile=!!e.target.checked;state.popupTabDraftDirty=true;});
+      section.querySelector('.popup-add-filter').addEventListener('click',()=>popupAddFilter(cfgIndex));
+      section.querySelector('.popup-add-row').addEventListener('click',()=>popupAddRow(cfgIndex));
+      section.querySelector('.popup-add-col').addEventListener('click',()=>popupAddColumn(cfgIndex));
+      section.querySelector('.popup-delete-selected').addEventListener('click',()=>popupClearSelection(cfgIndex));
+      section.querySelector(`#popupCellType-${i}`).addEventListener('change',e=>{const x=selectedPopupCell(cfgIndex);x.cell.type=e.target.value;if(e.target.value==='blank'){x.cell.content='';x.cell.source='';}state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);popupRenderGrid(cfgIndex);});
+      section.querySelector(`#popupCellSource-${i}`).addEventListener('change',e=>{const x=selectedPopupCell(cfgIndex);const chosen=e.target.value;x.cell.source=chosen;if(x.cell.type==='value')x.cell.content=chosen;else if(x.cell.type==='formula'){const current=String(x.cell.content||'').trim();x.cell.content=current?(current+chosen):chosen;}state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);popupRenderGrid(cfgIndex);});
+      section.querySelector(`#popupCellExpression-${i}`).addEventListener('input',e=>{const x=selectedPopupCell(cfgIndex);x.cell.content=e.target.value;state.popupTabDraftDirty=true;const warning=section.querySelector(`#popupCellFormulaWarning-${i}`);const issue=x.cell.type==='formula'?popupFormulaIssueForHeaders(x.cell.content,tab.headers||[]):'';warning.textContent=issue||'';warning.hidden=!issue;popupRenderGrid(cfgIndex);});
+      section.querySelector(`#popupCellAggregation-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.aggregation=e.target.value;state.popupTabDraftDirty=true;});
+      section.querySelector(`#popupCellNumberFormat-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.numberFormat=e.target.value;selectedPopupCell(cfgIndex).cell.decimalPlaces=defaultTickerDecimals(e.target.value);state.popupTabDraftDirty=true;syncPopupCellEditor(cfgIndex);});
+      section.querySelector(`#popupCellDecimals-${i}`).addEventListener('change',e=>{selectedPopupCell(cfgIndex).cell.decimalPlaces=Number(e.target.value)||0;state.popupTabDraftDirty=true;});
+      section.querySelector(`#popupCellQuartile-${i}`).addEventListener('change',e=>{if(i===0){selectedPopupCell(cfgIndex).cell.quartile=!!e.target.checked;state.popupQuartileDraftChanged=true;state.popupTabDraftDirty=true;}});
+    });
+    tabs.forEach((_,i)=>popupRenderTabConfig(i));popupBindGridKeyboard();if(el('popupConfigUnsaved'))el('popupConfigUnsaved').textContent=state.popupTabDraftDirty?'Unsaved changes':'';
+  }
+  function validatePopupTabDrafts(){
+    const tabs=state.primaryTabs||[];for(let i=0;i<tabs.length;i++){const cfg=state.popupTabConfigDraft[i],tab=tabs[i];for(let r=0;r<cfg.rows;r++)for(let c=0;c<cfg.cols;c++){const cell=normalizePopupTabCell(cfg.cells[r][c],{primary:i===0});if(cell.type==='formula'){const issue=popupFormulaIssueForHeaders(cell.content,tab.headers||[]);if(issue)return `${tab.name}: ${popupCellLabel(r,c)} ${issue}`;}if(cell.type==='value'&&!cell.source)return `${tab.name}: ${popupCellLabel(r,c)} needs a source column.`;}}return '';}
+  function syncLegacyPopupConfigFromTabs(){state.popupConfig=popupPrimaryConfiguredFields().map(f=>({type:'formula',column:f.column||'',formula:f.formula,title:f.title,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,quartile:f.quartile}));}
+  async function applyPopupConfig(){const error=validatePopupTabDrafts();if(error){alert(error);return;}const quartileChanged=!!state.popupQuartileDraftChanged;state.popupTabConfigs=clonePopupTabConfigs(state.popupTabConfigDraft).map((cfg,i)=>normalizePopupTabConfig(cfg,state.primaryTabs[i],i));state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;syncLegacyPopupConfigFromTabs();if(quartileChanged)state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupTabConfigs();savePopupConfig();savePopupHeaderConfig();refreshConfigUI();if(state.openPopupMarker)await refreshOpenPopupCard();el('popupDialog').close();}
+  function resetPopupDefaults(){
+    const tabs=state.primaryTabs||[];state.popupTabConfigDraft=tabs.map((tab,i)=>popupTabDefaultFromLegacy(tab,i));state.popupTabSelected={};state.popupTabDraftDirty=true;state.popupQuartileDraftChanged=true;renderPopupConfig();
+  }
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
-    if(!state.popupHeader)loadPopupHeaderConfig();
-    state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
-    if(!Array.isArray(state.popupConfig)||!state.popupConfig.length) loadPopupConfig(); state.popupConfigDraft=state.popupConfig.map(normalizePopupField);state.popupQuartileDraftChanged=false;
+    if(!state.popupHeader)loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);
+    if(!state.popupTabConfigs?.length)loadPopupTabConfigs();state.popupTabConfigDraft=clonePopupTabConfigs(state.popupTabConfigs);state.popupTabSelected={};state.popupTabDraftDirty=false;state.popupQuartileDraftChanged=false;
     renderPopupHeaderConfig();bindPopupHeaderConfig();
     const amenityRadiusInput=el('popupAmenityRadius');if(amenityRadiusInput)amenityRadiusInput.value=Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1);
-    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
-    renderPopupConfig();
-    el('popupDialog').showModal();
+    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));renderPopupConfig();el('popupDialog').showModal();
   }
-  function renderPopupConfig(){
-    const wrap=el('popupFieldList');if(!wrap)return;
-    const cols=state.headers.length?state.headers:[];
-    wrap.replaceChildren();
-    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
-    (state.popupConfigDraft||[]).forEach((raw,idx)=>{
-      const field=normalizePopupField(raw);state.popupConfigDraft[idx]=field;
-      const row=document.createElement('div');row.className='metric-config-row popup-config-row';row.draggable=false;row.dataset.index=idx;
-      row.innerHTML=metricConfigHeaderHTML({kind:'popup',idx,title:field.title,extraControls:'<label class="popup-quartile-check"><input type="checkbox" class="popup-quartile-input" data-index="'+idx+'" '+(field.quartile?'checked':'')+'><span>Quartile</span></label>'})+metricConfigSettingsHTML({kind:'popup',idx,headers:cols,formula:field.formula,numberFormat:field.numberFormat,decimalPlaces:field.decimalPlaces,directSelected:popupDirectColumn(field)});
-      wrap.appendChild(row);
-    });
-    wrap.querySelectorAll('.popup-title-input').forEach(input=>input.addEventListener('input',e=>{state.popupConfigDraft[+e.target.dataset.index].title=e.target.value;}));
-    wrap.querySelectorAll('.popup-quartile-input').forEach(input=>input.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].quartile=!!e.target.checked;state.popupQuartileDraftChanged=true;}));
-    wrap.querySelectorAll('.popup-placeholder-select').forEach(select=>select.addEventListener('change',()=>{}));
-    wrap.querySelectorAll('.popup-column-select').forEach(select=>select.addEventListener('change',e=>{
-      const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];const chosen=e.target.value;if(!chosen)return;
-      const input=wrap.querySelector(`.popup-formula-input[data-index="${i}"]`);const current=input.value.trim();
-      input.value=current?`${current}${chosen}`:chosen;f.formula=input.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
-      if(!f.title.trim()){f.title=chosen;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=chosen;}
-      updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'),popupFormulaIssue);
-    }));
-    wrap.querySelectorAll('.popup-formula-input').forEach(input=>{
-      const warning=input.parentElement.querySelector('.formula-warning');
-      updateFormulaValidation(input,warning,popupFormulaIssue);
-      input.addEventListener('input',e=>{
-        const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.formula=e.target.value.trim();f.column=state.headers.includes(f.formula)?f.formula:'';f.type=state.headers.includes(f.formula)?'column':(isPopupVirtualOperand(f.formula)?'virtual':'formula');
-        if(!f.title.trim()){const derived=firstTickerOperand(f.formula)||popupDirectColumn(f);if(derived){f.title=derived;const t=wrap.querySelector(`.popup-title-input[data-index="${i}"]`);if(t)t.value=derived;}}
-        updateFormulaValidation(e.target,warning,popupFormulaIssue);
-      });
-    });
-    wrap.querySelectorAll('.popup-number-format-select').forEach(select=>select.addEventListener('change',e=>{const i=+e.target.dataset.index;const f=state.popupConfigDraft[i];f.numberFormat=e.target.value;f.decimalPlaces=defaultTickerDecimals(f.numberFormat);renderPopupConfig();}));
-    wrap.querySelectorAll('.popup-decimal-select').forEach(select=>select.addEventListener('change',e=>{state.popupConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
-    wrap.querySelectorAll('.popup-remove').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(btn.dataset.index);if(i>=0&&i<state.popupConfigDraft.length){const removed=state.popupConfigDraft[i]; if(removed?.quartile)state.popupQuartileDraftChanged=true; state.popupConfigDraft.splice(i,1);renderPopupConfig();}}));
-    attachMetricDragHandlers(wrap,state.popupConfigDraft,renderPopupConfig);
-  }
-  function validatePopupDraft(){
-    if(!state.headers.length)return 'Load a financial workbook before saving the popup.';
-    const exactHeaders=new Set(state.headers);
-    for(const [i,raw] of state.popupConfigDraft.entries()){
-      const f=normalizePopupField(raw);
-      if(!f.formula)return `Field ${i+1}: choose a column or enter a formula.`;
-      if(exactHeaders.has(f.formula)||isPopupVirtualOperand(f.formula))continue;
-      const issue=popupFormulaIssue(f.formula);if(issue)return `Field ${i+1}: ${issue}.`;
-      for(const t of tokenizePopup(f.formula)||[]){if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value)&&!isPopupVirtualOperand(t.value))return `Field ${i+1} uses a column that is not present in the workbook: ${t.value}`;}
-    }
-    return '';
-  }
-  async function applyPopupConfig(){
-    const error=validatePopupDraft();if(error){alert(error);return;}
-    const quartileChanged=!!state.popupQuartileDraftChanged;
-    state.popupConfig=state.popupConfigDraft.map(normalizePopupField);
-    if(quartileChanged)state.popupQuartileDistributionCache.clear();
-    state.popupQuartileDraftChanged=false;
-    state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);
-    savePopupConfig();
-    savePopupHeaderConfig();
-    refreshConfigUI();
-    if(state.openPopupMarker){await refreshOpenPopupCard();}
-    el('popupDialog').close();
-  }
-  function popupTickerSelectedSet(){return new Set((state.popupTickerDraft||[]).map(m=>String(m.formula||'').trim()).filter(Boolean));}
-  function renderPopupTickerConfig(){
-    const wrap=el('popupTickerFieldList');
-    if(!wrap)return;
-    const headers=state.headers||[];
-    const options=[...headers,...popupVirtualNames()];
-    const selected=popupTickerSelectedSet();
-    wrap.replaceChildren();
-    if(!options.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
-    const head=document.createElement('div');
-    head.className='popup-ticker-config-head';
-    head.innerHTML='<span>Column / field</span><span>Use</span>';
-    wrap.appendChild(head);
-    options.forEach(name=>{
-      const row=document.createElement('label');
-      row.className='popup-ticker-option-row';
-      const type=isPopupVirtualOperand(name)?'Census virtual':(state.types[name]==='numeric'?'Numeric':'Text');
-      row.innerHTML=`<span class="popup-ticker-option-title">${esc(name)} <small>${esc(type)}</small></span><input type="checkbox" class="popup-ticker-option-check" data-formula="${esc(name)}" ${selected.has(name)?'checked':''}>`;
-      wrap.appendChild(row);
-    });
-  }
-
-  function openPopupTickerConfig(){
-    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
-    renderPopupTickerConfig();el('popupTickerDialog').showModal();
-  }
-  function applyPopupTickerConfig(){
-    const next=(state.popupTickerDraft||[]).filter(m=>String(m.formula||'').trim()).map(m=>({formula:String(m.formula).trim(),title:String(m.title||m.formula).trim()||String(m.formula).trim()}));
-    state.popupTickerMetrics=next;state.popupTickerIndex=0;savePopupTickerConfig();el('popupTickerDialog').close();startPopupTicker();if(state.openPopupMarker)refreshOpenPopupCard();
-  }
-  function resetPopupDefaults(){const before=(state.popupConfigDraft||[]).map(normalizePopupField).map(f=>!!f.quartile);const next=popupDefaultFieldsFromSubjects().map(normalizePopupField);const after=next.map(f=>!!f.quartile);if(before.length!==after.length||before.some((v,i)=>v!==after[i]))state.popupQuartileDraftChanged=true;state.popupConfigDraft=next;renderPopupConfig();}
-
   // ---------- UI wiring ----------
   el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
   el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
