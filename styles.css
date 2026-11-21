@@ -1423,3 +1423,6 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 @media (max-width:900px){
   .popup-config-dialog .subject-cell-editor-grid{grid-template-columns:92px 130px minmax(200px,1fr) 88px 68px 86px;}
 }
+
+/* v1.296 first-pass trade-area archetype explanation */
+.rx-archetype-reasons{margin:8px 0 0 17px;padding:0;color:#334155;font-size:11px;line-height:1.45}.rx-archetype-reasons li{margin:2px 0}.rx-archetype-note{margin-top:8px;padding-top:6px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:9px;line-height:1.4}.rx-archetype-sub strong{font-weight:600;color:#111827}.rx-archetype-sub{line-height:1.5}

@@ -964,6 +964,22 @@
     const candidates=secondaryProximityCandidates(lat,lng,radiusKm),maxMeters=radiusKm*1000,origin=L.latLng(lat,lng);
     let count=0; for(const item of candidates){if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;} return count;
   }
+  function rxSiteCompetitorProfile(lat,lng,radiusKm=1){
+    const profile={total:0,types:[],uniqueTypes:0,topType:'',topShare:null};
+    if(!state.secondarySpatialIndex)return profile;
+    const column=state.secondaryCompetitorColumn;
+    if(!column)return profile;
+    const candidates=secondaryProximityCandidates(lat,lng,radiusKm),maxMeters=radiusKm*1000,origin=L.latLng(lat,lng),counts=new Map();
+    for(const item of candidates){
+      if(map.distance(origin,L.latLng(item.lat,item.lng))>maxMeters+0.001)continue;
+      const row=item.row||state.secondaryLocations[item.index]; if(!row)continue;
+      const value=String(row[column]??'').trim(); if(!value)continue;
+      profile.total++; counts.set(value,(counts.get(value)||0)+1);
+    }
+    const types=[...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],undefined,{sensitivity:'base'}));
+    profile.types=types; profile.uniqueTypes=types.length; profile.topType=types[0]?.[0]||''; profile.topShare=profile.total&&types.length?types[0][1]/profile.total:null;
+    return profile;
+  }
   function rxSiteAmenityKey(a){ return `rxsite|${a.toFixed(5)}`; }
   async function rxSiteAmenities(lat,lng){ return calculateAmenityProfile(lat,lng,RX_SITE_AMENITY_RADIUS_KM); }
   async function rxSitePopulation(row,lat,lng,provinceOverride=null){
@@ -972,6 +988,17 @@
     try{
       const radius=1, boundary=turf.circle([lng,lat],radius,{units:'kilometers',steps:180});
       const result=await selectCensusBoundary(boundary,[province],10,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:1000},shouldRender:false,provinceModes:[{provinceCode:province,mode:'partial'}]});
+      return Number(result?.aggregate?.totalPopulation)||0;
+    }catch(_){return null;}
+  }
+  async function rxSitePopulationAtRadius(row,lat,lng,provinceOverride=null,radiusKm=1){
+    const radius=Number(radiusKm)||1;
+    const preNames=radius===2?['pop_2km','Population 2 km','2 km population','Population 2km']:['pop_1km','Population 1 km','1 km population','Population'];
+    const pre=rxSiteNumeric(row,preNames); if(Number.isFinite(pre))return pre;
+    const province=provinceOverride||rxSiteProvinceFromRow(row); if(!province)return null;
+    try{
+      const boundary=turf.circle([lng,lat],radius,{units:'kilometers',steps:180});
+      const result=await selectCensusBoundary(boundary,[province],10,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radius*1000},shouldRender:false,provinceModes:[{provinceCode:province,mode:'partial'}]});
       return Number(result?.aggregate?.totalPopulation)||0;
     }catch(_){return null;}
   }
@@ -987,12 +1014,38 @@
     const sqft=rxSiteGrossSqFt(row),rx=rxSiteRxCount(row);
     return {row,ll,provinceGroup,pop,comp,amenity,sqft,rx};
   }
-  function rxSiteArchetype(record,med){
-    if(!record?.amenity)return 'No amenity profile';
-    const h={retail:record.amenity.retail>=med.retail,food:record.amenity.food>=med.food,health:record.amenity.health>=med.health,community:record.amenity.community>=med.community};
-    const parts=[]; if(h.retail)parts.push('Retail'); if(h.food)parts.push('Food & Leisure'); if(h.health)parts.push('Health & Services'); if(h.community)parts.push('Community & Recreation');
-    return parts.length===4?'All four above median':parts.length?parts.join(' + '):'All four below median';
+  function rxSiteTradeAreaArchetype(record,med){
+    if(!record?.amenity)return {name:'Insufficient trade-area data',draw:'Unknown',timing:'Unknown',reasons:[],flags:{}};
+    const amenityTotal=Number.isFinite(record.amenityTotal)?record.amenityTotal:(Number(record.amenity.retail)||0)+(Number(record.amenity.food)||0)+(Number(record.amenity.health)||0)+(Number(record.amenity.community)||0);
+    const activityDensity=Number.isFinite(record.activityDensity)?record.activityDensity:(amenityTotal+(Number(record.comp)||0)*2)/Math.max(Number(record.pop)||0,1000);
+    const h={retail:Number.isFinite(record.amenity.retail)&&Number.isFinite(med.retail)&&record.amenity.retail>=med.retail,food:Number.isFinite(record.amenity.food)&&Number.isFinite(med.food)&&record.amenity.food>=med.food,health:Number.isFinite(record.amenity.health)&&Number.isFinite(med.health)&&record.amenity.health>=med.health,community:Number.isFinite(record.amenity.community)&&Number.isFinite(med.community)&&record.amenity.community>=med.community};
+    const popHigh=Number.isFinite(record.pop)&&Number.isFinite(med.pop)&&record.pop>=med.pop;
+    const compHigh=Number.isFinite(record.comp)&&Number.isFinite(med.comp)&&record.comp>=med.comp;
+    const activityHigh=Number.isFinite(activityDensity)&&Number.isFinite(med.activityDensity)&&activityDensity>=med.activityDensity;
+    const localRatio=Number.isFinite(record.pop)&&Number.isFinite(record.pop2km)&&record.pop2km>0?record.pop/record.pop2km:null;
+    const broadDraw=localRatio!==null && localRatio<0.45;
+    const strongLocal=localRatio!==null && localRatio>=0.62;
+    const highAmenityBreadth=[h.retail,h.food,h.health,h.community].filter(Boolean).length;
+    let name='Mixed Urban Node',draw=broadDraw?'Broader-draw':'Mixed / local',reasons=[];
+    if(broadDraw && (activityHigh||compHigh) && (h.food||h.retail)){name='Regional Destination / Draw Area';draw='Broader-draw';reasons=['Activity and/or competition is high relative to the immediate population base.'];}
+    else if(h.food && (activityHigh||compHigh)){name='Evening / Destination Node';draw=broadDraw?'Broader-draw':'Local + destination';reasons=['Food & Leisure is elevated, suggesting meaningful midday and evening activity.'];}
+    else if(h.community && popHigh && (strongLocal||!Number.isFinite(localRatio))){name='Family / Community Hub';draw='Primarily local';reasons=['Community & Recreation is elevated relative to the store network.'];}
+    else if(h.health && (h.retail||compHigh)){name='Service / Convenience Node';draw='Primarily local';reasons=['Health & Services is elevated alongside retail/service activity.'];}
+    else if(popHigh && h.retail && compHigh && highAmenityBreadth>=2){name='Residential Retail Hub';draw='Primarily local';reasons=['Strong residential base, retail activity and direct competition point to a shopping-oriented local node.'];}
+    else if(popHigh && strongLocal){name='Residential Core';draw='Primarily local';reasons=['The immediate population base is strong and concentrated close to the site.'];}
+    else {name=activityHigh&&highAmenityBreadth>=3?'Mixed Urban Node':'Neighbourhood Service Node';reasons=['The site has a mixed local activity profile without one dominant destination signature.'];}
+    const timing=[];
+    if(h.food)timing.push('midday + evening');
+    if(h.retail)timing.push('daytime + after-work/weekend');
+    if(h.health)timing.push('weekday daytime');
+    if(h.community)timing.push('after-school + weekend');
+    if(!timing.length)timing.push(popHigh?'primarily local / steady':'timing signal unclear');
+    if(compHigh)reasons.push('Competitor presence is at or above the network median.');
+    if(broadDraw)reasons.push('The 1 km population appears relatively small versus the 2 km population, suggesting a wider catchment.');
+    if(localRatio!==null && !broadDraw && !strongLocal)reasons.push('The trade area appears blended between immediate neighbourhood demand and a wider draw.');
+    return {name,draw,timing:timing.slice(0,2).join('; '),reasons,flags:h,localRatio,activityDensity};
   }
+  function rxSiteArchetype(record,med){ return rxSiteTradeAreaArchetype(record,med).name; }
   function rxSiteProfileKey(record,med){
     if(!record)return '';
     const b=v=>v?'H':'L';
@@ -1015,7 +1068,8 @@
       const med={};
       for(const group of ['QC','NONQC']){
         const g=base.filter(r=>r.provinceGroup===group);
-        med[group]={pop:rxSiteMedian(g.map(r=>r.pop)),comp:rxSiteMedian(g.map(r=>r.comp)),retail:rxSiteMedian(g.map(r=>r.amenity?.retail)),food:rxSiteMedian(g.map(r=>r.amenity?.food)),health:rxSiteMedian(g.map(r=>r.amenity?.health)),community:rxSiteMedian(g.map(r=>r.amenity?.community)),sqft:rxSiteMedian(g.map(r=>r.sqft))};
+        for(const r of g){r.amenityTotal=(Number(r.amenity?.retail)||0)+(Number(r.amenity?.food)||0)+(Number(r.amenity?.health)||0)+(Number(r.amenity?.community)||0);r.activityDensity=(r.amenityTotal+(Number(r.comp)||0)*2)/Math.max(Number(r.pop)||0,1000);}
+        med[group]={pop:rxSiteMedian(g.map(r=>r.pop)),comp:rxSiteMedian(g.map(r=>r.comp)),retail:rxSiteMedian(g.map(r=>r.amenity?.retail)),food:rxSiteMedian(g.map(r=>r.amenity?.food)),health:rxSiteMedian(g.map(r=>r.amenity?.health)),community:rxSiteMedian(g.map(r=>r.amenity?.community)),amenityTotal:rxSiteMedian(g.map(r=>r.amenityTotal)),activityDensity:rxSiteMedian(g.map(r=>r.activityDensity)),sqft:rxSiteMedian(g.map(r=>r.sqft))};
       }
       for(const r of base){ const m=med[r.provinceGroup]; r.profileKey=rxSiteProfileKey(r,m); r.archetype=rxSiteArchetype(r,m); r.compPct=rxSitePercentile(base.filter(x=>x.provinceGroup===r.provinceGroup).map(x=>x.comp),r.comp); r.sqftPct=rxSitePercentile(base.filter(x=>x.provinceGroup===r.provinceGroup).map(x=>x.sqft),r.sqft); const ai=(Number(r.amenity?.retail)||0)+(Number(r.amenity?.food)||0)+(Number(r.amenity?.health)||0)+(Number(r.amenity?.community)||0); r.amenityIndex=ai; }
       for(const group of ['QC','NONQC']){const vals=base.filter(r=>r.provinceGroup===group); const a=vals.map(v=>v.amenityIndex); for(const r of vals)r.amenityPct=rxSitePercentile(a,r.amenityIndex);}
@@ -1070,7 +1124,7 @@
     const model=state.rxSiteAnalysis.model,group=subject.provinceGroup,med=model.medians[group],lookup=model.lookup[group].get(subject.profileKey)||{n:0,weak:0,strong:0,stores:[]};
     const hero=el('rxSiteAnalysisHero'); if(hero){const strong=lookup.n?lookup.strong/lookup.n:null;hero.innerHTML=`<div class="rx-hero-main"><div class="rx-hero-label">${esc(subject.address)}</div><div class="rx-hero-probs"><div class="strong">${fmtPct(strong)} <span>Top half Rx</span></div><div class="weak">${fmtPct(lookup.n?lookup.weak/lookup.n:null)} <span>Bottom half Rx</span></div></div></div><div class="rx-hero-meta"><span>${esc(group==='QC'?'Québec benchmark':'Non-Québec benchmark')}</span></div>`;}
     const prof=el('rxSiteAnalysisProfile');if(prof)prof.innerHTML=rxSiteProfileHtml(subject,med);
-    const arch=el('rxSiteAnalysisArchetype');if(arch)arch.innerHTML=`<div class="rx-archetype-name">${esc(subject.archetype)}</div><div class="rx-archetype-sub">Four amenity categories, each classified above/below the ${group==='QC'?'Québec':'non-Québec'} median.</div>`;
+    const arch=el('rxSiteAnalysisArchetype');if(arch){const trade=subject.tradeArea||rxSiteTradeAreaArchetype(subject,med);const pop2=Number.isFinite(subject.pop2km)?`1 km / 2 km population: ${rxSiteFmtValue(subject.pop)} / ${rxSiteFmtValue(subject.pop2km)}`:'2 km population unavailable in current source';const compText=subject.compProfile?.total?`Competitors: ${rxSiteFmtValue(subject.compProfile.total)} across ${rxSiteFmtValue(subject.compProfile.uniqueTypes)} types${subject.compProfile.topType?` • largest: ${esc(subject.compProfile.topType)}`:''}`:'Competitor composition unavailable';const reasons=trade.reasons.map(x=>`<li>${esc(x)}</li>`).join('');arch.innerHTML=`<div class="rx-archetype-name">${esc(trade.name)}</div><div class="rx-archetype-sub"><strong>Likely draw:</strong> ${esc(trade.draw)}<br><strong>Activity timing:</strong> ${esc(trade.timing)}<br>${esc(pop2)}<br>${compText}</div><ul class="rx-archetype-reasons">${reasons}</ul><div class="rx-archetype-note">First-pass inference from population, broad amenity mix and competitor context. The current amenity asset exposes the four broad categories, not individual amenity subtypes.</div>`;}
     const prec=el('rxSiteAnalysisPrecedent');if(prec)prec.innerHTML='';
     const conclusion=el('rxSiteAnalysisConclusion');if(conclusion){if(!lookup.n)conclusion.innerHTML=`<strong>Untested configuration.</strong> No historical ${group==='QC'?'Québec':'non-Québec'} stores match this full above/below-median profile.`;else conclusion.innerHTML=`Historical stores matching this full profile split <strong>${fmtPct(lookup.strong/lookup.n)} top half</strong> and <strong>${fmtPct(lookup.weak/lookup.n)} bottom half</strong>. Treat the result as directional evidence, not a point forecast.`;}
     rxSiteDrawPie(lookup.weak,lookup.strong);rxSiteBindGraph();rxSiteBindResize();requestAnimationFrame(()=>rxSiteDraw3d(model,subject));
@@ -1078,7 +1132,7 @@
   async function rxSiteAnalyzeAddress(address){
     if(!state.rxSiteAnalysis.enabled)return; const token=++state.searchToken; const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
     try{const qs=new URLSearchParams({SingleLine:address,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});if(token!==state.searchToken)return;const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');const lat=c.location.y,lng=c.location.x;let province=provinceCodeFromAddress(address,c);if(!province){if(!state.headerLookupReady)await loadHeaderCsdLookup();const csd=getCsdAtPoint(lat,lng);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
-      const group=rxSiteProvinceGroup(province),model=state.rxSiteAnalysis.model,m= model.medians[group];const amenity=await rxSiteAmenities(lat,lng);const comp=rxSiteCountSecondary(lat,lng,1);const pop=await rxSitePopulation({},lat,lng,province);const sqft=Number(el('rxSiteGrossSqFtInput')?.value);const subject={address:c.address||address,lat,lng,provinceCode:province,provinceGroup:group,pop,comp,amenity,sqft:Number.isFinite(sqft)?sqft:m.sqft};const values={pop:subject.pop,comp:subject.comp,sqft:subject.sqft,amenityIndex:amenity.retail+amenity.food+amenity.health+amenity.community}; if(el('rxSiteGrossSqFtInput'))el('rxSiteGrossSqFtInput').value=String(Math.round(subject.sqft));subject.compPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.comp),subject.comp);subject.sqftPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.sqft),subject.sqft);subject.amenityPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.amenityIndex),values.amenityIndex);subject.archetype=rxSiteArchetype(subject,m);subject.profileKey=rxSiteProfileKey(subject,m);state.rxSiteAnalysis.subject=subject;const dialog=el('rxSiteAnalysisDialog');if(dialog&&!dialog.open)dialog.showModal();requestAnimationFrame(()=>{requestAnimationFrame(()=>rxSiteRender(subject));});
+      const group=rxSiteProvinceGroup(province),model=state.rxSiteAnalysis.model,m= model.medians[group];const amenity=await rxSiteAmenities(lat,lng);const comp=rxSiteCountSecondary(lat,lng,1);const compProfile=rxSiteCompetitorProfile(lat,lng,1);const pop=await rxSitePopulationAtRadius({},lat,lng,province,1);const pop2km=await rxSitePopulationAtRadius({},lat,lng,province,2);const sqft=Number(el('rxSiteGrossSqFtInput')?.value);const subject={address:c.address||address,lat,lng,provinceCode:province,provinceGroup:group,pop,pop2km,comp,compProfile,amenity,sqft:Number.isFinite(sqft)?sqft:m.sqft};subject.amenityTotal=(Number(amenity.retail)||0)+(Number(amenity.food)||0)+(Number(amenity.health)||0)+(Number(amenity.community)||0);subject.activityDensity=(subject.amenityTotal+(Number(comp)||0)*2)/Math.max(Number(pop)||0,1000);subject.tradeArea=rxSiteTradeAreaArchetype(subject,m);const values={pop:subject.pop,comp:subject.comp,sqft:subject.sqft,amenityIndex:subject.amenityTotal}; if(el('rxSiteGrossSqFtInput'))el('rxSiteGrossSqFtInput').value=String(Math.round(subject.sqft));subject.compPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.comp),subject.comp);subject.sqftPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.sqft),subject.sqft);subject.amenityPct=rxSitePercentile(model.rows.filter(r=>r.provinceGroup===group).map(r=>r.amenityIndex),values.amenityIndex);subject.archetype=subject.tradeArea.name;subject.profileKey=rxSiteProfileKey(subject,m);state.rxSiteAnalysis.subject=subject;const dialog=el('rxSiteAnalysisDialog');if(dialog&&!dialog.open)dialog.showModal();requestAnimationFrame(()=>{requestAnimationFrame(()=>rxSiteRender(subject));});
       if(status)status.textContent='Analysis ready.';
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;alert(`Rx Count Site Analysis failed: ${err.message}`);}
   }
