@@ -924,6 +924,12 @@
   // 2) non-community activity hub detection
   // 3) user-configurable archetype matching + deterministic dayparts
   const RX_SITE_AMENITY_RADIUS_KM=0.75;
+  const RX_SITE_TEST_INNER_AMENITY_RADIUS_KM=0.50;
+  const RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM=2.00;
+  const RX_SITE_TEST_COMP_INNER_RADIUS_KM=1.00;
+  const RX_SITE_TEST_COMP_OUTER_RADIUS_KM=2.00;
+  const RX_SITE_TEST_POP_INNER_RADIUS_KM=1.00;
+  const RX_SITE_TEST_POP_OUTER_RADIUS_KM=2.00;
   const RX_SITE_HUB_RADIUS_KM=0.30;
   const RX_SITE_HUB_MIN_NEIGHBORS=5;
   const RX_SITE_HUB_SEARCH_RADIUS_KM=1.50;
@@ -1087,95 +1093,58 @@
     return {hubs,subjectHub,points:pts.length,minDensity:densities.length?Math.min(...densities):null,maxDensity:densities.length?Math.max(...densities):null};
   }
   async function rxSiteBuildNetworkBenchmark(){
-    if(!rxSiteStateReady())return null;
-    if(state.rxSiteAnalysis.modelPromise)return state.rxSiteAnalysis.modelPromise;
-    state.rxSiteAnalysis.modelPromise=(async()=>{
-      const rows=state.rows.slice();const base=[];const total=rows.length;let done=0;const status=el('rxSiteAnalysisStatus');
-      const concurrency=8;
-      for(let i=0;i<rows.length;i+=concurrency){
-        const batch=rows.slice(i,i+concurrency);
-        const vals=await Promise.all(batch.map(async row=>{
-          const ll=rxSiteLatLng(row);if(!ll)return null;const province=rxSiteProvinceFromRow(row);
-          const [pop1,pop2,amenity]=await Promise.all([rxSitePopulationRadius(row,ll.lat,ll.lng,1,province),rxSitePopulationRadius(row,ll.lat,ll.lng,2,province),rxSiteAmenities(ll.lat,ll.lng)]);
-          const comp=rxSiteCountSecondary(ll.lat,ll.lng,1),denom=Number(pop1)>0?Number(pop1):null;
-          return {row,ll,pop1,pop2,comp,amenity,amenityPC:denom?{retail:amenity.retail/denom*10000,food:amenity.food/denom*10000,health:amenity.health/denom*10000,community:amenity.community/denom*10000,total:amenity.total/denom*10000}:null};
-        }));
-        vals.forEach(v=>{if(v)base.push(v);});done+=batch.length;
-        if(status)status.textContent=`Preparing trade-area benchmark… ${Math.min(done,total).toLocaleString()} / ${total.toLocaleString()}`;
-        await new Promise(r=>setTimeout(r,0));
-      }
-      const fieldMap={pop1:'pop1',pop2:'pop2',competition:'comp','retail':'amenityPC.retail','food':'amenityPC.food','health':'amenityPC.health','community':'amenityPC.community','totalAmenityPC':'amenityPC.total'};
-      const get=(r,path)=>path.split('.').reduce((o,k)=>o?.[k],r);const quartiles={};
-      for(const [key,path] of Object.entries(fieldMap))quartiles[key]=rxSiteQuartileThresholds(base.map(r=>get(r,path)));
-      const rowsWithTraits=base.map(r=>({
-        ...r,
-        q:{pop1:rxSiteQuartile(r.pop1,quartiles.pop1),pop2:rxSiteQuartile(r.pop2,quartiles.pop2),retail:rxSiteQuartile(r.amenityPC?.retail,quartiles.retail),food:rxSiteQuartile(r.amenityPC?.food,quartiles.food),health:rxSiteQuartile(r.amenityPC?.health,quartiles.health),community:rxSiteQuartile(r.amenityPC?.community,quartiles.community),competition:rxSiteQuartile(r.comp,quartiles.competition)},
-        rx:rxSiteNumeric(r.row,['Prescription Count','Rx Count','PrescriptionCount'])
-      }));
-      const archetypes=rxSiteLoadArchetypes();state.rxSiteAnalysis.archetypes=archetypes;state.rxSiteAnalysis.model={rows:rowsWithTraits,quartiles};state.rxSiteAnalysis.modelReady=true;
-      if(status)status.textContent=`Ready • trade-area benchmark calibrated across ${rowsWithTraits.length.toLocaleString()} primary stores`;
-      rxSiteStateReady();return state.rxSiteAnalysis.model;
-    })().catch(err=>{state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.modelReady=false;const status=el('rxSiteAnalysisStatus');if(status)status.textContent=`Trade-area benchmark failed: ${err.message}`;throw err;});
-    return state.rxSiteAnalysis.modelPromise;
+    state.rxSiteAnalysis.modelReady=false;
+    state.rxSiteAnalysis.model=null;
+    return null;
   }
-  function rxSiteFormatBar(q){return Number.isFinite(q)?q:0;}
-  function rxSiteMetricRows(subject){
-    const q=subject.q;return [
-      ['Retail / 1 km population',q.retail],['Food & Leisure / 1 km population',q.food],['Health & Services / 1 km population',q.health],['Community & Recreation / 1 km population',q.community],['Competitors / 1 km',q.competition],['Population — 1 km',q.pop1],['Population — 2 km',q.pop2]
+  function rxSiteCircleAreaKm2(radiusKm){ return Math.PI*radiusKm*radiusKm; }
+  function rxSiteDensity(count,radiusKm){ const n=Number(count); return Number.isFinite(n)?n/rxSiteCircleAreaKm2(radiusKm):null; }
+  function rxSiteConcentration(innerDensity,outerDensity){
+    const a=Number(innerDensity),b=Number(outerDensity);
+    return Number.isFinite(a)&&Number.isFinite(b)&&b>0?a/b:null;
+  }
+  async function rxSiteBuildDensityTable(subject){
+    const [amenityInner,amenityOuter,compInner,compOuter]=await Promise.all([
+      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
+      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
+      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM))
+    ]);
+    const popInner=await rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province);
+    const popOuter=await rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province);
+    const commercialInner=Number(amenityInner?.retail||0)+Number(amenityInner?.food||0);
+    const commercialOuter=Number(amenityOuter?.retail||0)+Number(amenityOuter?.food||0);
+    const communityInner=Number(amenityInner?.community||0), communityOuter=Number(amenityOuter?.community||0);
+    const healthInner=Number(amenityInner?.health||0), healthOuter=Number(amenityOuter?.health||0);
+    const rows=[
+      {key:'commercial',label:'Commercial (Retail + Food & Leisure)',innerRadius:0.5,outerRadius:2,innerCount:commercialInner,outerCount:commercialOuter},
+      {key:'community',label:'Community & Recreation',innerRadius:0.5,outerRadius:2,innerCount:communityInner,outerCount:communityOuter},
+      {key:'health',label:'Health & Services',innerRadius:0.5,outerRadius:2,innerCount:healthInner,outerCount:healthOuter},
+      {key:'competition',label:'Competitors',innerRadius:1,outerRadius:2,innerCount:compInner,outerCount:compOuter},
+      {key:'population',label:'Population',innerRadius:1,outerRadius:2,innerCount:popInner,outerCount:popOuter}
     ];
+    return rows.map(r=>{const innerDensity=rxSiteDensity(r.innerCount,r.innerRadius),outerDensity=rxSiteDensity(r.outerCount,r.outerRadius);return {...r,innerDensity,outerDensity,concentration:rxSiteConcentration(innerDensity,outerDensity)};});
   }
-  function rxSiteMetricRows(subject){
-    const q=subject.q,a=subject.amenityPC||{};
-    return [
-      ['Retail','retail',q.retail,a.retail],
-      ['Food & Leisure','food',q.food,a.food],
-      ['Health & Services','health',q.health,a.health],
-      ['Community & Recreation','community',q.community,a.community],
-      ['Competitors','competition',q.competition,subject.comp],
-      ['Population • 1 km','pop1',q.pop1,subject.pop1],
-      ['Population • 2 km','pop2',q.pop2,subject.pop2]
-    ];
-  }
-  function rxSiteFormatMetricValue(key,value){
-    if(!Number.isFinite(Number(value)))return '—';
-    const n=Number(value);
-    if(['retail','food','health','community'].includes(key))return n.toFixed(1);
-    return Math.round(n).toLocaleString();
-  }
+  function rxSiteFormatDensity(value){ return Number.isFinite(Number(value))?Number(value).toFixed(1):'—'; }
+  function rxSiteFormatConcentration(value){ return Number.isFinite(Number(value))?`${Number(value).toFixed(2)}×`:'—'; }
   function rxSiteRenderDensity(subject){
-    const wrap=el('rxSiteDensityChart');if(!wrap)return;wrap.innerHTML='';
-    for(const [label,key,q,value] of rxSiteMetricRows(subject)){
-      const bar=document.createElement('div');bar.className='rx-density-bar-wrap';
-      const qv=Number.isFinite(q)?q:0;
-      bar.innerHTML=`<div class="rx-density-value">${esc(rxSiteFormatMetricValue(key,value))}</div><div class="rx-density-bar-area"><div class="rx-density-bar" style="height:${Math.max(8,qv*25)}%"></div></div><div class="rx-density-label">${esc(label)}</div><div class="rx-density-q">${Number.isFinite(q)?'Q'+q:'—'}</div>`;
-      wrap.appendChild(bar);
-    }
-    const pos=rxSiteLocalDestinationIndex(subject.q);
-    const marker=el('rxSiteLocalDestinationMarker');if(marker)marker.style.left=`${pos*25}%`;
-    const note=el('rxSiteLocalDestinationValue');
-    if(note){const labels=['Strongly local-serving','Local-serving','Balanced','Destination-oriented','Strongly destination-oriented'];note.textContent=labels[pos];}
+    const wrap=el('rxSiteDensityTable');if(!wrap)return;
+    const rows=subject.densityRows||[];
+    wrap.innerHTML=`<table class="rx-site-density-table"><thead><tr><th>Measure</th><th>Inner density</th><th>Outer density</th><th>Concentration</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${rxSiteFormatDensity(r.innerDensity)}</td><td>${rxSiteFormatDensity(r.outerDensity)}</td><td>${rxSiteFormatConcentration(r.concentration)}</td></tr>`).join('')}</tbody></table>`;
+    const placeholder=el('rxSiteLocalDestinationPlaceholder');if(placeholder)placeholder.textContent='—';
   }
-  function rxSiteRenderHub(subject){
-    const hub=subject.hubs,wrap=el('rxSiteHubSummary'),marker=el('rxSiteHubMarker');if(!wrap||!marker)return;
-    const total=hub.hubs.length,rank=hub.subjectHub?.rank||null,density=hub.subjectHub?.count||0;
-    const pos=rank&&total>1?((total-rank)/(total-1))*100:rank?50:50;
-    marker.style.left=`${Math.max(4,Math.min(96,pos))}%`;
-    marker.title=rank?`Subject hub #${rank} of ${total} • ${density} points`:'No qualifying subject hub';
+  function rxSiteRenderHub(){
+    const wrap=el('rxSiteHubSummary');if(wrap)wrap.textContent='—';
     const minEl=el('rxSiteHubMinDensity'),maxEl=el('rxSiteHubMaxDensity');
-    if(minEl)minEl.textContent=Number.isFinite(hub.minDensity)?`${hub.minDensity} pts`: '—';
-    if(maxEl)maxEl.textContent=Number.isFinite(hub.maxDensity)?`${hub.maxDensity} pts`: '—';
-    wrap.textContent=rank?`${total} hubs • subject #${rank} • ${density} points`:`${total} hubs • subject not in a qualifying hub`;
+    if(minEl)minEl.textContent='—'; if(maxEl)maxEl.textContent='—';
+    const marker=el('rxSiteHubMarker');if(marker)marker.style.left='50%';
   }
-  function rxSiteRenderDayparts(subject){
-    const d=subject.dayparts;const wrap=el('rxSiteDaypartBar');if(!wrap)return;wrap.querySelector('[data-part="morning"]').classList.toggle('on',d.morning);wrap.querySelector('[data-part="afternoon"]').classList.toggle('on',d.afternoon);wrap.querySelector('[data-part="evening"]').classList.toggle('on',d.evening);el('rxSiteWeekendBox')?.classList.toggle('on',d.weekend);
+  function rxSiteRenderDayparts(){
+    const wrap=el('rxSiteDaypartBar');if(!wrap)return;
+    wrap.querySelectorAll('[data-part]').forEach(x=>x.classList.remove('on'));
   }
-  function rxSiteArchetypeBlurb(subject){
-    const q=subject.q,name=subject.archetype;
-    const clauses=[];const popHigh=q.pop1>=3;const destHigh=(q.retail>=3&&q.food>=3);const localHigh=(q.health>=3||q.community>=3);const compHigh=q.competition>=3;
-    if(popHigh)clauses.push('high residential population'); else if(q.pop1<=2)clauses.push('smaller residential base');
-    if(destHigh)clauses.push('high commercial amenity density per capita'); else if(localHigh)clauses.push('strong local-serving amenity density'); else clauses.push('balanced amenity mix');
-    if(compHigh)clauses.push('meaningful competition'); else if(q.competition===1)clauses.push('limited competition');
-    return `${name}. ${clauses.slice(0,3).join(', ')}.`;
+  function rxSiteRenderArchetypeConfig(){
+    const table=el('rxSiteArchetypeTable');if(table)table.innerHTML='<div class="rx-site-placeholder">Not calculated in this test.</div>';
   }
   function rxSiteRenderArchetypeConfig(){
     const table=el('rxSiteArchetypeTable');if(!table)return;const rows=rxSiteArchetypeRows();const opts=RX_SITE_ARCHETYPE_OPTIONS.map(v=>`<option value="${v}">${v==='ANY'?'Any':v}</option>`).join('');table.innerHTML=`<div class="rx-archetype-config-head"><div>Archetype</div><div>1 km pop</div><div>2 km pop</div><div>Retail</div><div>Food</div><div>Health</div><div>Community</div><div>Competition</div></div>${rows.map((r,i)=>`<div class="rx-archetype-config-row" data-r="${i}"><input class="rx-arch-name" value="${esc(r.name||'')}">${RX_SITE_ARCHETYPE_FIELDS.map(f=>`<select data-f="${f}">${opts}</select>`).join('')}</div>`).join('')}`;
@@ -1184,28 +1153,25 @@
     table.querySelectorAll('select[data-f]').forEach(sel=>sel.addEventListener('change',e=>{const i=Number(e.target.closest('.rx-archetype-config-row').dataset.r);state.rxSiteAnalysis.archetypes[i][e.target.dataset.f]=e.target.value;}));
   }
   function rxSiteRender(subject){
-    const q=subject.q;const dialog=el('rxSiteAnalysisDialog');if(dialog&&!dialog.open)dialog.showModal();
-    const addr=el('rxSiteAnalysisHero');if(addr)addr.innerHTML=`<div class="rx-site-hero-title">${esc(subject.address||'Trade Area Analysis')}</div><div class="rx-site-hero-sub">Objective local-area profile • population, amenity intensity, hub structure and estimated activity timing</div>`;
-    rxSiteRenderDensity(subject);rxSiteRenderHub(subject);rxSiteRenderDayparts(subject);
-    const arch=el('rxSiteAnalysisConclusion');if(arch)arch.innerHTML=`<div class="rx-conclusion-name">${esc(subject.archetype)}</div><div class="rx-conclusion-blurb">${esc(rxSiteArchetypeBlurb(subject))}</div>`;
-    const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Analysis ready.';
-  }
-  function rxSiteBuildSubjectMetrics(subject){
-    const model=state.rxSiteAnalysis.model,qb=model.quartiles,denom=Number(subject.pop1)>0?Number(subject.pop1):null;const ap=denom?{retail:subject.amenity.retail/denom*10000,food:subject.amenity.food/denom*10000,health:subject.amenity.health/denom*10000,community:subject.amenity.community/denom*10000,total:subject.amenity.total/denom*10000}:null;
-    const q={pop1:rxSiteQuartile(subject.pop1,qb.pop1),pop2:rxSiteQuartile(subject.pop2,qb.pop2),retail:rxSiteQuartile(ap?.retail,qb.retail),food:rxSiteQuartile(ap?.food,qb.food),health:rxSiteQuartile(ap?.health,qb.health),community:rxSiteQuartile(ap?.community,qb.community),totalAmenityPC:rxSiteQuartile(ap?.total,qb.totalAmenityPC),competition:rxSiteQuartile(subject.comp,qb.competition)};
-    return {...subject,amenityPC:ap,q,dayparts:rxSiteDayparts(q),archetype:rxSiteMatchArchetype(q),hubs:rxSiteDetectHubs(subject)};
+    const dialog=el('rxSiteAnalysisDialog');if(dialog&&!dialog.open)dialog.showModal();
+    const addr=el('rxSiteAnalysisHero');if(addr)addr.innerHTML=`<div class="rx-site-hero-title">${esc(subject.address||'Trade Area Analysis')}</div><div class="rx-site-hero-sub">Density test • inner circle vs outer circle</div>`;
+    rxSiteRenderDensity(subject);
+    rxSiteRenderHub(subject);
+    rxSiteRenderDayparts(subject);
+    const arch=el('rxSiteAnalysisConclusion');if(arch)arch.innerHTML='<div class="rx-site-placeholder">Not calculated in this test.</div>';
+    const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Density table ready.';
   }
   async function rxSiteAnalyzeAddress(address){
-    if(!state.rxSiteAnalysis.modelReady)await rxSiteBuildNetworkBenchmark();
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
     try{
       const c=await rxSiteGeocodeAddress(address);const lat=Number(c?.location?.y),lng=Number(c?.location?.x);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('Address could not be located.');
       let province=provinceCodeFromAddress(c?.address||c?.attributes?.Match_addr||address,c);if(!province){const point=turf.point([lng,lat]);const csd=await lookupCensusDistrict(point);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
-      const [pop1,pop2,amenity]=await Promise.all([rxSitePopulationRadius({},lat,lng,1,province),rxSitePopulationRadius({},lat,lng,2,province),rxSiteAmenities(lat,lng)]);const comp=rxSiteCountSecondary(lat,lng,1);const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,pop1,pop2,comp,amenity,province};
-      state.rxSiteAnalysis.subject=rxSiteBuildSubjectMetrics(subject);rxSiteRender(state.rxSiteAnalysis.subject);
+      const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
+      const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
+      state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
   }
-  function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal(); if(!state.rxSiteAnalysis.modelReady){const s=el('rxSiteAnalysisStatus');if(s)s.textContent='Preparing trade-area benchmark… this happens once per loaded data set.';rxSiteBuildNetworkBenchmark().catch(()=>{});} } }
+  function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal();} }
   function rxSiteWire(){
     const form=el('rxSiteAnalysisForm');
     if(form&&!form.dataset.bound){form.dataset.bound='1';form.addEventListener('submit',async e=>{e.preventDefault();const address=el('rxSiteAnalysisAddress')?.value.trim();if(!address||!state.rxSiteAnalysis.enabled)return;const btn=el('rxSiteAnalysisGo');if(btn)btn.disabled=true;try{await rxSiteAnalyzeAddress(address);}catch(_){ }finally{if(btn)btn.disabled=!state.rxSiteAnalysis.enabled;}});}
