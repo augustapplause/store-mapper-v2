@@ -1015,10 +1015,15 @@
     const m=String(rule).match(/^Q([1-4])-Q([1-4])$/); if(!m)return false; const a=Number(m[1]),b=Number(m[2]); return q>=Math.min(a,b)&&q<=Math.max(a,b);
   }
   function rxSiteMatchArchetype(metrics){
-    for(const row of rxSiteArchetypeRows()){
-      if(RX_SITE_ARCHETYPE_FIELDS.every(f=>rxSiteRangeMatches(metrics[f],row[f])))return row.name||'Unclassified';
-    }
-    return 'Unclassified';
+    const rows=rxSiteArchetypeRows();
+    for(const row of rows){if(RX_SITE_ARCHETYPE_FIELDS.every(f=>rxSiteRangeMatches(metrics[f],row[f])))return row.name||'Unclassified';}
+    let best=null,bestMatches=-1;
+    rows.forEach((row,i)=>{
+      const matches=RX_SITE_ARCHETYPE_FIELDS.reduce((n,f)=>n+(rxSiteRangeMatches(metrics[f],row[f])?1:0),0);
+      if(matches>bestMatches){bestMatches=matches;best=row;}
+      else if(matches===bestMatches&&best&&i<rows.indexOf(best))best=row;
+    });
+    return best?.name||'Unclassified';
   }
   function rxSiteDayparts(q){
     const morning=Number.isFinite(q.health)&&q.health>=2;
@@ -1028,32 +1033,58 @@
     return {morning,afternoon,evening,weekend};
   }
   function rxSiteLocalDestinationIndex(q){
-    const dest=(Number(q.retail)||0)+(Number(q.food)||0),local=(Number(q.health)||0)+(Number(q.community)||0),tot=dest+local; return tot?dest/tot:0.5;
+    const score=v=>{const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(3,n-1)):0;};
+    const destination=score(q.retail)+score(q.food);
+    const local=score(q.health)+score(q.community);
+    const delta=destination-local;
+    if(delta>=3)return 4;
+    if(delta>=1)return 3;
+    if(delta<=-3)return 0;
+    if(delta<=-1)return 1;
+    return 2;
   }
   function rxSiteHubPointsForSubject(subject){
     const pts=[]; const seen=new Set(), add=(p,type)=>{if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng))return;const key=`${p.lat.toFixed(6)}|${p.lng.toFixed(6)}|${type}`;if(seen.has(key))return;seen.add(key);pts.push({lat:p.lat,lng:p.lng,type});};
-    for(const id of amenityIndicesWithinRadius(subject.lat,subject.lng,RX_SITE_HUB_SEARCH_RADIUS_KM)){const r=amenityReadRecord(id,new DataView(state.amenityAssetState.buffer));if((r.mask&7)!==0)add(r,'amenity');}
+    for(const id of amenityIndicesWithinRadius(subject.lat,subject.lng,RX_SITE_HUB_SEARCH_RADIUS_KM)){const r=amenityReadRecord(id,new DataView(state.amenityAssetState.buffer));if((r.mask&7)!==0)add({lat:r.lat,lng:r.lon},'amenity');}
     const origin=L.latLng(subject.lat,subject.lng); for(const row of state.rows){const ll=rxSiteLatLng(row);if(!ll)continue;if(map.distance(origin,L.latLng(ll.lat,ll.lng))<=RX_SITE_HUB_SEARCH_RADIUS_KM*1000+0.001)add(ll,'primary');}
     for(const item of secondaryProximityCandidates(subject.lat,subject.lng,RX_SITE_HUB_SEARCH_RADIUS_KM)){if(map.distance(origin,L.latLng(item.lat,item.lng))<=RX_SITE_HUB_SEARCH_RADIUS_KM*1000+0.001)add({lat:item.lat,lng:item.lng},'secondary');}
     return pts;
   }
   function rxSiteDetectHubs(subject){
-    const pts=rxSiteHubPointsForSubject(subject); if(pts.length===0)return {hubs:[],subjectHub:null};
-    const step=0.15,grid=new Map(),keyFor=(p)=>`${Math.floor(p.lat/step)},${Math.floor(p.lng/step)}`;
+    const pts=rxSiteHubPointsForSubject(subject);
+    if(!pts.length)return {hubs:[],subjectHub:null,points:0,minDensity:null,maxDensity:null};
+    const step=0.15,grid=new Map(),keyFor=p=>`${Math.floor(p.lat/step)},${Math.floor(p.lng/step)}`;
     pts.forEach((p,i)=>{const k=keyFor(p);if(!grid.has(k))grid.set(k,[]);grid.get(k).push(i);});
-    const neighbours=[];
-    for(let i=0;i<pts.length;i++){
-      const p=pts[i],baseLat=Math.floor(p.lat/step),baseLng=Math.floor(p.lng/step),near=[];
-      for(let a=-3;a<=3;a++)for(let b=-3;b<=3;b++){const arr=grid.get(`${baseLat+a},${baseLng+b}`);if(!arr)continue;for(const j of arr){if(j===i)continue;if(rxSiteDistanceKm(p,pts[j])<=RX_SITE_HUB_RADIUS_KM+1e-9)near.push(j);}}
-      neighbours.push(near);
+    function countAround(p){
+      const baseLat=Math.floor(p.lat/step),baseLng=Math.floor(p.lng/step),members=[];
+      for(let a=-3;a<=3;a++)for(let b=-3;b<=3;b++){
+        const arr=grid.get(`${baseLat+a},${baseLng+b}`);if(!arr)continue;
+        for(const j of arr){if(rxSiteDistanceKm(p,pts[j])<=RX_SITE_HUB_RADIUS_KM+1e-9)members.push(j);}
+      }
+      return members;
     }
-    const candidates=neighbours.map((n,i)=>({i,count:n.length+1})).filter(x=>x.count>=RX_SITE_HUB_MIN_NEIGHBORS+1).sort((a,b)=>b.count-a.count||a.i-b.i);
+    const candidates=pts.map((p,i)=>({i,count:countAround(p).length})).filter(x=>x.count>=RX_SITE_HUB_MIN_NEIGHBORS).sort((a,b)=>b.count-a.count||a.i-b.i);
     const hubs=[];
-    for(const cand of candidates){const p=pts[cand.i];if(hubs.some(h=>rxSiteDistanceKm(p,h.center)<=RX_SITE_HUB_RADIUS_KM))continue;const members=[];for(let j=0;j<pts.length;j++)if(rxSiteDistanceKm(p,pts[j])<=RX_SITE_HUB_RADIUS_KM+1e-9)members.push(j);hubs.push({center:p,count:members.length,members});}
-    hubs.sort((a,b)=>b.count-a.count);
-    let subjectHub=null,subjectDist=Infinity; for(const hub of hubs){const d=rxSiteDistanceKm(subject,hub.center);if(d<=RX_SITE_HUB_RADIUS_KM+1e-9&&(d<subjectDist)){subjectHub=hub;subjectDist=d;}}
+    for(const cand of candidates){
+      const p=pts[cand.i];
+      if(hubs.some(h=>rxSiteDistanceKm(p,h.center)<=RX_SITE_HUB_RADIUS_KM))continue;
+      hubs.push({center:p,count:cand.count,members:countAround(p)});
+    }
+    const subjectMembers=[];
+    const subjectOrigin={lat:subject.lat,lng:subject.lng};
+    for(let j=0;j<pts.length;j++)if(rxSiteDistanceKm(subjectOrigin,pts[j])<=RX_SITE_HUB_RADIUS_KM+1e-9)subjectMembers.push(j);
+    if(subjectMembers.length>=RX_SITE_HUB_MIN_NEIGHBORS){
+      const existing=hubs.find(h=>rxSiteDistanceKm(subjectOrigin,h.center)<=RX_SITE_HUB_RADIUS_KM+1e-9);
+      if(!existing) hubs.push({center:subjectOrigin,count:subjectMembers.length,members:subjectMembers,subjectAnchor:true});
+    }
+    hubs.sort((a,b)=>b.count-a.count||Number(!!b.subjectAnchor)-Number(!!a.subjectAnchor));
+    let subjectHub=null;
+    for(const hub of hubs){
+      if(rxSiteDistanceKm(subjectOrigin,hub.center)<=RX_SITE_HUB_RADIUS_KM+1e-9){subjectHub=hub;break;}
+    }
     if(subjectHub)subjectHub.rank=hubs.indexOf(subjectHub)+1;
-    return {hubs,subjectHub,points:pts.length};
+    const densities=hubs.map(h=>h.count).filter(Number.isFinite);
+    return {hubs,subjectHub,points:pts.length,minDensity:densities.length?Math.min(...densities):null,maxDensity:densities.length?Math.max(...densities):null};
   }
   async function rxSiteBuildNetworkBenchmark(){
     if(!rxSiteStateReady())return null;
@@ -1093,14 +1124,46 @@
       ['Retail / 1 km population',q.retail],['Food & Leisure / 1 km population',q.food],['Health & Services / 1 km population',q.health],['Community & Recreation / 1 km population',q.community],['Competitors / 1 km',q.competition],['Population — 1 km',q.pop1],['Population — 2 km',q.pop2]
     ];
   }
+  function rxSiteMetricRows(subject){
+    const q=subject.q,a=subject.amenityPC||{};
+    return [
+      ['Retail','retail',q.retail,a.retail],
+      ['Food & Leisure','food',q.food,a.food],
+      ['Health & Services','health',q.health,a.health],
+      ['Community & Recreation','community',q.community,a.community],
+      ['Competitors','competition',q.competition,subject.comp],
+      ['Population • 1 km','pop1',q.pop1,subject.pop1],
+      ['Population • 2 km','pop2',q.pop2,subject.pop2]
+    ];
+  }
+  function rxSiteFormatMetricValue(key,value){
+    if(!Number.isFinite(Number(value)))return '—';
+    const n=Number(value);
+    if(['retail','food','health','community'].includes(key))return n.toFixed(1);
+    return Math.round(n).toLocaleString();
+  }
   function rxSiteRenderDensity(subject){
-    const wrap=el('rxSiteDensityChart');if(!wrap)return;wrap.innerHTML='';for(const [label,q] of rxSiteMetricRows(subject)){const row=document.createElement('div');row.className='rx-density-row';row.innerHTML=`<div class="rx-density-label">${esc(label)}</div><div class="rx-density-track"><div class="rx-density-fill q${q}" style="width:${q*25}%"></div></div><div class="rx-density-q">${Number.isFinite(q)?'Q'+q:'—'}</div>`;wrap.appendChild(row);}
-    const idx=rxSiteLocalDestinationIndex(subject.q);const line=el('rxSiteLocalDestinationMarker');if(line)line.style.left=`${Math.max(3,Math.min(97,idx*100))}%`;
-    const note=el('rxSiteLocalDestinationValue');if(note)note.textContent=`${Math.round(idx*100)}% destination-oriented`; 
+    const wrap=el('rxSiteDensityChart');if(!wrap)return;wrap.innerHTML='';
+    for(const [label,key,q,value] of rxSiteMetricRows(subject)){
+      const bar=document.createElement('div');bar.className='rx-density-bar-wrap';
+      const qv=Number.isFinite(q)?q:0;
+      bar.innerHTML=`<div class="rx-density-value">${esc(rxSiteFormatMetricValue(key,value))}</div><div class="rx-density-bar-area"><div class="rx-density-bar" style="height:${Math.max(8,qv*25)}%"></div></div><div class="rx-density-label">${esc(label)}</div><div class="rx-density-q">${Number.isFinite(q)?'Q'+q:'—'}</div>`;
+      wrap.appendChild(bar);
+    }
+    const pos=rxSiteLocalDestinationIndex(subject.q);
+    const marker=el('rxSiteLocalDestinationMarker');if(marker)marker.style.left=`${pos*25}%`;
+    const note=el('rxSiteLocalDestinationValue');
+    if(note){const labels=['Strongly local-serving','Local-serving','Balanced','Destination-oriented','Strongly destination-oriented'];note.textContent=labels[pos];}
   }
   function rxSiteRenderHub(subject){
     const hub=subject.hubs,wrap=el('rxSiteHubSummary'),marker=el('rxSiteHubMarker');if(!wrap||!marker)return;
-    const total=hub.hubs.length, rank=hub.subjectHub?.rank||null, density=hub.subjectHub?.count||0;const pos=rank&&total>1?((total-rank)/(total-1))*100:50; marker.style.left=`${Math.max(4,Math.min(96,pos))}%`; marker.title=rank?`Subject hub #${rank} of ${total} • ${density} points`:'No qualifying subject hub';
+    const total=hub.hubs.length,rank=hub.subjectHub?.rank||null,density=hub.subjectHub?.count||0;
+    const pos=rank&&total>1?((total-rank)/(total-1))*100:rank?50:50;
+    marker.style.left=`${Math.max(4,Math.min(96,pos))}%`;
+    marker.title=rank?`Subject hub #${rank} of ${total} • ${density} points`:'No qualifying subject hub';
+    const minEl=el('rxSiteHubMinDensity'),maxEl=el('rxSiteHubMaxDensity');
+    if(minEl)minEl.textContent=Number.isFinite(hub.minDensity)?`${hub.minDensity} pts`: '—';
+    if(maxEl)maxEl.textContent=Number.isFinite(hub.maxDensity)?`${hub.maxDensity} pts`: '—';
     wrap.textContent=rank?`${total} hubs • subject #${rank} • ${density} points`:`${total} hubs • subject not in a qualifying hub`;
   }
   function rxSiteRenderDayparts(subject){
