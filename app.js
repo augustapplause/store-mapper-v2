@@ -1162,6 +1162,48 @@
     ];
     return rows.map(r=>{const innerDensity=rxSiteDensity(r.innerCount,r.innerRadius),outerDensity=rxSiteDensity(r.outerCount,r.outerRadius);return {...r,innerDensity,outerDensity,concentration:rxSiteConcentration(innerDensity,outerDensity)};});
   }
+  function rxSiteOffsetPoint(lat,lng,distanceKm,bearingDeg){
+    const R=6371.0088;
+    const br=bearingDeg*Math.PI/180, phi1=lat*Math.PI/180, lam1=lng*Math.PI/180, d=distanceKm/R;
+    const phi2=Math.asin(Math.sin(phi1)*Math.cos(d)+Math.cos(phi1)*Math.sin(d)*Math.cos(br));
+    const lam2=lam1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(phi1),Math.cos(d)-Math.sin(phi1)*Math.sin(phi2));
+    return {lat:phi2*180/Math.PI,lng:((lam2*180/Math.PI+540)%360)-180};
+  }
+  async function rxSiteBuildSpatialCross(subject,distanceKm=5){
+    const points=[
+      {key:'N',label:'N',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lng},
+      {key:'E',label:'E',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lng},
+      {key:'S',label:'S',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lng},
+      {key:'W',label:'W',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lng}
+    ];
+    const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,densityRows:subject.densityRows}];
+    const built=await Promise.all(points.map(async p=>{
+      const [ai,ao,ci,co,p1,p2]=await Promise.all([
+        calculateAmenityProfile(p.lat,p.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
+        calculateAmenityProfile(p.lat,p.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+        Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
+        Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
+        rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
+        rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province)
+      ]);
+      const vals=[
+        {key:'commercial',short:'C',value:rxSiteDensity(Number(ai?.retail||0)+Number(ai?.food||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
+        {key:'community',short:'M',value:rxSiteDensity(Number(ai?.community||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
+        {key:'health',short:'H',value:rxSiteDensity(Number(ai?.health||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
+        {key:'competition',short:'X',value:rxSiteDensity(ci,RX_SITE_TEST_COMP_INNER_RADIUS_KM)},
+        {key:'population',short:'P',value:rxSiteDensity(p1,RX_SITE_TEST_POP_INNER_RADIUS_KM)}
+      ];
+      const outer={
+        commercial:rxSiteDensity(Number(ao?.retail||0)+Number(ao?.food||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+        community:rxSiteDensity(Number(ao?.community||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+        health:rxSiteDensity(Number(ao?.health||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+        competition:rxSiteDensity(co,RX_SITE_TEST_COMP_OUTER_RADIUS_KM),
+        population:rxSiteDensity(p2,RX_SITE_TEST_POP_OUTER_RADIUS_KM)
+      };
+      return {...p,inner:vals.map(v=>({...v,outer:outer[v.key]}))};
+    }));
+    return [...all,...built];
+  }
   function rxSiteFormatDensity(value){ return Number.isFinite(Number(value))?Number(value).toFixed(1):'—'; }
   function rxSiteFormatPopulation(value,q){ return Number.isFinite(Number(value))?`${Number(value).toFixed(1)}${q?' (Q'+q+')':''}`:'—'; }
   function rxSiteFormatConcentration(value){ return Number.isFinite(Number(value))?`${Number(value).toFixed(2)}×`:'—'; }
@@ -1170,6 +1212,15 @@
     const rows=subject.densityRows||[];
     wrap.innerHTML=`<table class="rx-site-density-table"><thead><tr><th>Measure</th><th>Inner density</th><th>Outer density</th><th>Concentration</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</td><td>${rxSiteFormatConcentration(r.concentration)}</td></tr>`).join('')}</tbody></table>`;
     const placeholder=el('rxSiteLocalDestinationPlaceholder');if(placeholder)placeholder.textContent='—';
+    const crossWrap=el('rxSiteSpatialCross');
+    if(crossWrap){
+      const pts=subject.spatialCross||[];
+      const labels={C:'Commercial',M:'Community',H:'Health & Services',X:'Competition',P:'Population'};
+      const byKey=k=>pts.find(p=>p.key===k);
+      const cell=p=>{ if(!p)return ''; return `<div class="rx-site-cross-point rx-site-cross-${p.key==='SUBJ'?'subject':'ref'}"><div class="rx-site-cross-label">${esc(p.label)}</div><div class="rx-site-cross-values">${p.inner.map(v=>`<div><span>${v.short}</span><b>${rxSiteFormatDensity(v.value)}</b></div>`).join('')}</div></div>`; };
+      const n=byKey('N'),e=byKey('E'),s=byKey('S'),w=byKey('W'),sub=byKey('SUBJ');
+      crossWrap.innerHTML=`<div class="rx-site-cross-legend">C Commercial · M Community · H Health & Services · X Competition · P Population · density per km²</div><div class="rx-site-cross"><div class="rx-site-cross-n">${cell(n)}</div><div class="rx-site-cross-w">${cell(w)}</div><div class="rx-site-cross-center">${cell(sub)}</div><div class="rx-site-cross-e">${cell(e)}</div><div class="rx-site-cross-s">${cell(s)}</div></div>`;
+    }
   }
   function rxSiteRenderHub(){
     const wrap=el('rxSiteHubSummary');if(wrap)wrap.textContent='—';
@@ -1207,7 +1258,7 @@
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!province)throw new Error('Address could not be located or province could not be determined.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
-      state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
+      subject.spatialCross=await rxSiteBuildSpatialCross(subject,5);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
   }
   function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal();} }
