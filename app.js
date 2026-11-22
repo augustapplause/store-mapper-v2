@@ -940,6 +940,13 @@
   ];
 
   function rxSiteProvinceGroup(code){ return String(code||'').toUpperCase()==='QC'?'QC':'NONQC'; }
+  async function rxSiteGeocodeAddress(query){
+    const qs=new URLSearchParams({SingleLine:query,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});
+    const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});
+    const candidate=data?.candidates?.[0];
+    if(!candidate)throw new Error('No Canadian match found.');
+    return candidate;
+  }
   function rxSiteStateReady(){
     const ready=!!(state.rows?.length && state.secondaryLocations?.length && state.secondarySpatialIndex);
     state.rxSiteAnalysis.enabled=ready;
@@ -1083,7 +1090,7 @@
   function rxSiteFormatBar(q){return Number.isFinite(q)?q:0;}
   function rxSiteMetricRows(subject){
     const q=subject.q;return [
-      ['Retail',q.retail],['Food & Leisure',q.food],['Health & Services',q.health],['Community & Recreation',q.community],['Total amenities / 1 km population',q.totalAmenityPC],['Population — 1 km',q.pop1],['Population — 2 km',q.pop2]
+      ['Retail / 1 km population',q.retail],['Food & Leisure / 1 km population',q.food],['Health & Services / 1 km population',q.health],['Community & Recreation / 1 km population',q.community],['Competitors / 1 km',q.competition],['Population — 1 km',q.pop1],['Population — 2 km',q.pop2]
     ];
   }
   function rxSiteRenderDensity(subject){
@@ -1129,9 +1136,9 @@
     if(!state.rxSiteAnalysis.modelReady)await rxSiteBuildNetworkBenchmark();
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
     try{
-      const g=await geocodeAddress(address);const c=g?.[0]||g?.results?.[0];const lat=Number(c?.lat??c?.geometry?.lat??c?.geometry?.location?.lat),lng=Number(c?.lon??c?.geometry?.lng??c?.geometry?.location?.lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('Address could not be located.');
-      let province=provinceCodeFromAddress(c?.address||c?.display_name||address,null);if(!province){const point=turf.point([lng,lat]);const csd=await lookupCensusDistrict(point);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
-      const [pop1,pop2,amenity]=await Promise.all([rxSitePopulationRadius({},lat,lng,1,province),rxSitePopulationRadius({},lat,lng,2,province),rxSiteAmenities(lat,lng)]);const comp=rxSiteCountSecondary(lat,lng,1);const subject={address:c?.address||c?.display_name||address,lat,lng,pop1,pop2,comp,amenity,province};
+      const c=await rxSiteGeocodeAddress(address);const lat=Number(c?.location?.y),lng=Number(c?.location?.x);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('Address could not be located.');
+      let province=provinceCodeFromAddress(c?.address||c?.attributes?.Match_addr||address,c);if(!province){const point=turf.point([lng,lat]);const csd=await lookupCensusDistrict(point);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
+      const [pop1,pop2,amenity]=await Promise.all([rxSitePopulationRadius({},lat,lng,1,province),rxSitePopulationRadius({},lat,lng,2,province),rxSiteAmenities(lat,lng)]);const comp=rxSiteCountSecondary(lat,lng,1);const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,pop1,pop2,comp,amenity,province};
       state.rxSiteAnalysis.subject=rxSiteBuildSubjectMetrics(subject);rxSiteRender(state.rxSiteAnalysis.subject);
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
   }
