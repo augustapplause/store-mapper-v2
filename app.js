@@ -1176,7 +1176,7 @@
       {key:'S',label:'S',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lng},
       {key:'W',label:'W',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lng}
     ];
-    const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,densityRows:subject.densityRows}];
+    const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,inner:(subject.densityRows||[]).map(r=>({key:r.key,short:r.key==='commercial'?'C':r.key==='community'?'M':r.key==='health'?'H':r.key==='competition'?'X':'P',value:r.innerDensity}))}];
     const built=await Promise.all(points.map(async p=>{
       const [ai,ao,ci,co,p1,p2]=await Promise.all([
         calculateAmenityProfile(p.lat,p.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
