@@ -659,7 +659,7 @@
     setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth = 0; }, 3200);
   }
 
-  async function geocodeAndRadius(query){
+  async function geocodeAndRadius(query, options={}){
     clearRightPanelHighlights();
     if(!query.trim())return;
     const token=++state.searchToken;
@@ -676,6 +676,7 @@
         provinceCode=csd ? provinceCodeFromCsdFeature(csd) : null;
       }
       if(!provinceCode) throw new Error('Could not determine province for this address.');
+      if(options&&options.resolveOnly)return {candidate:c,lat,lng,provinceCode};
       closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
       state.navigationDaSuppressed=true;
       state.storeJumpTarget=null;
@@ -946,13 +947,6 @@
   ];
 
   function rxSiteProvinceGroup(code){ return String(code||'').toUpperCase()==='QC'?'QC':'NONQC'; }
-  async function rxSiteGeocodeAddress(query){
-    const qs=new URLSearchParams({SingleLine:query,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});
-    const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});
-    const candidate=data?.candidates?.[0];
-    if(!candidate)throw new Error('No Canadian match found.');
-    return candidate;
-  }
   function rxSiteStateReady(){
     const ready=!!(state.rows?.length && state.secondaryLocations?.length && state.secondarySpatialIndex);
     state.rxSiteAnalysis.enabled=ready;
@@ -992,10 +986,16 @@
     const preName=radiusKm===1?'pop_1km':radiusKm===2?'pop_2km':null;
     if(preName){const pre=rxSiteNumeric(row,[preName,radiusKm===1?'Population 1 km':'Population 2 km',radiusKm===1?'1 km population':'2 km population']);if(Number.isFinite(pre))return pre;}
     const province=provinceOverride||rxSiteProvinceFromRow(row); if(!province)return null;
+    const radiusName=radiusKm===1?'Population 1 km':radiusKm===2?'Population 2 km':null;
+    if(!radiusName)return null;
     try{
-      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:180});
-      const result=await selectCensusBoundary(boundary,[province],10,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode:province,mode:'partial'}]});
-      return Number(result?.aggregate?.totalPopulation)||0;
+      const cacheRow={...row};
+      if(state.columns?.lat)cacheRow[state.columns.lat]=lat;
+      if(state.columns?.lon)cacheRow[state.columns.lon]=lng;
+      if(state.columns?.province)cacheRow[state.columns.province]=province;
+      const census=await calculatePopupCensusForStore(cacheRow,[{formula:radiusName}]);
+      const value=Number(census?.[radiusName]);
+      return Number.isFinite(value)?value:null;
     }catch(_){return null;}
   }
   async function rxSiteAmenities(lat,lng){ return calculateAmenityProfile(lat,lng,RX_SITE_AMENITY_RADIUS_KM); }
@@ -1202,8 +1202,9 @@
   async function rxSiteAnalyzeAddress(address){
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
     try{
-      const c=await rxSiteGeocodeAddress(address);const lat=Number(c?.location?.y),lng=Number(c?.location?.x);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('Address could not be located.');
-      let province=provinceCodeFromAddress(c?.address||c?.attributes?.Match_addr||address,c);if(!province)province=await queryProvinceAt(lat,lng);if(!province)throw new Error('Could not determine province for this address.');
+      const resolved=await geocodeAndRadius(address,{resolveOnly:true});
+      const c=resolved?.candidate,lat=Number(resolved?.lat),lng=Number(resolved?.lng),province=resolved?.provinceCode;
+      if(!Number.isFinite(lat)||!Number.isFinite(lng)||!province)throw new Error('Address could not be located or province could not be determined.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
       state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
