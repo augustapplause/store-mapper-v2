@@ -1103,34 +1103,72 @@
     const a=Number(innerDensity),b=Number(outerDensity);
     return Number.isFinite(a)&&Number.isFinite(b)&&b>0?a/b:null;
   }
+  async function rxSiteBuildPopulationProvinceQuartiles(province){
+    const cache=state.rxSiteAnalysis.provincePopulationQuartiles||{};
+    if(cache[province])return cache[province];
+    const candidates=[];
+    for(const row of state.rows||[]){
+      if(rxSiteProvinceFromRow(row)!==province)continue;
+      const ll=rxSiteLatLng(row); if(!ll)continue;
+      candidates.push(row);
+    }
+    const pop1=[],pop2=[];
+    const queue=8; let cursor=0;
+    async function worker(){
+      while(cursor<candidates.length){
+        const row=candidates[cursor++];
+        const ll=rxSiteLatLng(row); if(!ll)continue;
+        const [p1,p2]=await Promise.all([
+          rxSitePopulationRadius(row,ll.lat,ll.lng,1,province),
+          rxSitePopulationRadius(row,ll.lat,ll.lng,2,province)
+        ]);
+        if(Number.isFinite(p1))pop1.push(p1);
+        if(Number.isFinite(p2))pop2.push(p2);
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(queue,Math.max(1,candidates.length))},()=>worker()));
+    const result={
+      province,
+      pop1Thresholds:rxSiteQuartileThresholds(pop1),
+      pop2Thresholds:rxSiteQuartileThresholds(pop2),
+      sample1:pop1.length,
+      sample2:pop2.length
+    };
+    state.rxSiteAnalysis.provincePopulationQuartiles=cache;
+    cache[province]=result;
+    return result;
+  }
   async function rxSiteBuildDensityTable(subject){
-    const [amenityInner,amenityOuter,compInner,compOuter]=await Promise.all([
+    const [amenityInner,amenityOuter,compInner,compOuter,pop1,pop2,popQuartiles]=await Promise.all([
       calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
       calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
       Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
-      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM))
+      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
+      rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
+      rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province),
+      rxSiteBuildPopulationProvinceQuartiles(subject.province)
     ]);
-    const popInner=await rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province);
-    const popOuter=await rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province);
     const commercialInner=Number(amenityInner?.retail||0)+Number(amenityInner?.food||0);
     const commercialOuter=Number(amenityOuter?.retail||0)+Number(amenityOuter?.food||0);
     const communityInner=Number(amenityInner?.community||0), communityOuter=Number(amenityOuter?.community||0);
     const healthInner=Number(amenityInner?.health||0), healthOuter=Number(amenityOuter?.health||0);
     const rows=[
-      {key:'commercial',label:'Commercial (Retail + Food & Leisure)',innerRadius:0.5,outerRadius:2,innerCount:commercialInner,outerCount:commercialOuter},
-      {key:'community',label:'Community & Recreation',innerRadius:0.5,outerRadius:2,innerCount:communityInner,outerCount:communityOuter},
-      {key:'health',label:'Health & Services',innerRadius:0.5,outerRadius:2,innerCount:healthInner,outerCount:healthOuter},
-      {key:'competition',label:'Competitors',innerRadius:1,outerRadius:2,innerCount:compInner,outerCount:compOuter},
-      {key:'population',label:'Population',innerRadius:1,outerRadius:2,innerCount:popInner,outerCount:popOuter}
+      {key:'commercial',label:'Commercial (Retail + Food & Leisure) · 0.5 km / 2.0 km',innerRadius:0.5,outerRadius:2,innerCount:commercialInner,outerCount:commercialOuter},
+      {key:'community',label:'Community & Recreation · 0.5 km / 2.0 km',innerRadius:0.5,outerRadius:2,innerCount:communityInner,outerCount:communityOuter},
+      {key:'health',label:'Health & Services · 0.5 km / 2.0 km',innerRadius:0.5,outerRadius:2,innerCount:healthInner,outerCount:healthOuter},
+      {key:'competition',label:'Competitors · 1.0 km / 2.0 km',innerRadius:1,outerRadius:2,innerCount:compInner,outerCount:compOuter},
+      {key:'population',label:'Population · 1.0 km / 2.0 km',innerRadius:1,outerRadius:2,innerCount:pop1,outerCount:pop2,
+        innerQuartile:rxSiteQuartile(pop1,popQuartiles?.pop1Thresholds),outerQuartile:rxSiteQuartile(pop2,popQuartiles?.pop2Thresholds)}
     ];
     return rows.map(r=>{const innerDensity=rxSiteDensity(r.innerCount,r.innerRadius),outerDensity=rxSiteDensity(r.outerCount,r.outerRadius);return {...r,innerDensity,outerDensity,concentration:rxSiteConcentration(innerDensity,outerDensity)};});
   }
   function rxSiteFormatDensity(value){ return Number.isFinite(Number(value))?Number(value).toFixed(1):'—'; }
+  function rxSiteFormatPopulation(value,q){ return Number.isFinite(Number(value))?`${Number(value).toFixed(1)}${q?' (Q'+q+')':''}`:'—'; }
   function rxSiteFormatConcentration(value){ return Number.isFinite(Number(value))?`${Number(value).toFixed(2)}×`:'—'; }
   function rxSiteRenderDensity(subject){
     const wrap=el('rxSiteDensityTable');if(!wrap)return;
     const rows=subject.densityRows||[];
-    wrap.innerHTML=`<table class="rx-site-density-table"><thead><tr><th>Measure</th><th>Inner density</th><th>Outer density</th><th>Concentration</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${rxSiteFormatDensity(r.innerDensity)}</td><td>${rxSiteFormatDensity(r.outerDensity)}</td><td>${rxSiteFormatConcentration(r.concentration)}</td></tr>`).join('')}</tbody></table>`;
+    wrap.innerHTML=`<table class="rx-site-density-table"><thead><tr><th>Measure</th><th>Inner density</th><th>Outer density</th><th>Concentration</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</td><td>${rxSiteFormatConcentration(r.concentration)}</td></tr>`).join('')}</tbody></table>`;
     const placeholder=el('rxSiteLocalDestinationPlaceholder');if(placeholder)placeholder.textContent='—';
   }
   function rxSiteRenderHub(){
@@ -1165,7 +1203,7 @@
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
     try{
       const c=await rxSiteGeocodeAddress(address);const lat=Number(c?.location?.y),lng=Number(c?.location?.x);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('Address could not be located.');
-      let province=provinceCodeFromAddress(c?.address||c?.attributes?.Match_addr||address,c);if(!province){const point=turf.point([lng,lat]);const csd=await lookupCensusDistrict(point);province=csd?provinceCodeFromCsdFeature(csd):null;}if(!province)throw new Error('Could not determine province for this address.');
+      let province=provinceCodeFromAddress(c?.address||c?.attributes?.Match_addr||address,c);if(!province)province=await queryProvinceAt(lat,lng);if(!province)throw new Error('Could not determine province for this address.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
       state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
