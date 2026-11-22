@@ -1301,6 +1301,58 @@
     state.popupTickerMetrics=next;state.popupTickerIndex=0;savePopupTickerConfig();el('popupTickerDialog').close();startPopupTicker();if(state.openPopupMarker)refreshOpenPopupCard();
   }
 
+  async function readSecondaryLocationsFile(file){
+    if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
+    const ext=file.name.toLowerCase().split('.').pop(); const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]]; if(!ws)throw new Error('The first worksheet is empty.');
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}); if(!matrix.length)throw new Error('The first worksheet is empty.');
+    const headers=dedupeHeaders((matrix[0]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`)); const rows=[];
+    for(let r=1;r<matrix.length;r++){const arr=matrix[r]||[];if(arr.every(v=>v===null||v===''))continue;const obj={};headers.forEach((h,i)=>obj[h]=arr[i]??null);rows.push(obj);}
+    const lat=secondaryColumnCandidates(headers,['geo latitude','latitude','lat','geo lat']); const lon=secondaryColumnCandidates(headers,['geo longitude','longitude','lon','long','geo lon']);
+    if(!lat||!lon)throw new Error('Could not find latitude and longitude columns.');
+    const valid=rows.filter(row=>{const a=toNumber(row[lat]),b=toNumber(row[lon]);return a!==null&&b!==null&&a>=40&&a<=90&&b>=-150&&b<=-40;});
+    return {headers,rows:valid,lat,lon};
+  }
+  function clearSecondaryLocations(){
+    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
+    state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
+  }
+  function afterSecondaryLoaded(file,parsed){
+    state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;state.secondaryCompetitorColumn=secondaryColumnCandidates(parsed.headers,['competitor banner']);loadSecondaryConfigs();buildSecondarySpatialIndex();
+    el('secondaryFileStatus').textContent=`Loaded • ${file.name} • ${state.secondaryLocations.length.toLocaleString()} locations`;
+    el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
+    if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
+    renderSecondaryCanvas();
+    rxSiteMaybeBuild();
+  }
+
+  function afterWorkbookLoaded(file,parsed){
+    
+    state.fileName=file.name;state.primaryTabs=parsed.tabs||[{name:'Sheet 1',headers:parsed.headers,rows:parsed.rows,headerIndex:parsed.headerIndex}];const first=state.primaryTabs[0];state.headers=first.headers;state.rows=first.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);first.rows=state.rows;state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
+    const c=state.columns;
+    const hasSavedTickerConfig=(()=>{
+      try{
+        if(localStorage.getItem(TICKER_STORAGE_KEY))return true;
+        return TICKER_OLD_STORAGE_KEYS.some(key=>!!localStorage.getItem(key));
+      }catch(_){return false;}
+    })();
+    const tickerHasAnyConfiguredFormula=(state.tickerMetrics||[]).some(m=>String(m?.formula||'').trim());
+    if(!hasSavedTickerConfig && !tickerHasAnyConfiguredFormula){
+      state.tickerMetrics=tickerDefaultMetrics();
+      saveTickerConfig();
+    }
+    const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
+    const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
+    state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.subjectVirtualCache=new WeakMap();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);loadPopupTabConfigs();
+    el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${((parsed.tabs?.[0]?.headerIndex??parsed.headerIndex??0)+1)}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
+    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
+    const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
+    state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteMaybeBuild();
+  }
+  function clearFinancial(){state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.primaryTabs=[];state.popupTabConfigs=[];state.popupTabDrafts=[];state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+
   // ---------- UI wiring ----------
   el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
   el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
