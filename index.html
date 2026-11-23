@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.298</title>
+  <title>Store Explorer v1.296</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.297.trade-area" />
+      <link rel="stylesheet" href="styles.css?v=1.291.0.popup-config" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.298</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.294</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -205,8 +205,8 @@
       <section class="right-section-box rx-site-analysis-card" id="rxSiteAnalysisCard">
         <div class="rx-site-analysis-head">
           <div>
-            <h2>Trade Area Analysis</h2>
-            <div class="section-subtitle">On-demand site profile</div>
+            <h2>Site Analysis</h2>
+            <div class="section-subtitle">(4 km directional geometry)</div>
           </div>
         </div>
         <form id="rxSiteAnalysisForm" class="rx-site-analysis-form">
@@ -483,46 +483,6 @@
   </dialog>
 
 
-  <dialog id="rxSiteAnalysisDialog" class="rx-site-analysis-dialog">
-    <form method="dialog" id="rxSiteAnalysisFormDialog">
-      <div class="dialog-header rx-site-analysis-dialog-header">
-        <div>
-          <h2>Trade Area Analysis</h2>
-          <p>Objective local-area profile</p>
-        </div>
-        <div class="rx-site-analysis-actions"><button id="rxSiteAnalysisConfigure" type="button" class="secondary">Configure archetypes</button><button id="rxSiteAnalysisClose" type="button" class="icon-btn" aria-label="Close">×</button></div>
-      </div>
-      <div class="rx-site-analysis-scroll">
-        <div id="rxSiteAnalysisHero" class="rx-site-analysis-hero"></div>
-        <div class="rx-site-analysis-section">
-          <div class="rx-site-analysis-section-title">Trade area density</div>
-          <div id="rxSiteDensityChart" class="rx-site-density-chart"></div>
-          <div class="rx-site-gradient-block"><div class="rx-site-gradient-labels"><span>Local-serving</span><span>Destination-oriented</span></div><div class="rx-site-gradient-track"><div id="rxSiteLocalDestinationMarker" class="rx-site-gradient-marker"></div></div><div id="rxSiteLocalDestinationValue" class="rx-site-gradient-value"></div></div>
-        </div>
-        <div class="rx-site-analysis-section">
-          <div class="rx-site-analysis-section-title">Estimated hubs within 1.5 km</div>
-          <div class="rx-site-hub-line-wrap"><div class="rx-site-hub-labels"><span>Low hub count<br><small>higher density</small></span><span>High hub count<br><small>lower density</small></span></div><div class="rx-site-hub-track"><div id="rxSiteHubMarker" class="rx-site-hub-marker"></div></div></div>
-          <div id="rxSiteHubSummary" class="rx-site-hub-summary"></div>
-        </div>
-        <div class="rx-site-analysis-section">
-          <div class="rx-site-analysis-section-title">Estimated activity timing</div>
-          <div id="rxSiteDaypartBar" class="rx-site-daypart-bar"><div data-part="morning">Morning</div><div data-part="afternoon">Afternoon</div><div data-part="evening">Evening</div><div id="rxSiteWeekendBox" class="weekend">Weekend</div></div>
-        </div>
-        <div class="rx-site-analysis-section">
-          <div class="rx-site-analysis-section-title">Conclusion</div>
-          <div id="rxSiteAnalysisConclusion" class="rx-site-analysis-conclusion"></div>
-        </div>
-        <div id="rxSiteArchetypeConfigPanel" class="rx-site-archetype-config-panel">
-          <div class="rx-site-analysis-section-title">Archetype rules</div>
-          <div class="rx-site-archetype-config-note">Rows are evaluated top-to-bottom. Edit names or Q1–Q4 ranges; the current site conclusion will update when saved.</div>
-          <div id="rxSiteArchetypeTable" class="rx-site-archetype-table"></div>
-          <div class="rx-site-archetype-config-actions"><button id="rxSiteArchetypeReset" type="button" class="secondary">Reset defaults</button><button id="rxSiteArchetypeSave" type="button">Save rules</button></div>
-        </div>
-      </div>
-      <div class="dialog-footer rx-site-analysis-footer"><button type="button" class="secondary" onclick="document.getElementById('rxSiteAnalysisDialog').close()">Close</button></div>
-    </form>
-  </dialog>
-
   <dialog id="helpConfigDialog" class="ticker-dialog help-config-dialog">
     <form method="dialog" id="helpConfigForm">
       <div class="dialog-header ticker-dialog-header">
@@ -541,7 +501,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.297.trade-area"></script>
+  <script src="app.js?v=1.291.0.popup-config"></script>
 
 
 </body>
