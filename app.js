@@ -1205,11 +1205,23 @@
     const crossWrap=el('rxSiteSpatialCross');
     if(crossWrap){
       const pts=subject.spatialCross||[];
-      const labels={C:'Commercial',M:'Community',H:'Health & Services',X:'Competition',P:'Population'};
+      const labels={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor',population:'Population'};
       const byKey=k=>pts.find(p=>p.key===k);
-      const cell=p=>{ if(!p)return ''; return `<div class="rx-site-cross-point rx-site-cross-${p.key==='SUBJ'?'subject':'ref'}"><div class="rx-site-cross-label">${esc(p.label)}</div><div class="rx-site-cross-values">${p.inner.map(v=>`<div><span>${v.short}</span><b>${rxSiteFormatDensity(v.value)}</b></div>`).join('')}</div></div>`; };
+      const metricMax={};
+      pts.forEach(point=>point?.inner?.forEach(v=>{const n=Number(v.value);if(Number.isFinite(n))metricMax[v.key]=Math.max(metricMax[v.key]||0,n);}));
+      const cell=p=>{
+        if(!p)return '';
+        const isSubject=p.key==='SUBJ';
+        return `<div class="rx-site-cross-point rx-site-cross-${isSubject?'subject':'ref'}">`+
+          `<div class="rx-site-cross-label">${esc(p.label)}</div>`+
+          `${!isSubject?'<div class="rx-site-cross-distance">4 km from subject</div>':''}`+
+          `<div class="rx-site-cross-values">${p.inner.map(v=>{
+            const value=Number(v.value),max=metricMax[v.key]||0,ratio=Number.isFinite(value)&&max>0?Math.max(0,Math.min(1,value/max)):0;
+            return `<div class="rx-site-cross-metric"><span>${esc(labels[v.key]||v.key)}</span><div class="rx-site-cross-bar"><i style="width:${(ratio*100).toFixed(1)}%"></i></div><b>${rxSiteFormatDensity(value)}</b></div>`;
+          }).join('')}</div></div>`;
+      };
       const n=byKey('N'),e=byKey('E'),s=byKey('S'),w=byKey('W'),sub=byKey('SUBJ');
-      crossWrap.innerHTML=`<div class="rx-site-cross-legend">C Commercial · M Community · H Health & Services · X Competition · P Population · density per km²</div><div class="rx-site-cross"><div class="rx-site-cross-n">${cell(n)}</div><div class="rx-site-cross-w">${cell(w)}</div><div class="rx-site-cross-center">${cell(sub)}</div><div class="rx-site-cross-e">${cell(e)}</div><div class="rx-site-cross-s">${cell(s)}</div></div>`;
+      crossWrap.innerHTML=`<div class="rx-site-cross-subtitle">Comparable points are 4 km from the subject · density per km²</div><div class="rx-site-cross"><div class="rx-site-cross-n">${cell(n)}</div><div class="rx-site-cross-w">${cell(w)}</div><div class="rx-site-cross-center">${cell(sub)}</div><div class="rx-site-cross-e">${cell(e)}</div><div class="rx-site-cross-s">${cell(s)}</div></div>`;
     }
   }
   function rxSiteRenderHub(){
