@@ -983,6 +983,12 @@
     }
     state.rxSiteAnalysis.overlay=null;
     state.rxSiteAnalysis.subject=null;
+    const searchView=el('rxSiteAnalysisSearchView');
+    const detailView=el('rxSiteAnalysisDetailView');
+    if(searchView)searchView.classList.remove('hidden');
+    if(detailView)detailView.classList.add('hidden');
+    const subjectAddress=el('rxSiteAnalysisSubjectAddress');
+    if(subjectAddress)subjectAddress.textContent='—';
     const status=el('rxSiteAnalysisStatus');
     if(status)status.textContent=state.rxSiteAnalysis.enabled?'Ready • enter an address to map the 4 km comparison points.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
   }
@@ -1086,6 +1092,12 @@
       if(!c)throw new Error('No Canadian match found.');
       const subject={address:c.address||address,lat:c.location.y,lng:c.location.x};
       state.rxSiteAnalysis.subject=subject;
+      const searchView=el('rxSiteAnalysisSearchView');
+      const detailView=el('rxSiteAnalysisDetailView');
+      const subjectAddress=el('rxSiteAnalysisSubjectAddress');
+      if(subjectAddress)subjectAddress.textContent=subject.address||address;
+      if(searchView)searchView.classList.add('hidden');
+      if(detailView)detailView.classList.remove('hidden');
       rxSiteRender(subject);
       if(status)status.textContent='Site Analysis active • 4 km comparison geometry.';
     }catch(err){

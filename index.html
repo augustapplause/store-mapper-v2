@@ -203,20 +203,40 @@
       </section>
 
       <section class="right-section-box rx-site-analysis-card" id="rxSiteAnalysisCard">
-        <div class="rx-site-analysis-head">
-          <div>
-            <h2>Site Analysis</h2>
-            <div class="section-subtitle">(4 km directional geometry)</div>
+        <div id="rxSiteAnalysisSearchView">
+          <div class="rx-site-analysis-head">
+            <div>
+              <h2>Site Analysis</h2>
+              <div class="section-subtitle">(4 km directional geometry)</div>
+            </div>
           </div>
+          <form id="rxSiteAnalysisForm" class="rx-site-analysis-form">
+            <label for="rxSiteAnalysisAddress">Address</label>
+            <div class="inline-control">
+              <input id="rxSiteAnalysisAddress" type="text" placeholder="e.g. 243 Consumers Road, Toronto" autocomplete="off" />
+              <button id="rxSiteAnalysisGo" type="submit">Go</button>
+            </div>
+          </form>
+          <div id="rxSiteAnalysisStatus" class="status muted">Load both Primary Store Data and Secondary Locations to enable analysis.</div>
         </div>
-        <form id="rxSiteAnalysisForm" class="rx-site-analysis-form">
-          <label for="rxSiteAnalysisAddress">Address</label>
-          <div class="inline-control">
-            <input id="rxSiteAnalysisAddress" type="text" placeholder="e.g. 243 Consumers Road, Toronto" autocomplete="off" />
-            <button id="rxSiteAnalysisGo" type="submit">Go</button>
+        <div id="rxSiteAnalysisDetailView" class="rx-site-analysis-detail-view hidden" aria-live="polite">
+          <div class="rx-site-analysis-detail-head">
+            <div>
+              <h2>Subject Site</h2>
+              <div id="rxSiteAnalysisSubjectAddress" class="rx-site-analysis-subject-address">—</div>
+            </div>
           </div>
-        </form>
-        <div id="rxSiteAnalysisStatus" class="status muted">Load both Primary Store Data and Secondary Locations to enable analysis.</div>
+          <div class="rx-site-analysis-detail-grid" role="table" aria-label="Subject site detail">
+            <div class="rx-site-analysis-detail-header" role="row">
+              <span>Measure</span><span>Inner</span><span>Outer</span><span>Concentration</span>
+            </div>
+            <div class="rx-site-analysis-detail-row" role="row"><strong>Commercial</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" role="row"><strong>Residential</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" role="row"><strong>Health / Serv</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" role="row"><strong>Competitor</strong><span>—</span><span>—</span><span>—</span></div>
+          </div>
+          <div class="rx-site-analysis-detail-note">Detailed Subject measures will populate from the Site Analysis data model.</div>
+        </div>
       </section>
 
 

@@ -1296,6 +1296,18 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-card .section-subtitle{font-size:11px;color:#55715e}
 .rx-site-analysis-disabled{filter:saturate(.6)}
 .rx-site-analysis-form{margin-top:10px}
+.rx-site-analysis-detail-view{margin-top:6px}
+.rx-site-analysis-detail-view.hidden{display:none!important}
+.rx-site-analysis-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.rx-site-analysis-detail-head h2{margin-bottom:2px}
+.rx-site-analysis-subject-address{font-size:11px;color:#55715e;line-height:1.35}
+.rx-site-analysis-detail-grid{border:1px solid #c8e7d0;border-radius:9px;overflow:hidden;background:#fff}
+.rx-site-analysis-detail-header,.rx-site-analysis-detail-row{display:grid;grid-template-columns:1.25fr .8fr .8fr 1fr;gap:6px;align-items:center;padding:7px 8px;font-size:10px}
+.rx-site-analysis-detail-header{background:#f0f8f2;color:#55715e;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.rx-site-analysis-detail-row{border-top:1px solid #edf2ee;color:#24323b}
+.rx-site-analysis-detail-row strong{font-size:10px}
+.rx-site-analysis-detail-row span{text-align:right}
+.rx-site-analysis-detail-note{margin-top:8px;font-size:10px;line-height:1.4;color:var(--muted)}
 .rx-site-analysis-form label{display:block;font-size:11px;color:#55715e;font-weight:700;margin-bottom:4px}
 .rx-site-analysis-dialog{width:min(1120px,96vw);height:min(94vh,920px);max-width:none;max-height:94vh;border:1px solid var(--line);border-radius:14px;padding:0;box-shadow:0 24px 70px #0005}
 .rx-site-analysis-dialog::backdrop{background:#09233a99}
