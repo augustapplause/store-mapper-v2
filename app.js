@@ -1001,12 +1001,20 @@
     const edgeOffset=subject?11:8;
     const h=edgeOffset/Math.sqrt(2);
     const labels=[
-      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45, x:cx-r/2-h, y:cy-r/2-h, value:'—', vx:cx-r/2-h-valueGap*n, vy:cy-r/2-h-valueGap*n},
-      {text:'Residential',color:RX_DIAMOND.residential,angle:45, x:cx+r/2+h, y:cy-r/2-h, value:'—', vx:cx+r/2+h+valueGap*n, vy:cy-r/2-h-valueGap*n},
-      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'—', vx:cx+r/2+h+valueGap*n, vy:cy+r/2+h+valueGap*n},
-      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'—', vx:cx-r/2-h-valueGap*n, vy:cy+r/2+h+valueGap*n}
+      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45, x:cx-r/2-h, y:cy-r/2-h, value:'456', vx:cx-r/2-h-valueGap*n, vy:cy-r/2-h-valueGap*n},
+      {text:'Residential',color:RX_DIAMOND.residential,angle:45, x:cx+r/2+h, y:cy-r/2-h, value:'456', vx:cx+r/2+h+valueGap*n, vy:cy-r/2-h-valueGap*n},
+      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'456', vx:cx+r/2+h+valueGap*n, vy:cy+r/2+h+valueGap*n},
+      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'456', vx:cx-r/2-h-valueGap*n, vy:cy+r/2+h+valueGap*n}
     ];
-    const labelSvg=labels.map(l=>`<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text><text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`).join('');
+    const titleBgPadX=5,titleBgPadY=3,valueBgPadX=5,valueBgPadY=3;
+    const approxTitleWidth=t=>Math.max(28,t.length*titleSize*0.52);
+    const labelSvg=labels.map(l=>{
+      const tw=approxTitleWidth(l.text), th=titleSize+6;
+      const vw=String(l.value).length*valueSize*0.62+valueBgPadX*2, vh=valueSize+6;
+      const titleRect=`<rect x="${(-tw/2)-titleBgPadX}" y="${(-th/2)-titleBgPadY}" width="${tw+titleBgPadX*2}" height="${th+titleBgPadY*2}" rx="3" class="rx-d-title-bg" transform="translate(${l.x} ${l.y}) rotate(${l.angle})"/>`;
+      const valueRect=`<rect x="${l.vx-(vw/2)}" y="${l.vy-(vh/2)}" width="${vw}" height="${vh}" rx="3" class="rx-d-value-bg"/>`;
+      return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
+    }).join('');
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}">${defs}<polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">POPULATION</text><text x="${cx}" y="${cy+16}" class="rx-d-pop">—</text></g>`;
   }
 
