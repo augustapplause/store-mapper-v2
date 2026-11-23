@@ -998,7 +998,7 @@
       return Number.isFinite(value)?value:null;
     }catch(_){return null;}
   }
-  async function rxSiteAmenities(lat,lng){ return calculateAmenityProfile(lat,lng,RX_SITE_AMENITY_RADIUS_KM); }
+  async function rxSiteAmenities(lat,lng){ return calculateAmenityProfile(lat,lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM); }
   function rxSiteCountSecondary(lat,lng,radiusKm=1){
     if(!state.secondarySpatialIndex)return 0;
     const candidates=secondaryProximityCandidates(lat,lng,radiusKm),maxMeters=radiusKm*1000,origin=L.latLng(lat,lng);
@@ -1138,25 +1138,10 @@
     cache[province]=result;
     return result;
   }
-  async function rxSiteBuildAmenityPool(subject,radiusKm=10){
-    await loadAmenityAsset();
-    const ids=amenityIndicesWithinRadius(subject.lat,subject.lng,radiusKm);
-    const view=new DataView(state.amenityAssetState.buffer);
-    return ids.map(i=>amenityReadRecord(i,view));
-  }
-  function rxSiteAmenityProfileFromPool(pool,lat,lng,radiusKm){
-    let total=0,retail=0,food=0,health=0,community=0;
-    for(const r of pool){
-      if(amenityDistanceKm(lat,lng,r.lat,r.lon)>radiusKm)continue;
-      total++; if(r.mask&1)retail++; if(r.mask&2)food++; if(r.mask&4)health++; if(r.mask&8)community++;
-    }
-    return {total,retail,food,health,community};
-  }
   async function rxSiteBuildDensityTable(subject){
-    const amenityPool=await rxSiteBuildAmenityPool(subject,10);
     const [amenityInner,amenityOuter,compInner,compOuter,pop1,pop2,popQuartiles]=await Promise.all([
-      Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,subject.lat,subject.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)),
-      Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM)),
+      rxSiteAmenities(subject.lat,subject.lng),
+      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
       Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
       Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
       rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
@@ -1184,23 +1169,19 @@
     const lam2=lam1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(phi1),Math.cos(d)-Math.sin(phi1)*Math.sin(phi2));
     return {lat:phi2*180/Math.PI,lng:((lam2*180/Math.PI+540)%360)-180};
   }
-  async function rxSiteBuildSpatialCross(subject,distanceKm=4,amenityPool=null){
-    if(!amenityPool)amenityPool=await rxSiteBuildAmenityPool(subject,10);
+  async function rxSiteBuildSpatialCross(subject,distanceKm=4){
     const points=[
-      {key:'N',label:'N',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lng},
-      {key:'E',label:'E',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lng},
-      {key:'S',label:'S',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180).lng},
-      {key:'W',label:'W',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270).lng}
+      {key:'N',label:'N',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0)},
+      {key:'E',label:'E',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90)},
+      {key:'S',label:'S',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,180)},
+      {key:'W',label:'W',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,270)}
     ];
     const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,inner:(subject.densityRows||[]).map(r=>({key:r.key,short:r.key==='commercial'?'C':r.key==='community'?'M':r.key==='health'?'H':r.key==='competition'?'X':'P',value:r.innerDensity}))}];
     const built=await Promise.all(points.map(async p=>{
-      const [ai,ao,ci,co,p1,p2]=await Promise.all([
-        Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,p.lat,p.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)),
-        Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,p.lat,p.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM)),
+      const [ai,ci,p1]=await Promise.all([
+        rxSiteAmenities(p.lat,p.lng),
         Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
-        Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
-        rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
-        rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province)
+        rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province)
       ]);
       const vals=[
         {key:'commercial',short:'C',value:rxSiteDensity(Number(ai?.retail||0)+Number(ai?.food||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
@@ -1209,14 +1190,7 @@
         {key:'competition',short:'X',value:rxSiteDensity(ci,RX_SITE_TEST_COMP_INNER_RADIUS_KM)},
         {key:'population',short:'P',value:rxSiteDensity(p1,RX_SITE_TEST_POP_INNER_RADIUS_KM)}
       ];
-      const outer={
-        commercial:rxSiteDensity(Number(ao?.retail||0)+Number(ao?.food||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
-        community:rxSiteDensity(Number(ao?.community||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
-        health:rxSiteDensity(Number(ao?.health||0),RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
-        competition:rxSiteDensity(co,RX_SITE_TEST_COMP_OUTER_RADIUS_KM),
-        population:rxSiteDensity(p2,RX_SITE_TEST_POP_OUTER_RADIUS_KM)
-      };
-      return {...p,inner:vals.map(v=>({...v,outer:outer[v.key]}))};
+      return {...p,inner:vals};
     }));
     return [...all,...built];
   }
@@ -1274,8 +1248,7 @@
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!province)throw new Error('Address could not be located or province could not be determined.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
-      const amenityPool=await rxSiteBuildAmenityPool(subject,10);
-      subject.spatialCross=await rxSiteBuildSpatialCross(subject,4,amenityPool);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
+      subject.spatialCross=await rxSiteBuildSpatialCross(subject,4);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
   }
   function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal();} }
