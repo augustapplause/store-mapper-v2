@@ -1302,18 +1302,67 @@
   function rxSiteOverlayLayout(overlay){
     const root=overlay?.node;if(!root)return;
     const w=root.clientWidth,h=root.clientHeight;
-    const positions={
-      N:{x:w*0.50,y:Math.max(118,h*0.15)},
-      E:{x:Math.min(w-120,w*0.82),y:h*0.50},
-      S:{x:w*0.50,y:Math.min(h-118,h*0.85)},
-      W:{x:Math.max(120,w*0.18),y:h*0.50},
-      SUBJ:{x:w*0.50,y:h*0.50}
+    const margin=22;
+    const initial={
+      SUBJ:{x:w*0.50,y:h*0.52},
+      N:{x:w*0.30,y:h*0.16},
+      E:{x:w*0.79,y:h*0.31},
+      S:{x:w*0.68,y:h*0.84},
+      W:{x:w*0.20,y:h*0.69}
     };
-    const setPos=(key,x,y)=>{
+    const positions={};
+    const keys=['SUBJ','N','E','S','W'];
+    const clampPoint=(x,y,node)=>({
+      x:Math.max(margin+node.offsetWidth/2,Math.min(w-margin-node.offsetWidth/2,x)),
+      y:Math.max(margin+node.offsetHeight/2,Math.min(h-margin-node.offsetHeight/2,y))
+    });
+    keys.forEach(key=>{
+      const node=overlay.nodes?.[key];
+      if(!node)return;
+      const pos=initial[key]||{x:w/2,y:h/2};
+      positions[key]=clampPoint(pos.x,pos.y,node);
+    });
+
+    const overlaps=(a,b)=>{
+      const aw=overlay.nodes[a].offsetWidth/2, ah=overlay.nodes[a].offsetHeight/2;
+      const bw=overlay.nodes[b].offsetWidth/2, bh=overlay.nodes[b].offsetHeight/2;
+      return Math.min(a,b)==='SUBJ'
+        ? (Math.abs(positions[a].x-positions[b].x)<aw+bw+8 && Math.abs(positions[a].y-positions[b].y)<ah+bh+8)
+        : (Math.abs(positions[a].x-positions[b].x)<aw+bw+10 && Math.abs(positions[a].y-positions[b].y)<ah+bh+10);
+    };
+    for(let pass=0;pass<36;pass++){
+      let moved=false;
+      for(let i=0;i<keys.length;i++){
+        for(let j=i+1;j<keys.length;j++){
+          const a=keys[i],b=keys[j],na=overlay.nodes[a],nb=overlay.nodes[b];
+          if(!na||!nb||!overlaps(a,b))continue;
+          const aw=na.offsetWidth/2,ah=na.offsetHeight/2,bw=nb.offsetWidth/2,bh=nb.offsetHeight/2;
+          let dx=positions[b].x-positions[a].x;
+          let dy=positions[b].y-positions[a].y;
+          if(Math.abs(dx)<0.01&&Math.abs(dy)<0.01){dx=(j%2?1:-1);dy=(i%2?1:-1);}
+          const overlapX=aw+bw+10-Math.abs(dx);
+          const overlapY=ah+bh+10-Math.abs(dy);
+          if(overlapX<=0||overlapY<=0)continue;
+          if(overlapX<overlapY){
+            const push=overlapX/2+2,sgn=dx>=0?1:-1;
+            positions[a].x-=push*sgn;positions[b].x+=push*sgn;
+          }else{
+            const push=overlapY/2+2,sgn=dy>=0?1:-1;
+            positions[a].y-=push*sgn;positions[b].y+=push*sgn;
+          }
+          positions[a]=clampPoint(positions[a].x,positions[a].y,na);
+          positions[b]=clampPoint(positions[b].x,positions[b].y,nb);
+          moved=true;
+        }
+      }
+      if(!moved)break;
+    }
+
+    const setPos=(key,pos)=>{
       const node=overlay.nodes?.[key];if(!node)return;
-      node.style.left=`${x}px`;node.style.top=`${y}px`;
+      node.style.left=`${pos.x}px`;node.style.top=`${pos.y}px`;
     };
-    Object.entries(positions).forEach(([key,pos])=>setPos(key,pos.x,pos.y));
+    Object.entries(positions).forEach(([key,pos])=>setPos(key,pos));
 
     const svg=overlay.svg;
     if(!svg)return;
@@ -1324,19 +1373,16 @@
     const lineGroup=document.createElementNS(ns,'g');
     lineGroup.setAttribute('class','rx-site-map-leaders');
     const pointByKey=Object.fromEntries((overlay.points||[]).map(p=>[p.key,p]));
-    const keys=['N','E','S','W','SUBJ'];
     keys.forEach(key=>{
-      const point=pointByKey[key],node=overlay.nodes?.[key];
-      if(!point||!node)return;
+      const point=pointByKey[key],node=overlay.nodes?.[key],pos=positions[key];
+      if(!point||!node||!pos)return;
       const geo=map.latLngToContainerPoint([point.lat,point.lng]);
-      const cx=positions[key].x,cy=positions[key].y;
-      const cardW=node.offsetWidth,cardH=node.offsetHeight;
-      const dx=geo.x-cx,dy=geo.y-cy;
-      const sx=Math.abs(dx)>0?cardW/2:0,sy=Math.abs(dy)>0?cardH/2:0;
+      const dx=geo.x-pos.x,dy=geo.y-pos.y;
+      const halfW=node.offsetWidth/2+4,halfH=node.offsetHeight/2+4;
       let t=1;
-      if(Math.abs(dx)*cardH>Math.abs(dy)*cardW)t=sx/Math.max(Math.abs(dx),1);
-      else t=sy/Math.max(Math.abs(dy),1);
-      const ex=cx+dx*t,ey=cy+dy*t;
+      if(Math.abs(dx)>0||Math.abs(dy)>0)t=Math.min(halfW/Math.max(Math.abs(dx),1e-6),halfH/Math.max(Math.abs(dy),1e-6));
+      t=Math.min(1,t);
+      const ex=pos.x+dx*t,ey=pos.y+dy*t;
       const line=document.createElementNS(ns,'line');
       line.setAttribute('x1',geo.x);line.setAttribute('y1',geo.y);line.setAttribute('x2',ex);line.setAttribute('y2',ey);
       line.setAttribute('class',key==='SUBJ'?'rx-site-map-leader subject':'rx-site-map-leader');
@@ -1380,7 +1426,7 @@
     const previousView={center:map.getCenter(),zoom:map.getZoom()};
     const interactionState=rxSiteDisableMapInteraction();
     const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lng]));
-    map.fitBounds(bounds,{paddingTopLeft:[185,115],paddingBottomRight:[185,115],animate:false,maxZoom:13});
+    map.fitBounds(bounds,{paddingTopLeft:[250,155],paddingBottomRight:[250,155],animate:false,maxZoom:12});
     map.invalidateSize({pan:false});
 
     const metricMax=rxSiteBuildOverlayMetricMax(points);
