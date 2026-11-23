@@ -967,27 +967,16 @@
 
   function rxSiteOverlayClear(){
     const o=state.rxSiteAnalysis.overlay;
-    if(!o)return;
+    if(!o || o.closing)return;
+    o.closing=true;
     if(o.escHandler)document.removeEventListener('keydown',o.escHandler,true);
     if(o.cleanupMapListeners)o.cleanupMapListeners();
     if(o.container?.parentNode)o.container.parentNode.removeChild(o.container);
-    if(o.mapState){
-      const m=o.mapState;
-      if(m.dragging)map.dragging.enable();else map.dragging.disable();
-      if(m.scrollWheelZoom)map.scrollWheelZoom.enable();else map.scrollWheelZoom.disable();
-      if(m.doubleClickZoom)map.doubleClickZoom.enable();else map.doubleClickZoom.disable();
-      if(m.boxZoom)map.boxZoom.enable();else map.boxZoom.disable();
-      if(m.keyboard)map.keyboard.enable();else map.keyboard.disable();
-      if(m.touchZoom)map.touchZoom.enable();else map.touchZoom.disable();
-      map.invalidateSize({animate:false,pan:false});
-      map.setView(m.center,m.zoom,{animate:false});
-      requestAnimationFrame(()=>{
-        map.invalidateSize({animate:false,pan:false});
-        map.setView(m.center,m.zoom,{animate:false});
-      });
-    }
+
+    const m=o.mapState;
     state.rxSiteAnalysis.overlay=null;
     state.rxSiteAnalysis.subject=null;
+
     const searchView=el('rxSiteAnalysisSearchView');
     const detailView=el('rxSiteAnalysisDetailView');
     if(searchView)searchView.classList.remove('hidden');
@@ -996,6 +985,22 @@
     if(subjectAddress)subjectAddress.textContent='—';
     const status=el('rxSiteAnalysisStatus');
     if(status)status.textContent=state.rxSiteAnalysis.enabled?'Ready • enter an address to map the 4 km comparison points.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
+
+    if(m){
+      if(m.dragging)map.dragging.enable();else map.dragging.disable();
+      if(m.scrollWheelZoom)map.scrollWheelZoom.enable();else map.scrollWheelZoom.disable();
+      if(m.doubleClickZoom)map.doubleClickZoom.enable();else map.doubleClickZoom.disable();
+      if(m.boxZoom)map.boxZoom.enable();else map.boxZoom.disable();
+      if(m.keyboard)map.keyboard.enable();else map.keyboard.disable();
+      if(m.touchZoom)map.touchZoom.enable();else map.touchZoom.disable();
+      requestAnimationFrame(()=>{
+        map.invalidateSize(false);
+        requestAnimationFrame(()=>{
+          map.setView(L.latLng(m.center.lat,m.center.lng),m.zoom,{animate:false});
+          map.invalidateSize(false);
+        });
+      });
+    }
   }
 
   function rxSiteDiamondSvg(cx,cy,r,subject=false){
@@ -1054,8 +1059,8 @@
     const points=rxSiteDiamondPoints(subject);
     const all=[subject,...points];
     const bounds=L.latLngBounds(all.map(p=>[p.lat,p.lng]));
-    const oldCenter=map.getCenter(),oldZoom=map.getZoom();
-    const mapState={center:oldCenter,zoom:oldZoom,dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
+    const oldCenter=map.getCenter();
+    const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
     map.fitBounds(bounds,{paddingTopLeft:[150,110],paddingBottomRight:[150,90],maxZoom:12,animate:false});
     const draw=()=>{
       const w=container.clientWidth,h=container.clientHeight;
@@ -1074,7 +1079,7 @@
     map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
     const shield=overlay;
     shield.addEventListener('click',e=>{if(e.target===shield)e.stopPropagation();},true);
-    const esc=e=>{if(e.key==='Escape'){e.preventDefault();closeIt();}};
+    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeIt();}};
     document.addEventListener('keydown',esc,true);
     state.rxSiteAnalysis.overlay={container,svg,subject,mapState,escHandler:esc,draw,prevDragging,prevScroll,prevDouble,prevBox,prevKeyboard,prevTouch};
     window.addEventListener('resize',draw,{once:false});
