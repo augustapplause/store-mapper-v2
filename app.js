@@ -992,7 +992,8 @@
     const points=`${p.top[0]},${p.top[1]} ${p.right[0]},${p.right[1]} ${p.bottom[0]},${p.bottom[1]} ${p.left[0]},${p.left[1]}`;
     const valueSize=subject?13:11;
     const titleSize=subject?13:11;
-    const pad=subject?22:16;
+    const valueGap=subject?28:22;
+    const n=1/Math.sqrt(2);
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
     // Position each title from the midpoint of its corresponding diamond edge,
     // then move it outward along that edge's normal. This keeps the title hugging
@@ -1000,10 +1001,10 @@
     const edgeOffset=subject?11:8;
     const h=edgeOffset/Math.sqrt(2);
     const labels=[
-      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45, x:cx-r/2-h, y:cy-r/2-h, value:'—', vx:cx-r*0.48, vy:cy-r*0.48-pad-4},
-      {text:'Residential',color:RX_DIAMOND.residential,angle:45, x:cx+r/2+h, y:cy-r/2-h, value:'—', vx:cx+r*0.48, vy:cy-r*0.48-pad-4},
-      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'—', vx:cx+r*0.48, vy:cy+r*0.48+pad+4},
-      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'—', vx:cx-r*0.48, vy:cy+r*0.48+pad+4}
+      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45, x:cx-r/2-h, y:cy-r/2-h, value:'—', vx:cx-r/2-h-valueGap*n, vy:cy-r/2-h-valueGap*n},
+      {text:'Residential',color:RX_DIAMOND.residential,angle:45, x:cx+r/2+h, y:cy-r/2-h, value:'—', vx:cx+r/2+h+valueGap*n, vy:cy-r/2-h-valueGap*n},
+      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'—', vx:cx+r/2+h+valueGap*n, vy:cy+r/2+h+valueGap*n},
+      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'—', vx:cx-r/2-h-valueGap*n, vy:cy+r/2+h+valueGap*n}
     ];
     const labelSvg=labels.map(l=>`<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text><text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`).join('');
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}">${defs}<polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">POPULATION</text><text x="${cx}" y="${cy+16}" class="rx-d-pop">—</text></g>`;
