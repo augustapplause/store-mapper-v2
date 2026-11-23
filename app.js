@@ -1006,8 +1006,24 @@
       {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'456', vx:cx+r/2+h+valueGap*n, vy:cy+r/2+h+valueGap*n},
       {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'456', vx:cx-r/2-h-valueGap*n, vy:cy+r/2+h+valueGap*n}
     ];
-    const labelSvg=labels.map(l=>`<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text><text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`).join('');
-    return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}">${defs}<polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">POPULATION</text><text x="${cx}" y="${cy+16}" class="rx-d-pop">13,777</text></g>`;
+    const titleBgPadX=5,titleBgPadY=3,valueBgPadX=5,valueBgPadY=3;
+    const approxTitleWidth=t=>Math.max(28,t.length*titleSize*0.52);
+    const labelSvg=labels.map(l=>{
+      const tw=approxTitleWidth(l.text), th=titleSize+6;
+      const vw=String(l.value).length*valueSize*0.62+valueBgPadX*2, vh=valueSize+6;
+      const titleRect=`<rect x="${(-tw/2)-titleBgPadX}" y="${(-th/2)-titleBgPadY}" width="${tw+titleBgPadX*2}" height="${th+titleBgPadY*2}" rx="3" class="rx-d-title-bg" transform="translate(${l.x} ${l.y}) rotate(${l.angle})"/>`;
+      const valueRect=`<rect x="${l.vx-(vw/2)}" y="${l.vy-(vh/2)}" width="${vw}" height="${vh}" rx="3" class="rx-d-value-bg"/>`;
+      return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
+    }).join('');
+    const popLabel = "POPULATION";
+    const popValue = "13,777";
+    const popLabelW = Math.max(54, popLabel.length * (subject ? 8.2 : 7.3));
+    const popLabelH = subject ? 16 : 14;
+    const popValueW = Math.max(subject ? 92 : 78, popValue.length * (subject ? 10.4 : 9.4));
+    const popValueH = subject ? 26 : 22;
+    const popLabelRect = `<rect x="${cx - popLabelW/2}" y="${cy - 3 - popLabelH/2}" width="${popLabelW}" height="${popLabelH}" rx="4" class="rx-d-pop-bg"/>`;
+    const popValueRect = `<rect x="${cx - popValueW/2}" y="${cy + 16 - popValueH/2}" width="${popValueW}" height="${popValueH}" rx="4" class="rx-d-pop-value-bg"/>`;
+    return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}">${defs}<polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
   }
 
   function rxSiteRender(subject){
@@ -1034,8 +1050,8 @@
       const w=container.clientWidth,h=container.clientHeight;
       svg.setAttribute('width',String(w));svg.setAttribute('height',String(h));svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
       svg.innerHTML='';
-      for(const pt of points){const q=map.latLngToContainerPoint([pt.lat,pt.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,52,false));}
-      const sq=map.latLngToContainerPoint([subject.lat,subject.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,72,true));
+      for(const pt of points){const q=map.latLngToContainerPoint([pt.lat,pt.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,42,false));}
+      const sq=map.latLngToContainerPoint([subject.lat,subject.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,60,true));
     };
     overlay.appendChild(svg);
     const close=document.createElement('button');
