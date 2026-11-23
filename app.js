@@ -1271,7 +1271,7 @@
   }
 
   function rxSiteDiamondMarkup(point,subjectRows,isSubject){
-    const R=isSubject?84:49;
+    const R=isSubject?88:50;
     const centerPop=isSubject?rxSiteSubjectMetric(subjectRows,'population'):null;
     const popValue=isSubject&&centerPop
       ?rxSiteFormatPopulation(centerPop.innerCount,centerPop.innerQuartile)
@@ -1280,31 +1280,52 @@
       ?rxSiteFormatPopulation(centerPop.outerCount,centerPop.outerQuartile)
       :'';
     const popConc=isSubject&&centerPop?rxSiteFormatConcentration(centerPop.concentration):'';
-    const labels={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor'};
+    const labels={commercial:'Commercial',community:'Residential',health:'Health / Serv',competition:'Competitor'};
+
+    // Each label sits on the midpoint of its diamond edge, shifted outward by a
+    // fixed normal offset. This makes the entire text block sit outside the
+    // diamond line instead of relying on approximate x/y coordinates.
+    const gap=isSubject?11:9;
+    const valueGap=isSubject?10:8;
+    const fontSize=isSubject?13:11.5;
+    const approxCharWidth=fontSize*0.57;
     const cfg={
-      commercial:{labelX:-R*0.47,labelY:-R*0.43,rotation:-45,valueX:-R-13,valueY:-R-9,anchor:'end'},
-      community:{labelX:R*0.47,labelY:-R*0.43,rotation:45,valueX:R+13,valueY:-R-9,anchor:'start'},
-      health:{labelX:R*0.47,labelY:R*0.43,rotation:-45,valueX:R+13,valueY:R+13,anchor:'start'},
-      competition:{labelX:-R*0.47,labelY:R*0.43,rotation:45,valueX:-R-13,valueY:R+13,anchor:'end'}
+      commercial:{midX:-R/2,midY:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2),valueDir:-1},
+      community:{midX:R/2,midY:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2),valueDir:1},
+      health:{midX:R/2,midY:R/2,rotation:-45,nx:1/Math.sqrt(2),ny:1/Math.sqrt(2),valueDir:1},
+      competition:{midX:-R/2,midY:R/2,rotation:45,nx:-1/Math.sqrt(2),ny:1/Math.sqrt(2),valueDir:-1}
     };
+
     const groups=RX_SITE_DIAMOND_METRICS.map(key=>{
       const c=cfg[key],color=RX_SITE_DIAMOND_COLORS[key];
       const row=isSubject?rxSiteSubjectMetric(subjectRows,key):null;
-      const inner= isSubject ? rxSiteDiamondText(row?.innerDensity) : rxSiteDiamondText(rxSiteMetricFromPoint(point,key));
-      const outer= isSubject ? rxSiteDiamondText(row?.outerDensity) : '';
-      const conc= isSubject ? rxSiteFormatConcentration(row?.concentration) : '';
+      const inner=isSubject?rxSiteDiamondText(row?.innerDensity):rxSiteDiamondText(rxSiteMetricFromPoint(point,key));
+      const outer=isSubject?rxSiteDiamondText(row?.outerDensity):'';
+      const conc=isSubject?rxSiteFormatConcentration(row?.concentration):'';
+      const label=labels[key];
+      const labelX=c.midX+c.nx*gap;
+      const labelY=c.midY+c.ny*gap;
+      const valueText=isSubject?`${inner} / ${outer}`:inner;
+      const valueHalf=(valueText.length*approxCharWidth)/2;
+      const valueLocalX=c.valueDir*(valueHalf+valueGap);
+      const valueX=labelX+Math.cos(c.rotation*Math.PI/180)*valueLocalX;
+      const valueY=labelY+Math.sin(c.rotation*Math.PI/180)*valueLocalX;
+      const concLocalX=c.valueDir*(valueHalf+valueGap);
+      const concX=valueX;
+      const concY=valueY+(c.rotation===45||c.rotation===-45? (c.valueDir>0?7:-7) : 7);
       return `<g class="rx-site-diamond-metric rx-site-diamond-${key}">`+
-        `<text x="${c.labelX}" y="${c.labelY}" transform="rotate(${c.rotation} ${c.labelX} ${c.labelY})" text-anchor="middle" class="rx-site-diamond-label" fill="${color}">${rxSiteEscSvg(labels[key])}</text>`+
-        `<text x="${c.valueX}" y="${c.valueY}" text-anchor="${c.anchor}" class="rx-site-diamond-value">${isSubject?rxSiteEscSvg(`${inner} / ${outer}`):rxSiteEscSvg(inner)}</text>`+
-        `${isSubject?`<text x="${c.valueX}" y="${c.valueY+(c.valueY<0?-9:12)}" text-anchor="${c.anchor}" class="rx-site-diamond-subvalue" fill="${color}">${rxSiteEscSvg(conc)}</text>`:''}`+
+        `<text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" transform="rotate(${c.rotation} ${labelX.toFixed(2)} ${labelY.toFixed(2)})" text-anchor="middle" class="rx-site-diamond-label" fill="${color}">${rxSiteEscSvg(label)}</text>`+
+        `<text x="${valueX.toFixed(2)}" y="${valueY.toFixed(2)}" text-anchor="middle" class="rx-site-diamond-value" fill="${color}">${rxSiteEscSvg(valueText)}</text>`+
+        `${isSubject?`<text x="${concX.toFixed(2)}" y="${concY.toFixed(2)}" text-anchor="middle" class="rx-site-diamond-subvalue" fill="${color}">${rxSiteEscSvg(conc)}</text>`:''}`+
       `</g>`;
     }).join('');
+
     const subtitle=isSubject
-      ? `<text x="0" y="-10" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="9" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text><text x="0" y="24" text-anchor="middle" class="rx-site-diamond-center-sub">${rxSiteEscSvg(popOuter)}${popConc?` · ${rxSiteEscSvg(popConc)}`:''}</text>`
-      : `<text x="0" y="-4" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="13" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text>`;
-    const fill=isSubject?'rgba(255,255,255,.20)':'rgba(255,255,255,.12)';
-    const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.78)';
-    const sw=isSubject?1.7:1.35;
+      ? `<text x="0" y="-12" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="10" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text><text x="0" y="27" text-anchor="middle" class="rx-site-diamond-center-sub">${rxSiteEscSvg(popOuter)}${popConc?` · ${rxSiteEscSvg(popConc)}`:''}</text>`
+      : `<text x="0" y="-4" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="14" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text>`;
+    const fill=isSubject?'rgba(255,255,255,.18)':'rgba(255,255,255,.10)';
+    const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.72)';
+    const sw=isSubject?1.7:1.25;
     return `<g class="rx-site-diamond ${isSubject?'subject':'direction'}" data-point-key="${rxSiteEscSvg(point?.key)}" data-size="${R}">`+
       `<polygon points="0,${-R} ${R},0 0,${R} ${-R},0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`+
       groups+
