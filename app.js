@@ -971,7 +971,9 @@
     o.closing=true;
     if(o.escHandler)document.removeEventListener('keydown',o.escHandler,true);
     if(o.cleanupMapListeners)o.cleanupMapListeners();
-    if(o.container?.parentNode)o.container.parentNode.removeChild(o.container);
+    if(o.closeButton?.parentNode)o.closeButton.parentNode.removeChild(o.closeButton);
+    if(o.svg)o.svg.innerHTML='';
+    if(o.pane?.firstChild===o.svg){try{o.pane.removeChild(o.svg);}catch(_){}}
 
     const m=o.mapState;
     state.rxSiteAnalysis.overlay=null;
@@ -987,19 +989,20 @@
     if(status)status.textContent=state.rxSiteAnalysis.enabled?'Ready • enter an address to map the 4 km comparison points.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
 
     if(m){
-      if(m.dragging)map.dragging.enable();else map.dragging.disable();
-      if(m.scrollWheelZoom)map.scrollWheelZoom.enable();else map.scrollWheelZoom.disable();
-      if(m.doubleClickZoom)map.doubleClickZoom.enable();else map.doubleClickZoom.disable();
-      if(m.boxZoom)map.boxZoom.enable();else map.boxZoom.disable();
-      if(m.keyboard)map.keyboard.enable();else map.keyboard.disable();
-      if(m.touchZoom)map.touchZoom.enable();else map.touchZoom.disable();
-      requestAnimationFrame(()=>{
-        map.invalidateSize(false);
-        requestAnimationFrame(()=>{
+      const restore=()=>{
+        try{
+          if(m.dragging)map.dragging.enable();else map.dragging.disable();
+          if(m.scrollWheelZoom)map.scrollWheelZoom.enable();else map.scrollWheelZoom.disable();
+          if(m.doubleClickZoom)map.doubleClickZoom.enable();else map.doubleClickZoom.disable();
+          if(m.boxZoom)map.boxZoom.enable();else map.boxZoom.disable();
+          if(m.keyboard)map.keyboard.enable();else map.keyboard.disable();
+          if(m.touchZoom)map.touchZoom.enable();else map.touchZoom.disable();
+          map.invalidateSize(false);
           map.setView(L.latLng(m.center.lat,m.center.lng),m.zoom,{animate:false});
           map.invalidateSize(false);
-        });
-      });
+        }catch(_){ }
+      };
+      requestAnimationFrame(()=>requestAnimationFrame(restore));
     }
   }
 
@@ -1011,34 +1014,30 @@
     const valueGap=subject?28:22;
     const n=1/Math.sqrt(2);
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
-    // Position each title from the midpoint of its corresponding diamond edge,
-    // then move it outward along that edge's normal. This keeps the title hugging
-    // the line while preserving the intended edge-parallel angles.
     const edgeOffset=subject?11:8;
     const h=edgeOffset/Math.sqrt(2);
     const labels=[
-      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45, x:cx-r/2-h, y:cy-r/2-h, value:'456', vx:cx-r/2-h-valueGap*n, vy:cy-r/2-h-valueGap*n},
-      {text:'Residential',color:RX_DIAMOND.residential,angle:45, x:cx+r/2+h, y:cy-r/2-h, value:'456', vx:cx+r/2+h+valueGap*n, vy:cy-r/2-h-valueGap*n},
-      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45, x:cx+r/2+h, y:cy+r/2+h, value:'456', vx:cx+r/2+h+valueGap*n, vy:cy+r/2+h+valueGap*n},
-      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45, x:cx-r/2-h, y:cy+r/2+h, value:'456', vx:cx-r/2-h-valueGap*n, vy:cy+r/2+h+valueGap*n}
+      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45,x:cx-r/2-h,y:cy-r/2-h,value:'456',vx:cx-r/2-h-valueGap*n,vy:cy-r/2-h-valueGap*n},
+      {text:'Residential',color:RX_DIAMOND.residential,angle:45,x:cx+r/2+h,y:cy-r/2-h,value:'456',vx:cx+r/2+h+valueGap*n,vy:cy-r/2-h-valueGap*n},
+      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45,x:cx+r/2+h,y:cy+r/2+h,value:'456',vx:cx+r/2+h+valueGap*n,vy:cy+r/2+h+valueGap*n},
+      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45,x:cx-r/2-h,y:cy+r/2+h,value:'456',vx:cx-r/2-h-valueGap*n,vy:cy+r/2+h+valueGap*n}
     ];
     const titleBgPadX=5,titleBgPadY=3,valueBgPadX=5,valueBgPadY=3;
     const approxTitleWidth=t=>Math.max(28,t.length*titleSize*0.52);
     const labelSvg=labels.map(l=>{
-      const tw=approxTitleWidth(l.text), th=titleSize+6;
-      const vw=String(l.value).length*valueSize*0.62+valueBgPadX*2, vh=valueSize+6;
+      const tw=approxTitleWidth(l.text),th=titleSize+6;
+      const vw=String(l.value).length*valueSize*0.62+valueBgPadX*2,vh=valueSize+6;
       const titleRect=`<rect x="${(-tw/2)-titleBgPadX}" y="${(-th/2)-titleBgPadY}" width="${tw+titleBgPadX*2}" height="${th+titleBgPadY*2}" rx="3" class="rx-d-title-bg" transform="translate(${l.x} ${l.y}) rotate(${l.angle})"/>`;
       const valueRect=`<rect x="${l.vx-(vw/2)}" y="${l.vy-(vh/2)}" width="${vw}" height="${vh}" rx="3" class="rx-d-value-bg"/>`;
       return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${l.vx}" y="${l.vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
     }).join('');
-    const popLabel = "POPULATION";
-    const popValue = "13,777";
-    const popLabelW = Math.max(54, popLabel.length * (subject ? 8.2 : 7.3));
-    const popLabelH = subject ? 16 : 14;
-    const popValueW = Math.max(subject ? 92 : 78, popValue.length * (subject ? 10.4 : 9.4));
-    const popValueH = subject ? 26 : 22;
-    const popLabelRect = `<rect x="${cx - popLabelW/2}" y="${cy - 3 - popLabelH/2}" width="${popLabelW}" height="${popLabelH}" rx="4" class="rx-d-pop-bg"/>`;
-    const popValueRect = `<rect x="${cx - popValueW/2}" y="${cy + 16 - popValueH/2}" width="${popValueW}" height="${popValueH}" rx="4" class="rx-d-pop-value-bg"/>`;
+    const popLabel='POPULATION',popValue='13,777';
+    const popLabelW=Math.max(54,popLabel.length*(subject?8.2:7.3));
+    const popLabelH=subject?16:14;
+    const popValueW=Math.max(subject?92:78,popValue.length*(subject?10.4:9.4));
+    const popValueH=subject?26:22;
+    const popLabelRect=`<rect x="${cx-popLabelW/2}" y="${cy-3-popLabelH/2}" width="${popLabelW}" height="${popLabelH}" rx="4" class="rx-d-pop-bg"/>`;
+    const popValueRect=`<rect x="${cx-popValueW/2}" y="${cy+16-popValueH/2}" width="${popValueW}" height="${popValueH}" rx="4" class="rx-d-pop-value-bg"/>`;
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}">${defs}<polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
   }
 
@@ -1046,9 +1045,13 @@
     rxSiteOverlayClear();
     const container=map.getContainer();
     const rect=container.getBoundingClientRect();
-    const overlay=document.createElement('div');
-    overlay.className='rx-site-map-overlay';
-    overlay.setAttribute('aria-label','Site Analysis overlay');
+    let pane=map.getPane('rxSiteAnalysisPane');
+    if(!pane){
+      pane=map.createPane('rxSiteAnalysisPane');
+      pane.style.zIndex='650';
+      pane.style.pointerEvents='none';
+    }
+    pane.innerHTML='';
     const svgNS='http://www.w3.org/2000/svg';
     const svg=document.createElementNS(svgNS,'svg');
     svg.classList.add('rx-site-map-svg');
@@ -1056,37 +1059,40 @@
     svg.setAttribute('height',String(Math.max(1,rect.height)));
     svg.setAttribute('viewBox',`0 0 ${Math.max(1,rect.width)} ${Math.max(1,rect.height)}`);
     svg.setAttribute('aria-hidden','true');
+    svg.style.pointerEvents='none';
+    pane.appendChild(svg);
+
     const points=rxSiteDiamondPoints(subject);
     const all=[subject,...points];
     const bounds=L.latLngBounds(all.map(p=>[p.lat,p.lng]));
     const oldCenter=map.getCenter();
     const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
     map.fitBounds(bounds,{paddingTopLeft:[150,110],paddingBottomRight:[150,90],maxZoom:12,animate:false});
+
     const draw=()=>{
       const w=container.clientWidth,h=container.clientHeight;
-      svg.setAttribute('width',String(w));svg.setAttribute('height',String(h));svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
+      svg.setAttribute('width',String(Math.max(1,w)));svg.setAttribute('height',String(Math.max(1,h)));svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
       svg.innerHTML='';
       for(const pt of points){const q=map.latLngToContainerPoint([pt.lat,pt.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,42,false));}
       const sq=map.latLngToContainerPoint([subject.lat,subject.lng]);svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,60,true));
     };
-    overlay.appendChild(svg);
+
     const close=document.createElement('button');
-    close.type='button';close.className='rx-site-map-close';close.setAttribute('aria-label','Close Site Analysis');close.innerHTML='<span>Close Site Analysis</span><b>×</b>';
-    const closeIt=()=>rxSiteOverlayClear();close.addEventListener('click',closeIt);
-    overlay.appendChild(close);
-    container.appendChild(overlay);
-    const prevDragging=map.dragging;const prevScroll=map.scrollWheelZoom;const prevDouble=map.doubleClickZoom;const prevBox=map.boxZoom;const prevKeyboard=map.keyboard;const prevTouch=map.touchZoom;
+    close.type='button';
+    close.className='rx-site-map-close';
+    close.setAttribute('aria-label','Close Site Analysis');
+    close.innerHTML='<span>Close Site Analysis</span><b>×</b>';
+    close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxSiteOverlayClear();});
+    close.style.pointerEvents='auto';
+    container.appendChild(close);
+
     map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
-    const shield=overlay;
-    shield.addEventListener('click',e=>{if(e.target===shield)e.stopPropagation();},true);
-    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeIt();}};
+    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxSiteOverlayClear();}};
     document.addEventListener('keydown',esc,true);
-    state.rxSiteAnalysis.overlay={container,svg,subject,mapState,escHandler:esc,draw,prevDragging,prevScroll,prevDouble,prevBox,prevKeyboard,prevTouch};
-    window.addEventListener('resize',draw,{once:false});
+    window.addEventListener('resize',draw);
     map.on('move zoom resize',draw);
+    state.rxSiteAnalysis.overlay={pane,svg,closeButton:close,subject,mapState,escHandler:esc,draw};
     state.rxSiteAnalysis.overlay.cleanupMapListeners=()=>{map.off('move zoom resize',draw);window.removeEventListener('resize',draw);};
-    const originalClear=rxSiteOverlayClear;
-    state.rxSiteAnalysis.overlay.safeClose=()=>originalClear();
     requestAnimationFrame(draw);
   }
 

@@ -1438,9 +1438,8 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 
 /* v1.296 clean Site Analysis diamond geometry */
-.rx-site-map-overlay{position:absolute;inset:0;z-index:1200;pointer-events:auto;background:transparent}
 .rx-site-map-svg{position:absolute;inset:0;display:block;overflow:visible;pointer-events:none}
-.rx-site-map-close{position:absolute;right:12px;top:12px;z-index:3;display:flex;align-items:center;gap:14px;border:1px solid #b9c7d2;border-radius:4px;background:rgba(255,255,255,.94);color:#0d2b42;font-size:14px;font-weight:500;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.14);pointer-events:auto}
+.rx-site-map-close{position:absolute;right:12px;top:12px;z-index:1400;display:flex;align-items:center;gap:14px;border:1px solid #b9c7d2;border-radius:4px;background:rgba(255,255,255,.94);color:#0d2b42;font-size:14px;font-weight:500;padding:13px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.14);pointer-events:auto}
 .rx-site-map-close b{font-size:24px;line-height:16px;font-weight:400}
 .rx-diamond .rx-d-field{fill:rgba(255,255,255,.12);stroke:none}
 .rx-diamond .rx-d-outline{fill:none;stroke:#18384c;stroke-width:2.2}
