@@ -1138,10 +1138,25 @@
     cache[province]=result;
     return result;
   }
+  async function rxSiteBuildAmenityPool(subject,radiusKm=10){
+    await loadAmenityAsset();
+    const ids=amenityIndicesWithinRadius(subject.lat,subject.lng,radiusKm);
+    const view=new DataView(state.amenityAssetState.buffer);
+    return ids.map(i=>amenityReadRecord(i,view));
+  }
+  function rxSiteAmenityProfileFromPool(pool,lat,lng,radiusKm){
+    let total=0,retail=0,food=0,health=0,community=0;
+    for(const r of pool){
+      if(amenityDistanceKm(lat,lng,r.lat,r.lon)>radiusKm)continue;
+      total++; if(r.mask&1)retail++; if(r.mask&2)food++; if(r.mask&4)health++; if(r.mask&8)community++;
+    }
+    return {total,retail,food,health,community};
+  }
   async function rxSiteBuildDensityTable(subject){
+    const amenityPool=await rxSiteBuildAmenityPool(subject,10);
     const [amenityInner,amenityOuter,compInner,compOuter,pop1,pop2,popQuartiles]=await Promise.all([
-      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
-      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+      Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,subject.lat,subject.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)),
+      Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM)),
       Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
       Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
       rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
@@ -1169,7 +1184,8 @@
     const lam2=lam1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(phi1),Math.cos(d)-Math.sin(phi1)*Math.sin(phi2));
     return {lat:phi2*180/Math.PI,lng:((lam2*180/Math.PI+540)%360)-180};
   }
-  async function rxSiteBuildSpatialCross(subject,distanceKm=5){
+  async function rxSiteBuildSpatialCross(subject,distanceKm=4,amenityPool=null){
+    if(!amenityPool)amenityPool=await rxSiteBuildAmenityPool(subject,10);
     const points=[
       {key:'N',label:'N',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0).lng},
       {key:'E',label:'E',lat:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lat,lng:rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90).lng},
@@ -1179,8 +1195,8 @@
     const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,inner:(subject.densityRows||[]).map(r=>({key:r.key,short:r.key==='commercial'?'C':r.key==='community'?'M':r.key==='health'?'H':r.key==='competition'?'X':'P',value:r.innerDensity}))}];
     const built=await Promise.all(points.map(async p=>{
       const [ai,ao,ci,co,p1,p2]=await Promise.all([
-        calculateAmenityProfile(p.lat,p.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM),
-        calculateAmenityProfile(p.lat,p.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
+        Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,p.lat,p.lng,RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)),
+        Promise.resolve(rxSiteAmenityProfileFromPool(amenityPool,p.lat,p.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM)),
         Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
         Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
         rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
@@ -1258,7 +1274,8 @@
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!province)throw new Error('Address could not be located or province could not be determined.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
-      subject.spatialCross=await rxSiteBuildSpatialCross(subject,5);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
+      const amenityPool=await rxSiteBuildAmenityPool(subject,10);
+      subject.spatialCross=await rxSiteBuildSpatialCross(subject,4,amenityPool);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
     }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
   }
   function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal();} }
