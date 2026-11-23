@@ -1103,9 +1103,28 @@
     const a=Number(innerDensity),b=Number(outerDensity);
     return Number.isFinite(a)&&Number.isFinite(b)&&b>0?a/b:null;
   }
+  function rxSiteDiagReset(){
+    state.rxSiteAnalysis.diagnostics={startedAt:performance.now(),events:[]};
+  }
+  function rxSiteDiag(section,ms,details={}){
+    const d=state.rxSiteAnalysis.diagnostics||(state.rxSiteAnalysis.diagnostics={startedAt:performance.now(),events:[]});
+    const event={section,ms:Number(ms.toFixed(1)),...details};
+    d.events.push(event);
+    console.info(`[Site Analysis] ${section}: ${event.ms} ms`,details);
+    return event;
+  }
+  function rxSiteDiagSummary(){
+    const d=state.rxSiteAnalysis.diagnostics;
+    if(!d)return '';
+    const total=performance.now()-d.startedAt;
+    const find=n=>d.events.find(e=>e.section===n)?.ms;
+    const fmt=v=>Number.isFinite(v)?(v/1000).toFixed(1)+'s':'—';
+    return `Total ${fmt(total)} · density ${fmt(find('density table'))} · quartiles ${fmt(find('province quartiles'))} · spatial cross ${fmt(find('spatial cross'))}`;
+  }
   async function rxSiteBuildPopulationProvinceQuartiles(province){
+    const t0=performance.now();
     const cache=state.rxSiteAnalysis.provincePopulationQuartiles||{};
-    if(cache[province])return cache[province];
+    if(cache[province]){ rxSiteDiag('province quartiles',performance.now()-t0,{province,cacheHit:true,candidates:0,sample1:cache[province].sample1||0,sample2:cache[province].sample2||0}); return cache[province]; }
     const candidates=[];
     for(const row of state.rows||[]){
       if(rxSiteProvinceFromRow(row)!==province)continue;
@@ -1136,18 +1155,22 @@
     };
     state.rxSiteAnalysis.provincePopulationQuartiles=cache;
     cache[province]=result;
+    rxSiteDiag('province quartiles',performance.now()-t0,{province,cacheHit:false,candidates:candidates.length,sample1:result.sample1,sample2:result.sample2,queue});
     return result;
   }
   async function rxSiteBuildDensityTable(subject){
+    const t0=performance.now();
+    const timed=(section,p)=>p.then(v=>{rxSiteDiag(section,performance.now()-t0);return v;});
     const [amenityInner,amenityOuter,compInner,compOuter,pop1,pop2,popQuartiles]=await Promise.all([
-      rxSiteAmenities(subject.lat,subject.lng),
-      calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM),
-      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
-      Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM)),
-      rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province),
-      rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province),
+      timed('subject amenity inner',rxSiteAmenities(subject.lat,subject.lng)),
+      timed('subject amenity outer',calculateAmenityProfile(subject.lat,subject.lng,RX_SITE_TEST_OUTER_AMENITY_RADIUS_KM)),
+      timed('subject competition inner',Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM))),
+      timed('subject competition outer',Promise.resolve(rxSiteCountSecondary(subject.lat,subject.lng,RX_SITE_TEST_COMP_OUTER_RADIUS_KM))),
+      timed('subject population inner',rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province)),
+      timed('subject population outer',rxSitePopulationRadius({},subject.lat,subject.lng,RX_SITE_TEST_POP_OUTER_RADIUS_KM,subject.province)),
       rxSiteBuildPopulationProvinceQuartiles(subject.province)
     ]);
+    rxSiteDiag('density table',performance.now()-t0,{province:subject.province});
     const commercialInner=Number(amenityInner?.retail||0)+Number(amenityInner?.food||0);
     const commercialOuter=Number(amenityOuter?.retail||0)+Number(amenityOuter?.food||0);
     const communityInner=Number(amenityInner?.community||0), communityOuter=Number(amenityOuter?.community||0);
@@ -1170,6 +1193,7 @@
     return {lat:phi2*180/Math.PI,lng:((lam2*180/Math.PI+540)%360)-180};
   }
   async function rxSiteBuildSpatialCross(subject,distanceKm=4){
+    const t0=performance.now();
     const points=[
       {key:'N',label:'N',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,0)},
       {key:'E',label:'E',...rxSiteOffsetPoint(subject.lat,subject.lng,distanceKm,90)},
@@ -1178,11 +1202,13 @@
     ];
     const all=[{key:'SUBJ',label:'Subject',lat:subject.lat,lng:subject.lng,inner:(subject.densityRows||[]).map(r=>({key:r.key,short:r.key==='commercial'?'C':r.key==='community'?'M':r.key==='health'?'H':r.key==='competition'?'X':'P',value:r.innerDensity}))}];
     const built=await Promise.all(points.map(async p=>{
+      const pt0=performance.now();
       const [ai,ci,p1]=await Promise.all([
         rxSiteAmenities(p.lat,p.lng),
         Promise.resolve(rxSiteCountSecondary(p.lat,p.lng,RX_SITE_TEST_COMP_INNER_RADIUS_KM)),
         rxSitePopulationRadius({},p.lat,p.lng,RX_SITE_TEST_POP_INNER_RADIUS_KM,subject.province)
       ]);
+      rxSiteDiag(`spatial ${p.key}`,performance.now()-pt0,{lat:p.lat,lng:p.lng});
       const vals=[
         {key:'commercial',short:'C',value:rxSiteDensity(Number(ai?.retail||0)+Number(ai?.food||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
         {key:'community',short:'M',value:rxSiteDensity(Number(ai?.community||0),RX_SITE_TEST_INNER_AMENITY_RADIUS_KM)},
@@ -1192,6 +1218,7 @@
       ];
       return {...p,inner:vals};
     }));
+    rxSiteDiag('spatial cross',performance.now()-t0,{distanceKm,points:points.length});
     return [...all,...built];
   }
   function rxSiteFormatDensity(value){ return Number.isFinite(Number(value))?Number(value).toFixed(1):'—'; }
@@ -1282,51 +1309,51 @@
     const popConc=isSubject&&centerPop?rxSiteFormatConcentration(centerPop.concentration):'';
     const labels={commercial:'Commercial',community:'Residential',health:'Health / Serv',competition:'Competitor'};
 
-    // Each label sits on the midpoint of its diamond edge, shifted outward by a
-    // fixed normal offset. This makes the entire text block sit outside the
-    // diamond line instead of relying on approximate x/y coordinates.
-    const gap=isSubject?11:9;
-    const valueGap=isSubject?10:8;
-    const fontSize=isSubject?13:11.5;
-    const approxCharWidth=fontSize*0.57;
+    // Geometry is defined from the actual diamond edge midpoints. Titles sit just
+    // outside the edge, parallel to it. Values sit farther outward on the edge
+    // normal, never on top of the title. The value colour is applied inline so it
+    // cannot be overridden by the generic SVG text rule.
+    const labelGap=isSubject?13:11;
+    const valueGap=isSubject?31:27;
+    const concGap=isSubject?47:43;
     const cfg={
-      commercial:{midX:-R/2,midY:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2),valueDir:-1},
-      community:{midX:R/2,midY:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2),valueDir:1},
-      health:{midX:R/2,midY:R/2,rotation:-45,nx:1/Math.sqrt(2),ny:1/Math.sqrt(2),valueDir:1},
-      competition:{midX:-R/2,midY:R/2,rotation:45,nx:-1/Math.sqrt(2),ny:1/Math.sqrt(2),valueDir:-1}
+      commercial:{mx:-R/2,my:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
+      community:{mx:R/2,my:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
+      health:{mx:R/2,my:R/2,rotation:-45,nx:1/Math.sqrt(2),ny:1/Math.sqrt(2)},
+      competition:{mx:-R/2,my:R/2,rotation:45,nx:-1/Math.sqrt(2),ny:1/Math.sqrt(2)}
     };
 
     const groups=RX_SITE_DIAMOND_METRICS.map(key=>{
-      const c=cfg[key],color=RX_SITE_DIAMOND_COLORS[key];
+      const c=cfg[key], color=RX_SITE_DIAMOND_COLORS[key];
       const row=isSubject?rxSiteSubjectMetric(subjectRows,key):null;
       const inner=isSubject?rxSiteDiamondText(row?.innerDensity):rxSiteDiamondText(rxSiteMetricFromPoint(point,key));
       const outer=isSubject?rxSiteDiamondText(row?.outerDensity):'';
       const conc=isSubject?rxSiteFormatConcentration(row?.concentration):'';
       const label=labels[key];
-      const labelX=c.midX+c.nx*gap;
-      const labelY=c.midY+c.ny*gap;
+      const labelX=c.mx+c.nx*labelGap;
+      const labelY=c.my+c.ny*labelGap;
       const valueText=isSubject?`${inner} / ${outer}`:inner;
-      const valueHalf=(valueText.length*approxCharWidth)/2;
-      const valueLocalX=c.valueDir*(valueHalf+valueGap);
-      const valueX=labelX+Math.cos(c.rotation*Math.PI/180)*valueLocalX;
-      const valueY=labelY+Math.sin(c.rotation*Math.PI/180)*valueLocalX;
-      const concLocalX=c.valueDir*(valueHalf+valueGap);
-      const concX=valueX;
-      const concY=valueY+(c.rotation===45||c.rotation===-45? (c.valueDir>0?7:-7) : 7);
+      const valueX=c.mx+c.nx*valueGap;
+      const valueY=c.my+c.ny*valueGap;
+      const concX=c.mx+c.nx*concGap;
+      const concY=c.my+c.ny*concGap;
       return `<g class="rx-site-diamond-metric rx-site-diamond-${key}">`+
-        `<text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" transform="rotate(${c.rotation} ${labelX.toFixed(2)} ${labelY.toFixed(2)})" text-anchor="middle" class="rx-site-diamond-label" fill="${color}">${rxSiteEscSvg(label)}</text>`+
-        `<text x="${valueX.toFixed(2)}" y="${valueY.toFixed(2)}" text-anchor="middle" class="rx-site-diamond-value" fill="${color}">${rxSiteEscSvg(valueText)}</text>`+
-        `${isSubject?`<text x="${concX.toFixed(2)}" y="${concY.toFixed(2)}" text-anchor="middle" class="rx-site-diamond-subvalue" fill="${color}">${rxSiteEscSvg(conc)}</text>`:''}`+
+        `<text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" transform="rotate(${c.rotation} ${labelX.toFixed(2)} ${labelY.toFixed(2)})" text-anchor="middle" class="rx-site-diamond-label" style="fill:${color}">${rxSiteEscSvg(label)}</text>`+
+        `<text x="${valueX.toFixed(2)}" y="${valueY.toFixed(2)}" transform="rotate(${c.rotation} ${valueX.toFixed(2)} ${valueY.toFixed(2)})" text-anchor="middle" class="rx-site-diamond-value" style="fill:${color}">${rxSiteEscSvg(valueText)}</text>`+
+        `${isSubject?`<text x="${concX.toFixed(2)}" y="${concY.toFixed(2)}" transform="rotate(${c.rotation} ${concX.toFixed(2)} ${concY.toFixed(2)})" text-anchor="middle" class="rx-site-diamond-subvalue" style="fill:${color}">${rxSiteEscSvg(conc)}</text>`:''}`+
       `</g>`;
     }).join('');
 
     const subtitle=isSubject
       ? `<text x="0" y="-12" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="10" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text><text x="0" y="27" text-anchor="middle" class="rx-site-diamond-center-sub">${rxSiteEscSvg(popOuter)}${popConc?` · ${rxSiteEscSvg(popConc)}`:''}</text>`
       : `<text x="0" y="-4" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="14" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text>`;
-    const fill=isSubject?'rgba(255,255,255,.18)':'rgba(255,255,255,.10)';
+    const fill=isSubject?'rgba(255,255,255,.16)':'rgba(255,255,255,.07)';
     const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.72)';
     const sw=isSubject?1.7:1.25;
+    const fieldPad=isSubject?54:36;
+    const fieldFill=isSubject?'rgba(255,255,255,.30)':'rgba(255,255,255,.24)';
     return `<g class="rx-site-diamond ${isSubject?'subject':'direction'}" data-point-key="${rxSiteEscSvg(point?.key)}" data-size="${R}">`+
+      `<polygon class="rx-site-diamond-field" points="0,${-(R+fieldPad)} ${R+fieldPad},0 0,${R+fieldPad} ${-(R+fieldPad)},0" fill="${fieldFill}"/>`+
       `<polygon points="0,${-R} ${R},0 0,${R} ${-R},0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`+
       groups+
       subtitle+
@@ -1378,19 +1405,48 @@
     svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
     svg.setAttribute('width',w);svg.setAttribute('height',h);
     while(svg.firstChild)svg.removeChild(svg.firstChild);
+
     const pointByKey=Object.fromEntries((overlay.points||[]).map(p=>[p.key,p]));
+    const subjectPoint=pointByKey.SUBJ;
+    const subjectGeo=subjectPoint?map.latLngToContainerPoint([subjectPoint.lat,subjectPoint.lng]):null;
     const layer=document.createElementNS(ns,'g');
     layer.setAttribute('class','rx-site-diamond-layer');
-    ['SUBJ','N','E','S','W'].forEach(key=>{
+
+    // Keep the Subject exactly on its geographic centre. Move each comparison
+    // diamond a little farther away from the Subject in screen space, and draw
+    // a short connector back to the actual 4 km geographic point.
+    const displayOffset={N:[0,-34],E:[34,0],S:[0,34],W:[-34,0]};
+    const keys=['SUBJ','N','E','S','W'];
+    keys.forEach(key=>{
       const point=pointByKey[key];
       if(!point)return;
-      const geo=map.latLngToContainerPoint([point.lat,point.lng]);
+      const anchor=map.latLngToContainerPoint([point.lat,point.lng]);
       const diamond=overlay.diamonds?.[key];
       if(!diamond)return;
-      diamond.setAttribute('transform',`translate(${geo.x.toFixed(2)} ${geo.y.toFixed(2)})`);
+      const off=displayOffset[key]||[0,0];
+      const display={x:anchor.x+off[0],y:anchor.y+off[1]};
+      overlay.displayPositions[key]=display;
+
+      if(key!=='SUBJ'){
+        const line=document.createElementNS(ns,'line');
+        line.setAttribute('x1',anchor.x.toFixed(2));
+        line.setAttribute('y1',anchor.y.toFixed(2));
+        line.setAttribute('x2',display.x.toFixed(2));
+        line.setAttribute('y2',display.y.toFixed(2));
+        line.setAttribute('class','rx-site-diamond-leader');
+        layer.appendChild(line);
+        const dot=document.createElementNS(ns,'circle');
+        dot.setAttribute('cx',anchor.x.toFixed(2));
+        dot.setAttribute('cy',anchor.y.toFixed(2));
+        dot.setAttribute('r','2.2');
+        dot.setAttribute('class','rx-site-diamond-anchor');
+        layer.appendChild(dot);
+      }
+      diamond.setAttribute('transform',`translate(${display.x.toFixed(2)} ${display.y.toFixed(2)})`);
     });
+
     svg.appendChild(layer);
-    ['SUBJ','N','E','S','W'].forEach(key=>{
+    keys.forEach(key=>{
       const d=overlay.diamonds?.[key];
       if(d)layer.appendChild(d);
     });
@@ -1422,7 +1478,7 @@
     const previousView={center:map.getCenter(),zoom:map.getZoom()};
     const interactionState=rxSiteDisableMapInteraction();
     const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lng]));
-    map.fitBounds(bounds,{paddingTopLeft:[130,115],paddingBottomRight:[130,115],animate:false,maxZoom:12});
+    map.fitBounds(bounds,{paddingTopLeft:[150,135],paddingBottomRight:[150,135],animate:false,maxZoom:11});
     map.invalidateSize({pan:false});
 
     const wrap=document.createElement('div');
@@ -1442,7 +1498,7 @@
     const closeBtn=wrap.querySelector('.rx-site-map-close');
     const onKeyDown=e=>{if(e.key==='Escape'){e.preventDefault();rxSiteCloseOverlay();}};
     const onResize=()=>rxSitePositionOverlay(state.rxSiteAnalysis.overlay);
-    const overlay={node:wrap,points,diamonds,previousView,interactionState,onKeyDown,onResize,svg};
+    const overlay={node:wrap,points,diamonds,previousView,interactionState,onKeyDown,onResize,svg,displayPositions:{}};
     state.rxSiteAnalysis.overlay=overlay;
     state.rxSiteAnalysis.overlayOpen=true;
     map.getContainer().appendChild(wrap);
@@ -1492,15 +1548,27 @@
     }
   }
   async function rxSiteAnalyzeAddress(address){
+    rxSiteDiagReset();
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
+    const total0=performance.now();
     try{
+      const geo0=performance.now();
       const resolved=await geocodeAndRadius(address,{resolveOnly:true});
+      rxSiteDiag('geocode',performance.now()-geo0);
       const c=resolved?.candidate,lat=Number(resolved?.lat),lng=Number(resolved?.lng),province=resolved?.provinceCode;
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||!province)throw new Error('Address could not be located or province could not be determined.');
       const densityRows=await rxSiteBuildDensityTable({lat,lng,province});
       const subject={address:c?.address||c?.attributes?.Match_addr||address,lat,lng,province,densityRows};
-      subject.spatialCross=await rxSiteBuildSpatialCross(subject,4);state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
-    }catch(err){if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;}
+      subject.spatialCross=await rxSiteBuildSpatialCross(subject,4);
+      rxSiteDiag('render',performance.now()-total0);
+      state.rxSiteAnalysis.subject=subject;rxSiteRender(subject);
+      const summary=rxSiteDiagSummary();
+      console.info('[Site Analysis] SUMMARY',summary,state.rxSiteAnalysis.diagnostics.events);
+      if(status)status.textContent=`Site Analysis active · ${summary}`;
+    }catch(err){
+      rxSiteDiag('failed',performance.now()-total0,{message:err.message});
+      if(status)status.textContent=`Analysis failed: ${err.message}`;throw err;
+    }
   }
   function rxSiteOpen(){ if(!state.rxSiteAnalysis.enabled)return; const dialog=el('rxSiteAnalysisDialog'); if(dialog&&!dialog.open){dialog.showModal();} }
   function rxSiteWire(){
