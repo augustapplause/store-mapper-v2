@@ -979,7 +979,12 @@
       if(m.boxZoom)map.boxZoom.enable();else map.boxZoom.disable();
       if(m.keyboard)map.keyboard.enable();else map.keyboard.disable();
       if(m.touchZoom)map.touchZoom.enable();else map.touchZoom.disable();
+      map.invalidateSize({animate:false,pan:false});
       map.setView(m.center,m.zoom,{animate:false});
+      requestAnimationFrame(()=>{
+        map.invalidateSize({animate:false,pan:false});
+        map.setView(m.center,m.zoom,{animate:false});
+      });
     }
     state.rxSiteAnalysis.overlay=null;
     state.rxSiteAnalysis.subject=null;
