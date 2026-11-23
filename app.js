@@ -1299,16 +1299,59 @@
     });
   }
 
+  function rxSiteOverlayLayout(overlay){
+    const root=overlay?.node;if(!root)return;
+    const w=root.clientWidth,h=root.clientHeight;
+    const positions={
+      N:{x:w*0.50,y:Math.max(118,h*0.15)},
+      E:{x:Math.min(w-120,w*0.82),y:h*0.50},
+      S:{x:w*0.50,y:Math.min(h-118,h*0.85)},
+      W:{x:Math.max(120,w*0.18),y:h*0.50},
+      SUBJ:{x:w*0.50,y:h*0.50}
+    };
+    const setPos=(key,x,y)=>{
+      const node=overlay.nodes?.[key];if(!node)return;
+      node.style.left=`${x}px`;node.style.top=`${y}px`;
+    };
+    Object.entries(positions).forEach(([key,pos])=>setPos(key,pos.x,pos.y));
+
+    const svg=overlay.svg;
+    if(!svg)return;
+    const ns='http://www.w3.org/2000/svg';
+    svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
+    svg.setAttribute('width',w);svg.setAttribute('height',h);
+    while(svg.firstChild)svg.removeChild(svg.firstChild);
+    const lineGroup=document.createElementNS(ns,'g');
+    lineGroup.setAttribute('class','rx-site-map-leaders');
+    const pointByKey=Object.fromEntries((overlay.points||[]).map(p=>[p.key,p]));
+    const keys=['N','E','S','W','SUBJ'];
+    keys.forEach(key=>{
+      const point=pointByKey[key],node=overlay.nodes?.[key];
+      if(!point||!node)return;
+      const geo=map.latLngToContainerPoint([point.lat,point.lng]);
+      const cx=positions[key].x,cy=positions[key].y;
+      const cardW=node.offsetWidth,cardH=node.offsetHeight;
+      const dx=geo.x-cx,dy=geo.y-cy;
+      const sx=Math.abs(dx)>0?cardW/2:0,sy=Math.abs(dy)>0?cardH/2:0;
+      let t=1;
+      if(Math.abs(dx)*cardH>Math.abs(dy)*cardW)t=sx/Math.max(Math.abs(dx),1);
+      else t=sy/Math.max(Math.abs(dy),1);
+      const ex=cx+dx*t,ey=cy+dy*t;
+      const line=document.createElementNS(ns,'line');
+      line.setAttribute('x1',geo.x);line.setAttribute('y1',geo.y);line.setAttribute('x2',ex);line.setAttribute('y2',ey);
+      line.setAttribute('class',key==='SUBJ'?'rx-site-map-leader subject':'rx-site-map-leader');
+      lineGroup.appendChild(line);
+      const dot=document.createElementNS(ns,'circle');
+      dot.setAttribute('cx',geo.x);dot.setAttribute('cy',geo.y);dot.setAttribute('r',key==='SUBJ'?'4':'3');
+      dot.setAttribute('class',key==='SUBJ'?'rx-site-map-anchor subject':'rx-site-map-anchor');
+      lineGroup.appendChild(dot);
+    });
+    svg.appendChild(lineGroup);
+  }
+
   function rxSitePositionOverlay(overlay){
     if(!overlay)return;
-    const points=overlay.points||[];
-    points.forEach(point=>{
-      const node=overlay.nodes?.[point.key];
-      if(!node)return;
-      const pt=map.latLngToContainerPoint([point.lat,point.lng]);
-      node.style.left=`${pt.x}px`;
-      node.style.top=`${pt.y}px`;
-    });
+    rxSiteOverlayLayout(overlay);
   }
 
   function rxSiteCloseOverlay(){
@@ -1351,7 +1394,7 @@
       `<div class="rx-site-map-subject-values">${subjectRows.map(r=>`<div class="rx-site-map-subject-row"><span>${esc(RX_SITE_METRIC_LABELS[r.key]||r.label||r.key)}</span><b>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</b><b>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</b><b>${rxSiteFormatConcentration(r.concentration)}</b></div>`).join('')}</div>`;
     const wrap=document.createElement('div');
     wrap.className='rx-site-map-overlay';
-    wrap.innerHTML=`<div class="rx-site-map-overlay-shield" aria-hidden="true"></div><button type="button" class="rx-site-map-close" aria-label="Close Site Analysis">Close Site Analysis <span aria-hidden="true">×</span></button><div class="rx-site-map-note">Comparable points are 4 km from the subject</div>`;
+    wrap.innerHTML=`<div class="rx-site-map-overlay-shield" aria-hidden="true"></div><svg class="rx-site-map-leader-svg" aria-hidden="true"></svg><button type="button" class="rx-site-map-close" aria-label="Close Site Analysis">Close Site Analysis <span aria-hidden="true">×</span></button><div class="rx-site-map-note">Comparable points are 4 km from the subject</div>`;
     const cards={};
     points.forEach(point=>{
       const card=document.createElement('div');
@@ -1363,9 +1406,10 @@
       cards[point.key]=card;
     });
     const closeBtn=wrap.querySelector('.rx-site-map-close');
+    const leaderSvg=wrap.querySelector('.rx-site-map-leader-svg');
     const onKeyDown=e=>{if(e.key==='Escape'){e.preventDefault();rxSiteCloseOverlay();}};
     const onResize=()=>rxSitePositionOverlay(state.rxSiteAnalysis.overlay);
-    const overlay={node:wrap,points,nodes:cards,previousView,interactionState,onKeyDown,onResize};
+    const overlay={node:wrap,points,nodes:cards,previousView,interactionState,onKeyDown,onResize,svg:leaderSvg};
     state.rxSiteAnalysis.overlay=overlay;
     state.rxSiteAnalysis.overlayOpen=true;
     map.getContainer().appendChild(wrap);
