@@ -1312,9 +1312,10 @@
     // Each title is anchored to the midpoint of a diamond edge and then pushed
     // outward along the edge normal. Values are upright (0deg), placed farther
     // outward on the same normal so they never sit on top of the angled title.
-    const labelGap=isSubject?4.5:3.5;
-    const valueGap=isSubject?28:24;
-    const concGap=isSubject?43:39;
+    const topLabelGap=isSubject?4.5:3.5;
+    const bottomLabelGap=isSubject?8.0:7.0;
+    const valueGap=isSubject?31:26;
+    const concGap=isSubject?48:42;
     const cfg={
       commercial:{mx:-R/2,my:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
       community:{mx:R/2,my:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
@@ -1329,6 +1330,7 @@
       const outer=isSubject?rxSiteDiamondText(row?.outerDensity):'';
       const conc=isSubject?rxSiteFormatConcentration(row?.concentration):'';
       const label=labels[key];
+      const labelGap=(key==='health'||key==='competition')?bottomLabelGap:topLabelGap;
       const labelX=c.mx+c.nx*labelGap;
       const labelY=c.my+c.ny*labelGap;
       const valueText=isSubject?`${inner} / ${outer}`:inner;
@@ -1350,7 +1352,7 @@
     const fill=isSubject?'rgba(255,255,255,.16)':'rgba(255,255,255,.10)';
     const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.72)';
     const sw=isSubject?1.7:1.25;
-    const fieldPad=isSubject?30:18;
+    const fieldPad=isSubject?52:18;
     const fieldFill=isSubject?'rgba(255,255,255,.50)':'rgba(255,255,255,.42)';
     return `<g class="rx-site-diamond ${isSubject?'subject':'direction'}" data-point-key="${rxSiteEscSvg(point?.key)}" data-size="${R}">`+
       `<polygon class="rx-site-diamond-field" points="0,${-(R+fieldPad)} ${R+fieldPad},0 0,${R+fieldPad} ${-(R+fieldPad)},0" fill="${fieldFill}"/>`+
@@ -1513,7 +1515,7 @@
     const previousView={center:map.getCenter(),zoom:map.getZoom()};
     const interactionState=rxSiteDisableMapInteraction();
     const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lng]));
-    map.fitBounds(bounds,{paddingTopLeft:[150,135],paddingBottomRight:[150,135],animate:false,maxZoom:11});
+    map.fitBounds(bounds,{paddingTopLeft:[200,180],paddingBottomRight:[200,180],animate:false,maxZoom:9.5});
     map.invalidateSize({pan:false});
 
     const wrap=document.createElement('div');
