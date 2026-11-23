@@ -118,7 +118,7 @@
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
     censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
-    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,graph:null,graphZoom:1,graphYaw:-0.7,graphPitch:0.35,graphDrag:null,resizeState:null,archetypes:null} 
+    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,graph:null,graphZoom:1,graphYaw:-0.7,graphPitch:0.35,graphDrag:null,resizeState:null,archetypes:null,overlay:null} 
   };
 
   const el = id => document.getElementById(id);
@@ -1243,14 +1243,176 @@
     table.querySelectorAll('.rx-arch-name').forEach((inp)=>inp.addEventListener('input',e=>{const i=Number(e.target.closest('.rx-archetype-config-row').dataset.r);state.rxSiteAnalysis.archetypes[i].name=e.target.value;}));
     table.querySelectorAll('select[data-f]').forEach(sel=>sel.addEventListener('change',e=>{const i=Number(e.target.closest('.rx-archetype-config-row').dataset.r);state.rxSiteAnalysis.archetypes[i][e.target.dataset.f]=e.target.value;}));
   }
+  const RX_SITE_DIRECTION_LABELS={N:'NORTH',E:'EAST',S:'SOUTH',W:'WEST'};
+  const RX_SITE_METRIC_LABELS={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor',population:'Population'};
+
+  function rxSiteOverlayMetricRows(values,metricMax){
+    return (values||[]).map(v=>{
+      const value=Number(v?.value),max=Number(metricMax?.[v?.key]||0);
+      const ratio=Number.isFinite(value)&&max>0?Math.max(0,Math.min(1,value/max)):0;
+      return `<div class="rx-site-map-metric"><span>${esc(RX_SITE_METRIC_LABELS[v?.key]||v?.key||'')}</span><div class="rx-site-map-bar"><i style="width:${(ratio*100).toFixed(1)}%"></i></div><b>${rxSiteFormatDensity(value)}</b></div>`;
+    }).join('');
+  }
+
+  function rxSiteBuildOverlayMetricMax(points){
+    const metricMax={};
+    (points||[]).forEach(point=>(point?.inner||[]).forEach(v=>{
+      const n=Number(v?.value);
+      if(Number.isFinite(n))metricMax[v.key]=Math.max(metricMax[v.key]||0,n);
+    }));
+    return metricMax;
+  }
+
+  function rxSiteDisableMapInteraction(){
+    const controls={
+      dragging:map.dragging,
+      scrollWheelZoom:map.scrollWheelZoom,
+      doubleClickZoom:map.doubleClickZoom,
+      boxZoom:map.boxZoom,
+      keyboard:map.keyboard,
+      touchZoom:map.touchZoom,
+      tap:map.tap
+    };
+    const enabled={};
+    Object.entries(controls).forEach(([key,control])=>{
+      enabled[key]=!!control?.enabled?.();
+      if(control?.disable)control.disable();
+    });
+    return enabled;
+  }
+
+  function rxSiteRestoreMapInteraction(enabled){
+    if(!enabled)return;
+    const controls={
+      dragging:map.dragging,
+      scrollWheelZoom:map.scrollWheelZoom,
+      doubleClickZoom:map.doubleClickZoom,
+      boxZoom:map.boxZoom,
+      keyboard:map.keyboard,
+      touchZoom:map.touchZoom,
+      tap:map.tap
+    };
+    Object.entries(enabled).forEach(([key,wasEnabled])=>{
+      const control=controls[key];
+      if(!control)return;
+      if(wasEnabled)control.enable?.(); else control.disable?.();
+    });
+  }
+
+  function rxSitePositionOverlay(overlay){
+    if(!overlay)return;
+    const points=overlay.points||[];
+    points.forEach(point=>{
+      const node=overlay.nodes?.[point.key];
+      if(!node)return;
+      const pt=map.latLngToContainerPoint([point.lat,point.lng]);
+      node.style.left=`${pt.x}px`;
+      node.style.top=`${pt.y}px`;
+    });
+  }
+
+  function rxSiteCloseOverlay(){
+    const overlay=state.rxSiteAnalysis.overlay;
+    if(!overlay)return;
+    try{
+      window.removeEventListener('keydown',overlay.onKeyDown,true);
+      window.removeEventListener('resize',overlay.onResize);
+      overlay.node?.remove();
+      rxSiteRestoreMapInteraction(overlay.interactionState);
+      if(overlay.previousView){
+        map.setView(overlay.previousView.center,overlay.previousView.zoom,{animate:false});
+      }
+    }catch(err){
+      console.warn('Site Analysis close cleanup encountered an error.',err);
+    }finally{
+      state.rxSiteAnalysis.overlay=null;
+      state.rxSiteAnalysis.overlayOpen=false;
+    }
+  }
+
+  function rxSiteRenderOverlay(subject){
+    rxSiteCloseOverlay();
+    const points=Array.isArray(subject?.spatialCross)?subject.spatialCross.filter(p=>Number.isFinite(Number(p?.lat))&&Number.isFinite(Number(p?.lng))):[];
+    if(points.length<5)throw new Error('Site Analysis could not build all five geographic reference points.');
+    const previousView={center:map.getCenter(),zoom:map.getZoom()};
+    const interactionState=rxSiteDisableMapInteraction();
+    const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lng]));
+    map.fitBounds(bounds,{paddingTopLeft:[185,115],paddingBottomRight:[185,115],animate:false,maxZoom:13});
+    map.invalidateSize({pan:false});
+
+    const metricMax=rxSiteBuildOverlayMetricMax(points);
+    const byKey=key=>points.find(p=>p.key===key);
+    const subjectPoint=byKey('SUBJ');
+    const subjectRows=subject?.densityRows||[];
+    const outerRows=subjectRows.map(r=>({key:r.key,value:r.outerDensity}));
+    const concentrationRows=subjectRows.map(r=>({key:r.key,value:r.concentration}));
+    const subjectHtml=`<div class="rx-site-map-subject-title">SUBJECT</div><div class="rx-site-map-address">${esc(subject.address||'Trade Area Analysis')}</div>`+
+      `<div class="rx-site-map-subject-head"><span>Inner</span><span>Outer</span><span>Concentration</span></div>`+
+      `<div class="rx-site-map-subject-values">${subjectRows.map(r=>`<div class="rx-site-map-subject-row"><span>${esc(RX_SITE_METRIC_LABELS[r.key]||r.label||r.key)}</span><b>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</b><b>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</b><b>${rxSiteFormatConcentration(r.concentration)}</b></div>`).join('')}</div>`;
+    const wrap=document.createElement('div');
+    wrap.className='rx-site-map-overlay';
+    wrap.innerHTML=`<div class="rx-site-map-overlay-shield" aria-hidden="true"></div><button type="button" class="rx-site-map-close" aria-label="Close Site Analysis">Close Site Analysis <span aria-hidden="true">×</span></button><div class="rx-site-map-note">Comparable points are 4 km from the subject</div>`;
+    const cards={};
+    points.forEach(point=>{
+      const card=document.createElement('div');
+      card.className=`rx-site-map-card ${point.key==='SUBJ'?'subject':'direction'}`;
+      card.dataset.pointKey=point.key;
+      if(point.key==='SUBJ')card.innerHTML=subjectHtml;
+      else card.innerHTML=`<div class="rx-site-map-card-title">${esc(RX_SITE_DIRECTION_LABELS[point.key]||point.label||point.key)}</div><div class="rx-site-map-card-distance">4 km from subject</div><div class="rx-site-map-metrics">${rxSiteOverlayMetricRows(point.inner,metricMax)}</div>`;
+      wrap.appendChild(card);
+      cards[point.key]=card;
+    });
+    const closeBtn=wrap.querySelector('.rx-site-map-close');
+    const onKeyDown=e=>{if(e.key==='Escape'){e.preventDefault();rxSiteCloseOverlay();}};
+    const onResize=()=>rxSitePositionOverlay(state.rxSiteAnalysis.overlay);
+    const overlay={node:wrap,points,nodes:cards,previousView,interactionState,onKeyDown,onResize};
+    state.rxSiteAnalysis.overlay=overlay;
+    state.rxSiteAnalysis.overlayOpen=true;
+    map.getContainer().appendChild(wrap);
+    window.addEventListener('keydown',onKeyDown,true);
+    window.addEventListener('resize',onResize);
+    closeBtn?.addEventListener('click',rxSiteCloseOverlay,{once:false});
+    wrap.querySelector('.rx-site-map-overlay-shield')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();},{capture:true});
+    rxSitePositionOverlay(overlay);
+    closeBtn?.focus();
+  }
+
+  function rxSiteRenderDensity(subject){
+    const wrap=el('rxSiteDensityTable');if(!wrap)return;
+    const rows=subject.densityRows||[];
+    wrap.innerHTML=`<table class="rx-site-density-table"><thead><tr><th>Measure</th><th>Inner density</th><th>Outer density</th><th>Concentration</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</td><td>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</td><td>${rxSiteFormatConcentration(r.concentration)}</td></tr>`).join('')}</tbody></table>`;
+    const placeholder=el('rxSiteLocalDestinationPlaceholder');if(placeholder)placeholder.textContent='—';
+    const crossWrap=el('rxSiteSpatialCross');
+    if(crossWrap){
+      const pts=subject.spatialCross||[];
+      const labels={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor',population:'Population'};
+      const byKey=k=>pts.find(p=>p.key===k);
+      const metricMax={};
+      pts.forEach(point=>point?.inner?.forEach(v=>{const n=Number(v.value);if(Number.isFinite(n))metricMax[v.key]=Math.max(metricMax[v.key]||0,n);}));
+      const cell=p=>{
+        if(!p)return '';
+        const isSubject=p.key==='SUBJ';
+        return `<div class="rx-site-cross-point rx-site-cross-${isSubject?'subject':'ref'}">`+
+          `<div class="rx-site-cross-label">${esc(p.label)}</div>`+
+          `${!isSubject?'<div class="rx-site-cross-distance">4 km from subject</div>':''}`+
+          `<div class="rx-site-cross-values">${p.inner.map(v=>{const value=Number(v.value),max=metricMax[v.key]||0,ratio=Number.isFinite(value)&&max>0?Math.max(0,Math.min(1,value/max)):0;return `<div class="rx-site-cross-metric"><span>${esc(labels[v.key]||v.key)}</span><div class="rx-site-cross-bar"><i style="width:${(ratio*100).toFixed(1)}%"></i></div><b>${rxSiteFormatDensity(value)}</b></div>`;}).join('')}</div></div>`;
+      };
+      const n=byKey('N'),e=byKey('E'),s=byKey('S'),w=byKey('W'),sub=byKey('SUBJ');
+      crossWrap.innerHTML=`<div class="rx-site-cross-subtitle">Comparable points are 4 km from the subject · density per km²</div><div class="rx-site-cross"><div class="rx-site-cross-n">${cell(n)}</div><div class="rx-site-cross-w">${cell(w)}</div><div class="rx-site-cross-center">${cell(sub)}</div><div class="rx-site-cross-e">${cell(e)}</div><div class="rx-site-cross-s">${cell(s)}</div></div>`;
+    }
+  }
+
   function rxSiteRender(subject){
-    const dialog=el('rxSiteAnalysisDialog');if(dialog&&!dialog.open)dialog.showModal();
-    const addr=el('rxSiteAnalysisHero');if(addr)addr.innerHTML=`<div class="rx-site-hero-title">${esc(subject.address||'Trade Area Analysis')}</div><div class="rx-site-hero-sub">Density test • inner circle vs outer circle</div>`;
-    rxSiteRenderDensity(subject);
-    rxSiteRenderHub(subject);
-    rxSiteRenderDayparts(subject);
-    const arch=el('rxSiteAnalysisConclusion');if(arch)arch.innerHTML='<div class="rx-site-placeholder">Not calculated in this test.</div>';
-    const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Density table ready.';
+    const status=el('rxSiteAnalysisStatus');
+    if(status)status.textContent='Rendering Site Analysis on the map…';
+    try{
+      rxSiteRenderOverlay(subject);
+      if(status)status.textContent='Site Analysis active · close the overlay to return to the map.';
+    }catch(err){
+      rxSiteCloseOverlay();
+      if(status)status.textContent=`Analysis failed: ${err.message}`;
+      throw err;
+    }
   }
   async function rxSiteAnalyzeAddress(address){
     const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
@@ -1270,7 +1432,7 @@
     if(el('rxSiteAnalysisConfigure')&&!el('rxSiteAnalysisConfigure').dataset.bound){el('rxSiteAnalysisConfigure').dataset.bound='1';el('rxSiteAnalysisConfigure').addEventListener('click',()=>{const panel=el('rxSiteArchetypeConfigPanel');panel?.classList.toggle('open');if(panel?.classList.contains('open'))rxSiteRenderArchetypeConfig();});}
     if(el('rxSiteArchetypeSave')&&!el('rxSiteArchetypeSave').dataset.bound){el('rxSiteArchetypeSave').dataset.bound='1';el('rxSiteArchetypeSave').addEventListener('click',()=>{rxSiteSaveArchetypes(state.rxSiteAnalysis.archetypes);if(state.rxSiteAnalysis.subject){state.rxSiteAnalysis.subject.archetype=rxSiteMatchArchetype(state.rxSiteAnalysis.subject.q);rxSiteRender(state.rxSiteAnalysis.subject);}});}
     if(el('rxSiteArchetypeReset')&&!el('rxSiteArchetypeReset').dataset.bound){el('rxSiteArchetypeReset').dataset.bound='1';el('rxSiteArchetypeReset').addEventListener('click',()=>{state.rxSiteAnalysis.archetypes=rxSiteArchetypeDefaults();rxSiteRenderArchetypeConfig();});}
-    if(el('rxSiteAnalysisClose')&&!el('rxSiteAnalysisClose').dataset.bound){el('rxSiteAnalysisClose').dataset.bound='1';el('rxSiteAnalysisClose').addEventListener('click',()=>el('rxSiteAnalysisDialog')?.close());}
+    if(el('rxSiteAnalysisClose')&&!el('rxSiteAnalysisClose').dataset.bound){el('rxSiteAnalysisClose').dataset.bound='1';el('rxSiteAnalysisClose').addEventListener('click',rxSiteCloseOverlay);}
     rxSiteStateReady();
   }
   async function rxSiteMaybeBuild(){ if(!rxSiteStateReady())return; rxSiteWire(); }
