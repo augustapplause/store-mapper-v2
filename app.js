@@ -1312,14 +1312,14 @@
     // Each title is anchored to the midpoint of a diamond edge and then pushed
     // outward along the edge normal. Values are upright (0deg), placed farther
     // outward on the same normal so they never sit on top of the angled title.
-    const labelGap=isSubject?8.5:7.5;
+    const labelGap=isSubject?4.5:3.5;
     const valueGap=isSubject?28:24;
     const concGap=isSubject?43:39;
     const cfg={
-      commercial:{mx:-R/2,my:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2),top:true},
-      community:{mx:R/2,my:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2),top:true},
-      health:{mx:R/2,my:R/2,rotation:45,nx:1/Math.sqrt(2),ny:1/Math.sqrt(2),top:false},
-      competition:{mx:-R/2,my:R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:1/Math.sqrt(2),top:false}
+      commercial:{mx:-R/2,my:-R/2,rotation:-45,nx:-1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
+      community:{mx:R/2,my:-R/2,rotation:45,nx:1/Math.sqrt(2),ny:-1/Math.sqrt(2)},
+      health:{mx:R/2,my:R/2,rotation:-45,nx:1/Math.sqrt(2),ny:1/Math.sqrt(2)},
+      competition:{mx:-R/2,my:R/2,rotation:45,nx:-1/Math.sqrt(2),ny:1/Math.sqrt(2)}
     };
 
     const groups=RX_SITE_DIAMOND_METRICS.map(key=>{
@@ -1336,7 +1336,7 @@
       const valueY=c.my+c.ny*valueGap;
       const concX=c.mx+c.nx*concGap;
       const concY=c.my+c.ny*concGap;
-      const labelBaseline=c.top?'auto':'hanging';
+      const labelBaseline='middle';
       return `<g class="rx-site-diamond-metric rx-site-diamond-${key}">`+
         `<text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" transform="rotate(${c.rotation} ${labelX.toFixed(2)} ${labelY.toFixed(2)})" text-anchor="middle" dominant-baseline="${labelBaseline}" class="rx-site-diamond-label" style="color:${color};fill:${color}">${rxSiteEscSvg(label)}</text>`+
         `<text x="${valueX.toFixed(2)}" y="${valueY.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" class="rx-site-diamond-value" style="color:${color};fill:${color}">${rxSiteEscSvg(valueText)}</text>`+
@@ -1347,11 +1347,11 @@
     const subtitle=isSubject
       ? `<text x="0" y="-12" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="10" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text><text x="0" y="27" text-anchor="middle" class="rx-site-diamond-center-sub">${rxSiteEscSvg(popOuter)}${popConc?` · ${rxSiteEscSvg(popConc)}`:''}</text>`
       : `<text x="0" y="-4" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="14" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text>`;
-    const fill=isSubject?'rgba(255,255,255,.14)':'rgba(255,255,255,.06)';
+    const fill=isSubject?'rgba(255,255,255,.16)':'rgba(255,255,255,.10)';
     const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.72)';
     const sw=isSubject?1.7:1.25;
     const fieldPad=isSubject?30:18;
-    const fieldFill=isSubject?'rgba(255,255,255,.34)':'rgba(255,255,255,.28)';
+    const fieldFill=isSubject?'rgba(255,255,255,.50)':'rgba(255,255,255,.42)';
     return `<g class="rx-site-diamond ${isSubject?'subject':'direction'}" data-point-key="${rxSiteEscSvg(point?.key)}" data-size="${R}">`+
       `<polygon class="rx-site-diamond-field" points="0,${-(R+fieldPad)} ${R+fieldPad},0 0,${R+fieldPad} ${-(R+fieldPad)},0" fill="${fieldFill}"/>`+
       `<polygon points="0,${-R} ${R},0 0,${R} ${-R},0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`+
@@ -1417,25 +1417,13 @@
     const layer=document.createElementNS(ns,'g');
     layer.setAttribute('class','rx-site-diamond-layer');
 
-    // Comparison diamonds live on the map near their real anchors, but are
-    // separated from one another by a deliberate screen-space offset.
-    const radialOffsets={N:[0,-112],E:[112,0],S:[0,112],W:[-112,0]};
+    // Comparison diamonds stay centered on their actual geographic anchors.
     const keys=['N','E','S','W'];
     const displays={};
     keys.forEach(key=>{
       const a=anchors[key];
       if(!a)return;
-      const off=radialOffsets[key];
-      displays[key]={x:a.x+off[0],y:a.y+off[1]};
-    });
-
-    // Keep comparison diamonds inside the viewport with a generous buffer.
-    const dirR=50, dirField=18, dirHalf=dirR+dirField+6;
-    keys.forEach(key=>{
-      const p=displays[key];
-      if(!p)return;
-      p.x=Math.max(dirHalf,Math.min(w-dirHalf,p.x));
-      p.y=Math.max(dirHalf+20,Math.min(h-dirHalf,p.y));
+      displays[key]={x:a.x,y:a.y};
     });
 
     // Pick a subject corner dynamically. The candidate with the most free
@@ -1475,17 +1463,6 @@
       layer.appendChild(line);
     };
 
-    keys.forEach(key=>{
-      if(anchors[key]&&displays[key]){
-        addLeader(anchors[key],displays[key],'rx-site-diamond-leader');
-        const dot=document.createElementNS(ns,'circle');
-        dot.setAttribute('cx',anchors[key].x.toFixed(2));
-        dot.setAttribute('cy',anchors[key].y.toFixed(2));
-        dot.setAttribute('r','2.2');
-        dot.setAttribute('class','rx-site-diamond-anchor');
-        layer.appendChild(dot);
-      }
-    });
     addLeader(subjectAnchor,displays.SUBJ,'rx-site-diamond-subject-leader');
     const subjDot=document.createElementNS(ns,'circle');
     subjDot.setAttribute('cx',subjectAnchor.x.toFixed(2));
