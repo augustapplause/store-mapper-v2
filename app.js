@@ -1246,21 +1246,70 @@
   const RX_SITE_DIRECTION_LABELS={N:'NORTH',E:'EAST',S:'SOUTH',W:'WEST'};
   const RX_SITE_METRIC_LABELS={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor',population:'Population'};
 
-  function rxSiteOverlayMetricRows(values,metricMax){
-    return (values||[]).map(v=>{
-      const value=Number(v?.value),max=Number(metricMax?.[v?.key]||0);
-      const ratio=Number.isFinite(value)&&max>0?Math.max(0,Math.min(1,value/max)):0;
-      return `<div class="rx-site-map-metric"><span>${esc(RX_SITE_METRIC_LABELS[v?.key]||v?.key||'')}</span><div class="rx-site-map-bar"><i style="width:${(ratio*100).toFixed(1)}%"></i></div><b>${rxSiteFormatDensity(value)}</b></div>`;
-    }).join('');
+  const RX_SITE_DIAMOND_COLORS={
+    commercial:'#e00000',
+    community:'#00a651',
+    health:'#6a1b9a',
+    competition:'#001bce'
+  };
+  const RX_SITE_DIAMOND_METRICS=['commercial','community','health','competition'];
+
+  function rxSiteMetricFromPoint(point,key){
+    return (point?.inner||[]).find(v=>v?.key===key)?.value;
   }
 
-  function rxSiteBuildOverlayMetricMax(points){
-    const metricMax={};
-    (points||[]).forEach(point=>(point?.inner||[]).forEach(v=>{
-      const n=Number(v?.value);
-      if(Number.isFinite(n))metricMax[v.key]=Math.max(metricMax[v.key]||0,n);
-    }));
-    return metricMax;
+  function rxSiteSubjectMetric(subjectRows,key){
+    return (subjectRows||[]).find(v=>v?.key===key);
+  }
+
+  function rxSiteDiamondText(value){
+    return Number.isFinite(Number(value))?rxSiteFormatDensity(value):'—';
+  }
+
+  function rxSiteEscSvg(value){
+    return esc(String(value??''));
+  }
+
+  function rxSiteDiamondMarkup(point,subjectRows,isSubject){
+    const R=isSubject?84:49;
+    const centerPop=isSubject?rxSiteSubjectMetric(subjectRows,'population'):null;
+    const popValue=isSubject&&centerPop
+      ?rxSiteFormatPopulation(centerPop.innerCount,centerPop.innerQuartile)
+      :rxSiteDiamondText(rxSiteMetricFromPoint(point,'population'));
+    const popOuter=isSubject&&centerPop
+      ?rxSiteFormatPopulation(centerPop.outerCount,centerPop.outerQuartile)
+      :'';
+    const popConc=isSubject&&centerPop?rxSiteFormatConcentration(centerPop.concentration):'';
+    const labels={commercial:'Commercial',community:'Residential',health:'Health & Services',competition:'Competitor'};
+    const cfg={
+      commercial:{labelX:-R*0.47,labelY:-R*0.43,rotation:-45,valueX:-R-13,valueY:-R-9,anchor:'end'},
+      community:{labelX:R*0.47,labelY:-R*0.43,rotation:45,valueX:R+13,valueY:-R-9,anchor:'start'},
+      health:{labelX:R*0.47,labelY:R*0.43,rotation:-45,valueX:R+13,valueY:R+13,anchor:'start'},
+      competition:{labelX:-R*0.47,labelY:R*0.43,rotation:45,valueX:-R-13,valueY:R+13,anchor:'end'}
+    };
+    const groups=RX_SITE_DIAMOND_METRICS.map(key=>{
+      const c=cfg[key],color=RX_SITE_DIAMOND_COLORS[key];
+      const row=isSubject?rxSiteSubjectMetric(subjectRows,key):null;
+      const inner= isSubject ? rxSiteDiamondText(row?.innerDensity) : rxSiteDiamondText(rxSiteMetricFromPoint(point,key));
+      const outer= isSubject ? rxSiteDiamondText(row?.outerDensity) : '';
+      const conc= isSubject ? rxSiteFormatConcentration(row?.concentration) : '';
+      return `<g class="rx-site-diamond-metric rx-site-diamond-${key}">`+
+        `<text x="${c.labelX}" y="${c.labelY}" transform="rotate(${c.rotation} ${c.labelX} ${c.labelY})" text-anchor="middle" class="rx-site-diamond-label" fill="${color}">${rxSiteEscSvg(labels[key])}</text>`+
+        `<text x="${c.valueX}" y="${c.valueY}" text-anchor="${c.anchor}" class="rx-site-diamond-value">${isSubject?rxSiteEscSvg(`${inner} / ${outer}`):rxSiteEscSvg(inner)}</text>`+
+        `${isSubject?`<text x="${c.valueX}" y="${c.valueY+(c.valueY<0?-9:12)}" text-anchor="${c.anchor}" class="rx-site-diamond-subvalue" fill="${color}">${rxSiteEscSvg(conc)}</text>`:''}`+
+      `</g>`;
+    }).join('');
+    const subtitle=isSubject
+      ? `<text x="0" y="-10" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="9" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text><text x="0" y="24" text-anchor="middle" class="rx-site-diamond-center-sub">${rxSiteEscSvg(popOuter)}${popConc?` · ${rxSiteEscSvg(popConc)}`:''}</text>`
+      : `<text x="0" y="-4" text-anchor="middle" class="rx-site-diamond-center-label">POPULATION</text><text x="0" y="13" text-anchor="middle" class="rx-site-diamond-center-pop">${rxSiteEscSvg(popValue)}</text>`;
+    const fill=isSubject?'rgba(255,255,255,.20)':'rgba(255,255,255,.12)';
+    const stroke=isSubject?'rgba(23,58,82,.92)':'rgba(27,59,75,.78)';
+    const sw=isSubject?1.7:1.35;
+    return `<g class="rx-site-diamond ${isSubject?'subject':'direction'}" data-point-key="${rxSiteEscSvg(point?.key)}" data-size="${R}">`+
+      `<polygon points="0,${-R} ${R},0 0,${R} ${-R},0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`+
+      groups+
+      subtitle+
+    `</g>`;
   }
 
   function rxSiteDisableMapInteraction(){
@@ -1299,105 +1348,31 @@
     });
   }
 
-  function rxSiteOverlayLayout(overlay){
-    const root=overlay?.node;if(!root)return;
+  function rxSitePositionOverlay(overlay){
+    if(!overlay?.svg)return;
+    const root=overlay.node;
     const w=root.clientWidth,h=root.clientHeight;
-    const margin=22;
-    const initial={
-      SUBJ:{x:w*0.50,y:h*0.52},
-      N:{x:w*0.30,y:h*0.16},
-      E:{x:w*0.79,y:h*0.31},
-      S:{x:w*0.68,y:h*0.84},
-      W:{x:w*0.20,y:h*0.69}
-    };
-    const positions={};
-    const keys=['SUBJ','N','E','S','W'];
-    const clampPoint=(x,y,node)=>({
-      x:Math.max(margin+node.offsetWidth/2,Math.min(w-margin-node.offsetWidth/2,x)),
-      y:Math.max(margin+node.offsetHeight/2,Math.min(h-margin-node.offsetHeight/2,y))
-    });
-    keys.forEach(key=>{
-      const node=overlay.nodes?.[key];
-      if(!node)return;
-      const pos=initial[key]||{x:w/2,y:h/2};
-      positions[key]=clampPoint(pos.x,pos.y,node);
-    });
-
-    const overlaps=(a,b)=>{
-      const aw=overlay.nodes[a].offsetWidth/2, ah=overlay.nodes[a].offsetHeight/2;
-      const bw=overlay.nodes[b].offsetWidth/2, bh=overlay.nodes[b].offsetHeight/2;
-      return Math.min(a,b)==='SUBJ'
-        ? (Math.abs(positions[a].x-positions[b].x)<aw+bw+8 && Math.abs(positions[a].y-positions[b].y)<ah+bh+8)
-        : (Math.abs(positions[a].x-positions[b].x)<aw+bw+10 && Math.abs(positions[a].y-positions[b].y)<ah+bh+10);
-    };
-    for(let pass=0;pass<36;pass++){
-      let moved=false;
-      for(let i=0;i<keys.length;i++){
-        for(let j=i+1;j<keys.length;j++){
-          const a=keys[i],b=keys[j],na=overlay.nodes[a],nb=overlay.nodes[b];
-          if(!na||!nb||!overlaps(a,b))continue;
-          const aw=na.offsetWidth/2,ah=na.offsetHeight/2,bw=nb.offsetWidth/2,bh=nb.offsetHeight/2;
-          let dx=positions[b].x-positions[a].x;
-          let dy=positions[b].y-positions[a].y;
-          if(Math.abs(dx)<0.01&&Math.abs(dy)<0.01){dx=(j%2?1:-1);dy=(i%2?1:-1);}
-          const overlapX=aw+bw+10-Math.abs(dx);
-          const overlapY=ah+bh+10-Math.abs(dy);
-          if(overlapX<=0||overlapY<=0)continue;
-          if(overlapX<overlapY){
-            const push=overlapX/2+2,sgn=dx>=0?1:-1;
-            positions[a].x-=push*sgn;positions[b].x+=push*sgn;
-          }else{
-            const push=overlapY/2+2,sgn=dy>=0?1:-1;
-            positions[a].y-=push*sgn;positions[b].y+=push*sgn;
-          }
-          positions[a]=clampPoint(positions[a].x,positions[a].y,na);
-          positions[b]=clampPoint(positions[b].x,positions[b].y,nb);
-          moved=true;
-        }
-      }
-      if(!moved)break;
-    }
-
-    const setPos=(key,pos)=>{
-      const node=overlay.nodes?.[key];if(!node)return;
-      node.style.left=`${pos.x}px`;node.style.top=`${pos.y}px`;
-    };
-    Object.entries(positions).forEach(([key,pos])=>setPos(key,pos));
-
     const svg=overlay.svg;
-    if(!svg)return;
     const ns='http://www.w3.org/2000/svg';
     svg.setAttribute('viewBox',`0 0 ${Math.max(1,w)} ${Math.max(1,h)}`);
     svg.setAttribute('width',w);svg.setAttribute('height',h);
     while(svg.firstChild)svg.removeChild(svg.firstChild);
-    const lineGroup=document.createElementNS(ns,'g');
-    lineGroup.setAttribute('class','rx-site-map-leaders');
     const pointByKey=Object.fromEntries((overlay.points||[]).map(p=>[p.key,p]));
-    keys.forEach(key=>{
-      const point=pointByKey[key],node=overlay.nodes?.[key],pos=positions[key];
-      if(!point||!node||!pos)return;
+    const layer=document.createElementNS(ns,'g');
+    layer.setAttribute('class','rx-site-diamond-layer');
+    ['SUBJ','N','E','S','W'].forEach(key=>{
+      const point=pointByKey[key];
+      if(!point)return;
       const geo=map.latLngToContainerPoint([point.lat,point.lng]);
-      const dx=geo.x-pos.x,dy=geo.y-pos.y;
-      const halfW=node.offsetWidth/2+4,halfH=node.offsetHeight/2+4;
-      let t=1;
-      if(Math.abs(dx)>0||Math.abs(dy)>0)t=Math.min(halfW/Math.max(Math.abs(dx),1e-6),halfH/Math.max(Math.abs(dy),1e-6));
-      t=Math.min(1,t);
-      const ex=pos.x+dx*t,ey=pos.y+dy*t;
-      const line=document.createElementNS(ns,'line');
-      line.setAttribute('x1',geo.x);line.setAttribute('y1',geo.y);line.setAttribute('x2',ex);line.setAttribute('y2',ey);
-      line.setAttribute('class',key==='SUBJ'?'rx-site-map-leader subject':'rx-site-map-leader');
-      lineGroup.appendChild(line);
-      const dot=document.createElementNS(ns,'circle');
-      dot.setAttribute('cx',geo.x);dot.setAttribute('cy',geo.y);dot.setAttribute('r',key==='SUBJ'?'4':'3');
-      dot.setAttribute('class',key==='SUBJ'?'rx-site-map-anchor subject':'rx-site-map-anchor');
-      lineGroup.appendChild(dot);
+      const diamond=overlay.diamonds?.[key];
+      if(!diamond)return;
+      diamond.setAttribute('transform',`translate(${geo.x.toFixed(2)} ${geo.y.toFixed(2)})`);
     });
-    svg.appendChild(lineGroup);
-  }
-
-  function rxSitePositionOverlay(overlay){
-    if(!overlay)return;
-    rxSiteOverlayLayout(overlay);
+    svg.appendChild(layer);
+    ['SUBJ','N','E','S','W'].forEach(key=>{
+      const d=overlay.diamonds?.[key];
+      if(d)layer.appendChild(d);
+    });
   }
 
   function rxSiteCloseOverlay(){
@@ -1426,36 +1401,27 @@
     const previousView={center:map.getCenter(),zoom:map.getZoom()};
     const interactionState=rxSiteDisableMapInteraction();
     const bounds=L.latLngBounds(points.map(p=>[p.lat,p.lng]));
-    map.fitBounds(bounds,{paddingTopLeft:[250,155],paddingBottomRight:[250,155],animate:false,maxZoom:12});
+    map.fitBounds(bounds,{paddingTopLeft:[130,115],paddingBottomRight:[130,115],animate:false,maxZoom:12});
     map.invalidateSize({pan:false});
 
-    const metricMax=rxSiteBuildOverlayMetricMax(points);
-    const byKey=key=>points.find(p=>p.key===key);
-    const subjectPoint=byKey('SUBJ');
-    const subjectRows=subject?.densityRows||[];
-    const outerRows=subjectRows.map(r=>({key:r.key,value:r.outerDensity}));
-    const concentrationRows=subjectRows.map(r=>({key:r.key,value:r.concentration}));
-    const subjectHtml=`<div class="rx-site-map-subject-title">SUBJECT</div><div class="rx-site-map-address">${esc(subject.address||'Trade Area Analysis')}</div>`+
-      `<div class="rx-site-map-subject-head"><span>Inner</span><span>Outer</span><span>Concentration</span></div>`+
-      `<div class="rx-site-map-subject-values">${subjectRows.map(r=>`<div class="rx-site-map-subject-row"><span>${esc(RX_SITE_METRIC_LABELS[r.key]||r.label||r.key)}</span><b>${r.key==='population'?rxSiteFormatPopulation(r.innerCount,r.innerQuartile):rxSiteFormatDensity(r.innerDensity)}</b><b>${r.key==='population'?rxSiteFormatPopulation(r.outerCount,r.outerQuartile):rxSiteFormatDensity(r.outerDensity)}</b><b>${rxSiteFormatConcentration(r.concentration)}</b></div>`).join('')}</div>`;
     const wrap=document.createElement('div');
     wrap.className='rx-site-map-overlay';
-    wrap.innerHTML=`<div class="rx-site-map-overlay-shield" aria-hidden="true"></div><svg class="rx-site-map-leader-svg" aria-hidden="true"></svg><button type="button" class="rx-site-map-close" aria-label="Close Site Analysis">Close Site Analysis <span aria-hidden="true">×</span></button><div class="rx-site-map-note">Comparable points are 4 km from the subject</div>`;
-    const cards={};
-    points.forEach(point=>{
-      const card=document.createElement('div');
-      card.className=`rx-site-map-card ${point.key==='SUBJ'?'subject':'direction'}`;
-      card.dataset.pointKey=point.key;
-      if(point.key==='SUBJ')card.innerHTML=subjectHtml;
-      else card.innerHTML=`<div class="rx-site-map-card-title">${esc(RX_SITE_DIRECTION_LABELS[point.key]||point.label||point.key)}</div><div class="rx-site-map-card-distance">4 km from subject</div><div class="rx-site-map-metrics">${rxSiteOverlayMetricRows(point.inner,metricMax)}</div>`;
-      wrap.appendChild(card);
-      cards[point.key]=card;
+    wrap.innerHTML=`<div class="rx-site-map-overlay-shield" aria-hidden="true"></div><svg class="rx-site-map-diamond-svg" aria-hidden="true"></svg><button type="button" class="rx-site-map-close" aria-label="Close Site Analysis">Close Site Analysis <span aria-hidden="true">×</span></button><div class="rx-site-map-note">Comparable points are 4 km from the subject</div>`;
+    const svg=wrap.querySelector('.rx-site-map-diamond-svg');
+    const diamonds={};
+    const subjectRows=subject?.densityRows||[];
+    ['SUBJ','N','E','S','W'].forEach(key=>{
+      const point=points.find(p=>p.key===key);
+      if(!point)return;
+      const temp=document.createElementNS('http://www.w3.org/2000/svg','g');
+      temp.innerHTML=rxSiteDiamondMarkup(point,subjectRows,key==='SUBJ');
+      const group=temp.firstElementChild;
+      if(group)diamonds[key]=group;
     });
     const closeBtn=wrap.querySelector('.rx-site-map-close');
-    const leaderSvg=wrap.querySelector('.rx-site-map-leader-svg');
     const onKeyDown=e=>{if(e.key==='Escape'){e.preventDefault();rxSiteCloseOverlay();}};
     const onResize=()=>rxSitePositionOverlay(state.rxSiteAnalysis.overlay);
-    const overlay={node:wrap,points,nodes:cards,previousView,interactionState,onKeyDown,onResize,svg:leaderSvg};
+    const overlay={node:wrap,points,diamonds,previousView,interactionState,onKeyDown,onResize,svg};
     state.rxSiteAnalysis.overlay=overlay;
     state.rxSiteAnalysis.overlayOpen=true;
     map.getContainer().appendChild(wrap);
