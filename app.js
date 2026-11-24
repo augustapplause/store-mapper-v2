@@ -118,7 +118,7 @@
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
     censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
-    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null} 
+    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null,detailMode:'density'} 
   };
 
   const el = id => document.getElementById(id);
@@ -1145,11 +1145,11 @@
     };
     const [populationInnerTotal,populationOuterTotal]=await Promise.all([populationDensity(innerRadius),populationDensity(outerRadius)]);
     const densities={
-      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(innerRadius),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(outerRadius)},
-      residential:{inner:Number(inner?.community||0)/area(innerRadius),outer:Number(outer?.community||0)/area(outerRadius)},
-      health:{inner:Number(inner?.health||0)/area(innerRadius),outer:Number(outer?.health||0)/area(outerRadius)},
-      competition:{inner:competitionInner/area(innerRadius),outer:competitionOuter/area(outerRadius)},
-      population:{inner:populationInnerTotal/area(innerRadius),outer:populationOuterTotal/area(outerRadius)}
+      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(innerRadius),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(outerRadius),counts:{inner:Number(inner?.retail||0)+Number(inner?.food||0),outer:Number(outer?.retail||0)+Number(outer?.food||0)}},
+      residential:{inner:Number(inner?.community||0)/area(innerRadius),outer:Number(outer?.community||0)/area(outerRadius),counts:{inner:Number(inner?.community||0),outer:Number(outer?.community||0)}},
+      health:{inner:Number(inner?.health||0)/area(innerRadius),outer:Number(outer?.health||0)/area(outerRadius),counts:{inner:Number(inner?.health||0),outer:Number(outer?.health||0)}},
+      competition:{inner:competitionInner/area(innerRadius),outer:competitionOuter/area(outerRadius),counts:{inner:competitionInner,outer:competitionOuter}},
+      population:{inner:populationInnerTotal/area(innerRadius),outer:populationOuterTotal/area(outerRadius),counts:{inner:populationInnerTotal,outer:populationOuterTotal}}
     };
     for(const item of Object.values(densities)){
       item.concentration=item.outer>0?item.inner/item.outer:null;
@@ -1165,6 +1165,9 @@
   function rxSiteRenderAmenityDetail(densities){
     const grid=el('rxSiteAnalysisDetailGrid');
     if(!grid||!densities)return;
+    const mode=state.rxSiteAnalysis.detailMode==='count'?'count':'density';
+    const subtitle=el('rxSiteAnalysisDetailSubtitle');
+    if(subtitle)subtitle.textContent=mode==='count'?'(count)':'(per sq km)';
     const rows={commercial:densities.commercial,residential:densities.residential,health:densities.health,competition:densities.competition,population:densities.population};
     for(const key of Object.keys(rows)){
       const row=grid.querySelector(`[data-rx-detail-key="${key}"]`);
@@ -1172,8 +1175,9 @@
       const cells=row.querySelectorAll('span');
       const d=rows[key];
       if(cells.length!==3)continue;
-      cells[0].textContent=Number.isFinite(d.inner)?d.inner.toFixed(1):'—';
-      cells[1].textContent=Number.isFinite(d.outer)?d.outer.toFixed(1):'—';
+      const values=mode==='count'?(d.counts||{}):d;
+      cells[0].textContent=Number.isFinite(Number(values.inner))?Number(values.inner).toFixed(mode==='count'?0:1):'—';
+      cells[1].textContent=Number.isFinite(Number(values.outer))?Number(values.outer).toFixed(mode==='count'?0:1):'—';
       cells[2].textContent=Number.isFinite(d.concentration)?`${d.concentration.toFixed(1)}×`:'—';
     }
   }
@@ -1214,6 +1218,8 @@
       if(token!==state.searchToken)return;
       const c=data.candidates?.[0];
       if(!c)throw new Error('No Canadian match found.');
+      state.rxSiteAnalysis.detailMode='density';
+      const modeToggle=el('rxSiteAnalysisModeToggle');if(modeToggle)modeToggle.checked=false;
       const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x);
       const subject={address:c.address||address,lat:c.location.y,lng:c.location.x,amenityDensityDetail:densities};
       const points=rxSiteDiamondPoints(subject);
@@ -1265,10 +1271,19 @@
     const innerInput=el('rxSiteAnalysisInnerRadius');
     const outerInput=el('rxSiteAnalysisOuterRadius');
     for(const input of [innerInput,outerInput]){
-      if(!input||input.dataset.bound)return;
+      if(!input||input.dataset.bound)continue;
       input.dataset.bound='1';
       input.addEventListener('input',()=>{rxSiteRecalculateDetail();});
       input.addEventListener('change',()=>{rxSiteRecalculateDetail();});
+    }
+    const modeToggle=el('rxSiteAnalysisModeToggle');
+    if(modeToggle&&!modeToggle.dataset.bound){
+      modeToggle.dataset.bound='1';
+      modeToggle.checked=state.rxSiteAnalysis.detailMode==='count';
+      modeToggle.addEventListener('change',()=>{
+        state.rxSiteAnalysis.detailMode=modeToggle.checked?'count':'density';
+        rxSiteRenderAmenityDetail(state.rxSiteAnalysis.subject?.amenityDensityDetail);
+      });
     }
   }
 
@@ -1294,7 +1309,7 @@
   }
   function clearSecondaryLocations(){
     state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
-    rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    rxSiteOverlayClear();state.rxSiteAnalysis.detailMode='density';state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
   function afterSecondaryLoaded(file,parsed){

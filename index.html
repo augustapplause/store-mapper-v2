@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.317</title>
+  <title>Store Explorer v1.318</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
       <link rel="stylesheet" href="styles.css?v=1.317.0.site-analysis-radius-controls-dynamic-diamonds" />
 </head>
@@ -223,9 +223,16 @@
           <div class="rx-site-analysis-detail-head">
             <div>
               <h2>Subject Site</h2>
-              <div class="rx-site-analysis-detail-subtitle">(per sq km)</div>
+              <div id="rxSiteAnalysisDetailSubtitle" class="rx-site-analysis-detail-subtitle">(per sq km)</div>
               <div id="rxSiteAnalysisSubjectAddress" class="rx-site-analysis-subject-address">—</div>
             </div>
+            <label class="rx-site-analysis-mode-toggle" title="Switch the Subject Site table between density and absolute count">
+              <span>Density / Count</span>
+              <span class="rx-site-analysis-mode-switch">
+                <input id="rxSiteAnalysisModeToggle" type="checkbox" aria-label="Show absolute counts instead of density">
+                <span class="rx-site-analysis-mode-slider" aria-hidden="true"></span>
+              </span>
+            </label>
           </div>
           <div id="rxSiteAnalysisDetailGrid" class="rx-site-analysis-detail-grid" role="table" aria-label="Subject site detail">
             <div class="rx-site-analysis-detail-header" role="row">
