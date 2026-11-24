@@ -1067,7 +1067,7 @@
     const points=`${p.top[0]},${p.top[1]} ${p.right[0]},${p.right[1]} ${p.bottom[0]},${p.bottom[1]} ${p.left[0]},${p.left[1]}`;
     const valueSize=subject?13:11;
     const titleSize=subject?13:11;
-    const valueGap=subject?28:22;
+    const valueGap=10;
     const n=1/Math.sqrt(2);
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
     const edgeOffset=subject?11:8;
@@ -1086,7 +1086,7 @@
         y:(l.y-cy)*0 + (l.y-cy)
       };
       const len=Math.hypot(valueNormal.x,valueNormal.y)||1;
-      const valueOffset=(subject?28:22)+8;
+      const valueOffset=valueGap+8;
       const vx=l.x + (valueNormal.x/len)*valueOffset;
       const vy=l.y + (valueNormal.y/len)*valueOffset;
       const tw=approxTitleWidth(l.text),th=titleSize+6;
@@ -4862,7 +4862,13 @@
     bindMarkerConfigInputs();
     const btn=el('markerConfigBtn');
     const dlg=el('markerConfigDialog');
-    if(btn&&dlg)btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();renderSecondaryIconConfig();refreshMarkerConfigUI();bindMarkerConfigInputs();dlg.showModal();});
+    if(btn&&dlg){
+      btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();renderSecondaryIconConfig();refreshMarkerConfigUI();bindMarkerConfigInputs();dlg.showModal();});
+      const closeBtn=dlg.querySelector('.dialog-header .icon-btn');
+      if(closeBtn){
+        closeBtn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();dlg.close();});
+      }
+    }
   }
   // ---------- Marker colour compatibility (UI removed in v1.233) ----------
   const MARKER_COLORS = [

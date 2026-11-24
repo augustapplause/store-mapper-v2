@@ -1300,7 +1300,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-detail-view.hidden{display:none!important}
 .rx-site-analysis-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
 .rx-site-analysis-detail-head h2{margin-bottom:2px}
-.rx-site-analysis-subject-address{font-size:11px;color:#55715e;line-height:1.35}
+.rx-site-analysis-subject-label{font-size:10px;color:#55715e;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px}.rx-site-analysis-subject-address{font-size:11px;color:#24323b;line-height:1.35}
 .rx-site-analysis-detail-grid{border:1px solid #c8e7d0;border-radius:9px;overflow:hidden;background:#fff}
 .rx-site-analysis-detail-header,.rx-site-analysis-detail-row{display:grid;grid-template-columns:1.25fr .8fr .8fr 1fr;gap:6px;align-items:center;padding:7px 8px;font-size:10px}
 .rx-site-analysis-detail-header{background:#f0f8f2;color:#55715e;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
