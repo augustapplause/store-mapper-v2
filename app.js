@@ -1111,10 +1111,24 @@
       calculateAmenityProfile(lat,lng,2)
     ]);
     const area=(radius)=>Math.PI*radius*radius;
+    const origin=L.latLng(lat,lng);
+    const countCompetition=(radiusKm)=>{
+      const candidates=secondaryProximityCandidates(lat,lng,radiusKm);
+      const maxMeters=radiusKm*1000;
+      let count=0;
+      for(const item of candidates){
+        if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;
+      }
+      return count;
+    };
+    const competitionInner=countCompetition(1);
+    const competitionOuter=countCompetition(2);
     const densities={
       commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(1),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(2)},
       residential:{inner:Number(inner?.community||0)/area(1),outer:Number(outer?.community||0)/area(2)},
-      health:{inner:Number(inner?.health||0)/area(1),outer:Number(outer?.health||0)/area(2)}
+      health:{inner:Number(inner?.health||0)/area(1),outer:Number(outer?.health||0)/area(2)},
+      competition:{inner:competitionInner/area(1),outer:competitionOuter/area(2)}
     };
     for(const item of Object.values(densities)){
       item.concentration=item.outer>0?item.inner/item.outer:null;
@@ -1125,7 +1139,7 @@
   function rxSiteRenderAmenityDetail(densities){
     const grid=el('rxSiteAnalysisDetailGrid');
     if(!grid||!densities)return;
-    const rows={commercial:densities.commercial,residential:densities.residential,health:densities.health};
+    const rows={commercial:densities.commercial,residential:densities.residential,health:densities.health,competition:densities.competition};
     for(const key of Object.keys(rows)){
       const row=grid.querySelector(`[data-rx-detail-key="${key}"]`);
       if(!row)continue;
