@@ -1105,10 +1105,13 @@
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}"><defs>${defs}</defs><polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
   }
 
-  async function rxSiteBuildAmenityDetail(lat,lng){
+  async function rxSiteBuildAmenityDetail(lat,lng,innerRadiusKm=null,outerRadiusKm=null){
+    const innerRadius=Number.isFinite(Number(innerRadiusKm))&&Number(innerRadiusKm)>0?Number(innerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5);
+    const outerRadius=Number.isFinite(Number(outerRadiusKm))&&Number(outerRadiusKm)>0?Number(outerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisOuterRadius')?.value)||2);
+    if(outerRadius<=innerRadius)throw new Error('Outer radius must be greater than inner radius.');
     const [inner,outer]=await Promise.all([
-      calculateAmenityProfile(lat,lng,1),
-      calculateAmenityProfile(lat,lng,2)
+      calculateAmenityProfile(lat,lng,innerRadius),
+      calculateAmenityProfile(lat,lng,outerRadius)
     ]);
     const area=(radius)=>Math.PI*radius*radius;
     const origin=L.latLng(lat,lng);
@@ -1122,8 +1125,8 @@
       }
       return count;
     };
-    const competitionInner=countCompetition(1);
-    const competitionOuter=countCompetition(2);
+    const competitionInner=countCompetition(innerRadius);
+    const competitionOuter=countCompetition(outerRadius);
     const populationDensity=async radiusKm=>{
       const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:32});
       const provinceCodes=candidateProvinceCodesFromGeography(boundary);
@@ -1138,13 +1141,13 @@
       });
       return Number(result?.aggregate?.totalPopulation)||0;
     };
-    const [populationInnerTotal,populationOuterTotal]=await Promise.all([populationDensity(1),populationDensity(2)]);
+    const [populationInnerTotal,populationOuterTotal]=await Promise.all([populationDensity(innerRadius),populationDensity(outerRadius)]);
     const densities={
-      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(1),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(2)},
-      residential:{inner:Number(inner?.community||0)/area(1),outer:Number(outer?.community||0)/area(2)},
-      health:{inner:Number(inner?.health||0)/area(1),outer:Number(outer?.health||0)/area(2)},
-      competition:{inner:competitionInner/area(1),outer:competitionOuter/area(2)},
-      population:{inner:populationInnerTotal/area(1),outer:populationOuterTotal/area(2)}
+      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(innerRadius),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(outerRadius)},
+      residential:{inner:Number(inner?.community||0)/area(innerRadius),outer:Number(outer?.community||0)/area(outerRadius)},
+      health:{inner:Number(inner?.health||0)/area(innerRadius),outer:Number(outer?.health||0)/area(outerRadius)},
+      competition:{inner:competitionInner/area(innerRadius),outer:competitionOuter/area(outerRadius)},
+      population:{inner:populationInnerTotal/area(innerRadius),outer:populationOuterTotal/area(outerRadius)}
     };
     for(const item of Object.values(densities)){
       item.concentration=item.outer>0?item.inner/item.outer:null;
@@ -1213,12 +1216,43 @@
       if(subjectAddress)subjectAddress.textContent=subject.address||address;
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
-      rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
+        rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
+      rxSiteWireRadiusInputs();
       rxSiteRender(subject);
       if(status)status.textContent='Site Analysis active • 4 km comparison geometry.';
     }catch(err){
       if(status)status.textContent=`Analysis failed: ${err.message}`;
       alert(`Site Analysis failed: ${err.message}`);
+    }
+  }
+
+  async function rxSiteRecalculateDetail(){
+    const subject=state.rxSiteAnalysis.subject;
+    if(!subject)return;
+    const innerInput=el('rxSiteAnalysisInnerRadius');
+    const outerInput=el('rxSiteAnalysisOuterRadius');
+    const innerRadius=Number(innerInput?.value);
+    const outerRadius=Number(outerInput?.value);
+    if(!Number.isFinite(innerRadius)||innerRadius<=0||!Number.isFinite(outerRadius)||outerRadius<=innerRadius){
+      return;
+    }
+    try{
+      const densities=await rxSiteBuildAmenityDetail(subject.lat,subject.lng,innerRadius,outerRadius);
+      state.rxSiteAnalysis.subject.amenityDensityDetail=densities;
+      rxSiteRenderAmenityDetail(densities);
+    }catch(err){
+      console.error('Site Analysis radius recalculation failed',err);
+    }
+  }
+
+  function rxSiteWireRadiusInputs(){
+    const innerInput=el('rxSiteAnalysisInnerRadius');
+    const outerInput=el('rxSiteAnalysisOuterRadius');
+    for(const input of [innerInput,outerInput]){
+      if(!input||input.dataset.bound)return;
+      input.dataset.bound='1';
+      input.addEventListener('input',()=>{rxSiteRecalculateDetail();});
+      input.addEventListener('change',()=>{rxSiteRecalculateDetail();});
     }
   }
 

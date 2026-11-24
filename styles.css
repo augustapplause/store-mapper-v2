@@ -1300,10 +1300,17 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-detail-view.hidden{display:none!important}
 .rx-site-analysis-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
 .rx-site-analysis-detail-head h2{margin-bottom:2px}
+.rx-site-analysis-detail-subtitle{font-size:11px;line-height:1.2;color:#55715e;font-weight:600;margin-bottom:2px}
 .rx-site-analysis-subject-label{font-size:10px;color:#55715e;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:1px}.rx-site-analysis-subject-address{font-size:11px;color:#24323b;line-height:1.35}
 .rx-site-analysis-detail-grid{border:1px solid #c8e7d0;border-radius:9px;overflow:hidden;background:#fff}
-.rx-site-analysis-detail-header,.rx-site-analysis-detail-row{display:grid;grid-template-columns:1.25fr .8fr .8fr 1fr;gap:6px;align-items:center;padding:7px 8px;font-size:12px;font-weight:600}
-.rx-site-analysis-detail-header{background:#f0f8f2;color:#55715e;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.rx-site-analysis-detail-header,.rx-site-analysis-detail-row{display:grid;grid-template-columns:1.25fr .8fr .8fr .8fr;gap:6px;align-items:center;padding:7px 8px;font-size:12px;font-weight:600}
+.rx-site-analysis-detail-header{background:#f0f8f2;color:#55715e;font-weight:600;text-transform:uppercase;letter-spacing:.04em;min-height:58px}
+.rx-site-analysis-detail-header > span{height:100%;display:flex;align-items:flex-start;justify-content:flex-end}
+.rx-site-analysis-detail-header .rx-site-analysis-detail-header-measure{justify-content:flex-start}
+.rx-site-analysis-radius-head{flex-direction:column;align-items:flex-end!important;justify-content:flex-start!important;gap:4px!important}
+.rx-site-analysis-radius-head input{width:56px;height:24px;padding:2px 5px;font-size:12px;font-weight:600;text-align:right;border:1px solid #cbd9d0;border-radius:4px;background:#fff;color:#24323b;box-sizing:border-box}
+.rx-site-analysis-radius-head input::-webkit-outer-spin-button,.rx-site-analysis-radius-head input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.rx-site-analysis-radius-head input[type=number]{-moz-appearance:textfield}
 .rx-site-analysis-detail-row{border-top:1px solid #edf2ee;color:#24323b}
 .rx-site-analysis-detail-row strong{font-size:12px;font-weight:600}
 .rx-site-analysis-detail-row span{text-align:right}
