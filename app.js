@@ -1003,7 +1003,7 @@
       this._svg.setAttribute('width',String(w));
       this._svg.setAttribute('height',String(h));
       this._svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-      this._svg.innerHTML='';
+      this._svg.innerHTML=`<rect x="0" y="0" width="${w}" height="${h}" fill="rgba(0,0,0,0.22)" pointer-events="none" />`;
       for(const pt of this.points){
         const q=this._map.latLngToContainerPoint([pt.lat,pt.lng]);
         this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,52,false));
