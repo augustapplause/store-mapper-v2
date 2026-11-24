@@ -229,10 +229,6 @@
   secondaryMarkerPane.style.pointerEvents = 'none';
 
   class SecondaryCanvasLayer extends L.Layer {
-    setDiamondData(diamondData){
-      this.diamondData=diamondData||{};
-      this.redraw();
-    }
     onAdd(mapInstance){
       this._map=mapInstance;
       this._canvas=L.DomUtil.create('canvas','secondary-canvas-layer');
@@ -970,6 +966,10 @@
   }
 
   class RxSiteAnalysisLayer extends L.Layer {
+    setDiamondData(diamondData){
+      this.diamondData=diamondData||{};
+      this.redraw();
+    }
     constructor(subject, points, diamondData={}){
       super();
       this.subject=subject;
@@ -1076,7 +1076,7 @@
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
     const edgeOffset=subject?11:8;
     const h=edgeOffset/Math.sqrt(2);
-    const metricValue=(key)=>Number.isFinite(Number(metrics?.[key]?.inner))?Number(metrics[key].inner).toFixed(0):'—';
+    const metricValue=(key)=>Number.isFinite(Number(metrics?.[key]?.inner))?Number(metrics[key].inner).toFixed(1):'—';
     const labels=[
       {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45,x:cx-r/2-h,y:cy-r/2-h,value:metricValue('commercial')},
       {text:'Residential',color:RX_DIAMOND.residential,angle:45,x:cx+r/2+h,y:cy-r/2-h,value:metricValue('residential')},
@@ -1098,7 +1098,7 @@
       return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${vx}" y="${vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
     }).join('');
     const popLabel='POPULATION';
-    const popValue=Number.isFinite(Number(metrics?.population?.inner))?Number(metrics.population.inner).toFixed(0):'—';
+    const popValue=Number.isFinite(Number(metrics?.population?.inner))?Number(metrics.population.inner).toFixed(1):'—';
     const popLabelW=Math.max(54,popLabel.length*(subject?8.2:7.3));
     const popLabelH=subject?16:14;
     const popValueW=Math.max(subject?92:78,String(popValue).length*(subject?10.4:9.4));
@@ -1172,8 +1172,8 @@
       const cells=row.querySelectorAll('span');
       const d=rows[key];
       if(cells.length!==3)continue;
-      cells[0].textContent=Number.isFinite(d.inner)?d.inner.toFixed(0):'—';
-      cells[1].textContent=Number.isFinite(d.outer)?d.outer.toFixed(0):'—';
+      cells[0].textContent=Number.isFinite(d.inner)?d.inner.toFixed(1):'—';
+      cells[1].textContent=Number.isFinite(d.outer)?d.outer.toFixed(1):'—';
       cells[2].textContent=Number.isFinite(d.concentration)?`${d.concentration.toFixed(1)}×`:'—';
     }
   }
