@@ -2367,9 +2367,7 @@
       const chosen=corners[0];
       candidate={left:clamp(chosen.left,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(chosen.top,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
     }
-    const POPUP_EXTRA_METRICS_WIDTH=30;
-    const popupLeft=clamp(candidate.left-POPUP_EXTRA_METRICS_WIDTH,margin,Math.max(margin,mapSize.x-margin-candidate.w));
-    storePopupCard.style.left=`${popupLeft}px`;
+    storePopupCard.style.left=`${candidate.left}px`;
     storePopupCard.style.top=`${candidate.top}px`;
     const leader=leaderGeometry(markerPoint,candidate,markerRadius);
     storePopupSvg.setAttribute('width',String(mapSize.x));
