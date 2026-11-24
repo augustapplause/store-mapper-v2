@@ -229,6 +229,10 @@
   secondaryMarkerPane.style.pointerEvents = 'none';
 
   class SecondaryCanvasLayer extends L.Layer {
+    setDiamondData(diamondData){
+      this.diamondData=diamondData||{};
+      this.redraw();
+    }
     onAdd(mapInstance){
       this._map=mapInstance;
       this._canvas=L.DomUtil.create('canvas','secondary-canvas-layer');
@@ -966,10 +970,11 @@
   }
 
   class RxSiteAnalysisLayer extends L.Layer {
-    constructor(subject, points){
+    constructor(subject, points, diamondData={}){
       super();
       this.subject=subject;
       this.points=points;
+      this.diamondData=diamondData||{};
       this._svg=null;
       this._pane=null;
     }
@@ -1006,10 +1011,10 @@
       this._svg.innerHTML=`<rect x="0" y="0" width="${w}" height="${h}" fill="rgba(0,0,0,0.22)" pointer-events="none" />`;
       for(const pt of this.points){
         const q=this._map.latLngToContainerPoint([pt.lat,pt.lng]);
-        this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,52,false));
+        this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,52,false,this.diamondData?.[pt.key]||null));
       }
       const sq=this._map.latLngToContainerPoint([this.subject.lat,this.subject.lng]);
-      this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,72,true));
+      this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,72,true,this.diamondData?.subject||null));
     }
   }
 
@@ -1062,29 +1067,26 @@
     }
   }
 
-  function rxSiteDiamondSvg(cx,cy,r,subject=false){
+  function rxSiteDiamondSvg(cx,cy,r,subject=false,metrics=null){
     const p={top:[cx,cy-r],right:[cx+r,cy],bottom:[cx,cy+r],left:[cx-r,cy]};
     const points=`${p.top[0]},${p.top[1]} ${p.right[0]},${p.right[1]} ${p.bottom[0]},${p.bottom[1]} ${p.left[0]},${p.left[1]}`;
     const valueSize=14;
     const titleSize=subject?13:11;
     const valueGap=12;
-    const n=1/Math.sqrt(2);
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
     const edgeOffset=subject?11:8;
     const h=edgeOffset/Math.sqrt(2);
+    const metricValue=(key)=>Number.isFinite(Number(metrics?.[key]?.inner))?Number(metrics[key].inner).toFixed(0):'—';
     const labels=[
-      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45,x:cx-r/2-h,y:cy-r/2-h,value:'456'},
-      {text:'Residential',color:RX_DIAMOND.residential,angle:45,x:cx+r/2+h,y:cy-r/2-h,value:'456'},
-      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45,x:cx+r/2+h,y:cy+r/2+h,value:'456'},
-      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45,x:cx-r/2-h,y:cy+r/2+h,value:'456'}
+      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45,x:cx-r/2-h,y:cy-r/2-h,value:metricValue('commercial')},
+      {text:'Residential',color:RX_DIAMOND.residential,angle:45,x:cx+r/2+h,y:cy-r/2-h,value:metricValue('residential')},
+      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45,x:cx+r/2+h,y:cy+r/2+h,value:metricValue('health')},
+      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45,x:cx-r/2-h,y:cy+r/2+h,value:metricValue('competition')}
     ];
     const titleBgPadX=5,titleBgPadY=3,valueBgPadX=5,valueBgPadY=3;
     const approxTitleWidth=t=>Math.max(28,t.length*titleSize*0.52);
     const labelSvg=labels.map(l=>{
-      const valueNormal={
-        x:(l.x-cx)*0 + (l.x-cx),
-        y:(l.y-cy)*0 + (l.y-cy)
-      };
+      const valueNormal={x:l.x-cx,y:l.y-cy};
       const len=Math.hypot(valueNormal.x,valueNormal.y)||1;
       const valueOffset=valueGap+8;
       const vx=l.x + (valueNormal.x/len)*valueOffset;
@@ -1095,10 +1097,11 @@
       const valueRect=`<rect x="${vx-(vw/2)}" y="${vy-(vh/2)}" width="${vw}" height="${vh}" rx="3" class="rx-d-value-bg"/>`;
       return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${vx}" y="${vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
     }).join('');
-    const popLabel='POPULATION',popValue='13,777';
+    const popLabel='POPULATION';
+    const popValue=Number.isFinite(Number(metrics?.population?.inner))?Number(metrics.population.inner).toFixed(0):'—';
     const popLabelW=Math.max(54,popLabel.length*(subject?8.2:7.3));
     const popLabelH=subject?16:14;
-    const popValueW=Math.max(subject?92:78,popValue.length*(subject?10.4:9.4));
+    const popValueW=Math.max(subject?92:78,String(popValue).length*(subject?10.4:9.4));
     const popValueH=subject?26:22;
     const popLabelRect=`<rect x="${cx-popLabelW/2}" y="${cy-3-popLabelH/2}" width="${popLabelW}" height="${popLabelH}" rx="4" class="rx-d-pop-bg"/>`;
     const popValueRect=`<rect x="${cx-popValueW/2}" y="${cy+16-popValueH/2}" width="${popValueW}" height="${popValueH}" rx="4" class="rx-d-pop-value-bg"/>`;
@@ -1108,7 +1111,6 @@
   async function rxSiteBuildAmenityDetail(lat,lng,innerRadiusKm=null,outerRadiusKm=null){
     const innerRadius=Number.isFinite(Number(innerRadiusKm))&&Number(innerRadiusKm)>0?Number(innerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5);
     const outerRadius=Number.isFinite(Number(outerRadiusKm))&&Number(outerRadiusKm)>0?Number(outerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisOuterRadius')?.value)||2);
-    if(outerRadius<=innerRadius)throw new Error('Outer radius must be greater than inner radius.');
     const [inner,outer]=await Promise.all([
       calculateAmenityProfile(lat,lng,innerRadius),
       calculateAmenityProfile(lat,lng,outerRadius)
@@ -1155,6 +1157,11 @@
     return densities;
   }
 
+  async function rxSiteBuildComparableDiamondData(points,innerRadius){
+    const results=await Promise.all(points.map(async point=>({key:point.key,densities:await rxSiteBuildAmenityDetail(point.lat,point.lng,innerRadius,innerRadius)})));
+    return results.reduce((acc,item)=>{acc[item.key]=item.densities;return acc;},{ });
+  }
+
   function rxSiteRenderAmenityDetail(densities){
     const grid=el('rxSiteAnalysisDetailGrid');
     if(!grid||!densities)return;
@@ -1180,7 +1187,7 @@
     const bounds=L.latLngBounds(all.map(p=>[p.lat,p.lng]));
     map.fitBounds(bounds,{paddingTopLeft:[150,110],paddingBottomRight:[150,90],maxZoom:12,animate:false});
 
-    const layer=new RxSiteAnalysisLayer(subject,points).addTo(map);
+    const layer=new RxSiteAnalysisLayer(subject,points,subject.diamondData||{subject:subject.amenityDensityDetail}).addTo(map);
     const container=map.getContainer();
     const close=document.createElement('button');
     close.type='button';
@@ -1209,6 +1216,10 @@
       if(!c)throw new Error('No Canadian match found.');
       const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x);
       const subject={address:c.address||address,lat:c.location.y,lng:c.location.x,amenityDensityDetail:densities};
+      const points=rxSiteDiamondPoints(subject);
+      const innerRadius=Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5;
+      const comparableDiamondData=await rxSiteBuildComparableDiamondData(points,innerRadius);
+      subject.diamondData={subject:densities,...comparableDiamondData};
       state.rxSiteAnalysis.subject=subject;
       const searchView=el('rxSiteAnalysisSearchView');
       const detailView=el('rxSiteAnalysisDetailView');
@@ -1233,13 +1244,18 @@
     const outerInput=el('rxSiteAnalysisOuterRadius');
     const innerRadius=Number(innerInput?.value);
     const outerRadius=Number(outerInput?.value);
-    if(!Number.isFinite(innerRadius)||innerRadius<=0||!Number.isFinite(outerRadius)||outerRadius<=innerRadius){
+    if(!Number.isFinite(innerRadius)||innerRadius<=0||!Number.isFinite(outerRadius)||outerRadius<=0){
       return;
     }
     try{
       const densities=await rxSiteBuildAmenityDetail(subject.lat,subject.lng,innerRadius,outerRadius);
+      const points=rxSiteDiamondPoints(subject);
+      const comparableDiamondData=await rxSiteBuildComparableDiamondData(points,innerRadius);
       state.rxSiteAnalysis.subject.amenityDensityDetail=densities;
+      state.rxSiteAnalysis.subject.diamondData={subject:densities,...comparableDiamondData};
       rxSiteRenderAmenityDetail(densities);
+      const overlay=state.rxSiteAnalysis.overlay;
+      if(overlay?.layer?.setDiamondData)overlay.layer.setDiamondData(state.rxSiteAnalysis.subject.diamondData);
     }catch(err){
       console.error('Site Analysis radius recalculation failed',err);
     }

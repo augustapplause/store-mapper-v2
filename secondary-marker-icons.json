@@ -4,14 +4,9 @@
   {"key":"freshco","label":"FreshCo","asset":"freshco.png","defaultSize":17},
   {"key":"brunet","label":"Brunet","asset":"brunet.png","defaultSize":17},
   {"key":"metro","label":"Metro","asset":"metro.png","defaultSize":17},
-  {"key":"food basics","label":"Metro","asset":"metro.png","defaultSize":17},
   {"key":"safeway (sobeys)","label":"SAFEWAY (SOBEYS)","asset":"safeway (sobeys).png","defaultSize":17},
   {"key":"sobeys","label":"Sobeys","asset":"sobeys.png","defaultSize":17},
   {"key":"pharmacie jean coutu","label":"Pharmacie Jean Coutu","asset":"pharmacie jean coutu.png","defaultSize":17},
   {"key":"wal-mart","label":"Wal-Mart","asset":"wal-mart.png","defaultSize":17},
-  {"key":"uniprix","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
-  {"key":"uniprix sante","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
-  {"key":"uniprix clinique","label":"Uniprix","asset":"uniprix.png","defaultSize":17},
-  {"key":"familiprix","label":"familiprix","asset":"familiprix.png","defaultSize":20},
-  {"key":"save-on-foods","label":"Save-On-Foods","asset":"save-on-foods.png","defaultSize":17}
+  {"key":"sav-on foods","label":"Sav-On Foods","asset":"sav-on foods.png","defaultSize":17}
 ]

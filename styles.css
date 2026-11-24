@@ -1306,7 +1306,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-detail-header,.rx-site-analysis-detail-row{display:grid;grid-template-columns:1.25fr .8fr .8fr .8fr;gap:6px;align-items:center;padding:7px 8px;font-size:12px;font-weight:600}
 .rx-site-analysis-detail-header{background:#f0f8f2;color:#55715e;font-weight:600;text-transform:uppercase;letter-spacing:.04em;min-height:58px}
 .rx-site-analysis-detail-header > span{height:100%;display:flex;align-items:flex-start;justify-content:flex-end}
-.rx-site-analysis-detail-header .rx-site-analysis-detail-header-measure{justify-content:flex-start}
+.rx-site-analysis-detail-header .rx-site-analysis-detail-header-measure{justify-content:flex-start;flex-direction:column;align-items:flex-start!important;gap:4px;text-transform:none}
 .rx-site-analysis-radius-head{flex-direction:column;align-items:flex-end!important;justify-content:flex-start!important;gap:4px!important}
 .rx-site-analysis-radius-head input{width:56px;height:24px;padding:2px 5px;font-size:12px;font-weight:600;text-align:right;border:1px solid #cbd9d0;border-radius:4px;background:#fff;color:#24323b;box-sizing:border-box}
 .rx-site-analysis-radius-head input::-webkit-outer-spin-button,.rx-site-analysis-radius-head input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
