@@ -1105,7 +1105,7 @@
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}"><defs>${defs}</defs><polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
   }
 
-  async function rxSiteBuildAmenityDetail(lat,lng,provinceText){
+  async function rxSiteBuildAmenityDetail(lat,lng){
     const [inner,outer]=await Promise.all([
       calculateAmenityProfile(lat,lng,1),
       calculateAmenityProfile(lat,lng,2)
@@ -1124,27 +1124,30 @@
     };
     const competitionInner=countCompetition(1);
     const competitionOuter=countCompetition(2);
-    let population=null;
-    const provinceCode=provinceCodeFromText(provinceText||'');
-    if(provinceCode){
-      const populationByRadius={};
-      for(const radiusKm of [1,2]){
-        const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:360});
-        const result=await selectCensusBoundary(boundary,[provinceCode],Number(el('censusThreshold')?.value??10),{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
-        populationByRadius[radiusKm]=Number(result?.aggregate?.totalPopulation||0);
-      }
-      population={inner:populationByRadius[1]/area(1),outer:populationByRadius[2]/area(2)};
-      population.concentration=population.outer>0?population.inner/population.outer:null;
-    }
+    const populationDensity=async radiusKm=>{
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:32});
+      const provinceCodes=candidateProvinceCodesFromGeography(boundary);
+      if(!provinceCodes.length)return 0;
+      const provinceModes=classifyCandidateProvinces(provinceCodes,'circle',{lat,lng,radiusMeters:radiusKm*1000});
+      const threshold=Number(el('censusThreshold')?.value??10);
+      const result=await selectCensusBoundary(boundary,provinceCodes,threshold,{
+        provinceModes,
+        boundaryType:'circle',
+        targetCircle:{lat,lng,radiusMeters:radiusKm*1000},
+        shouldRender:false
+      });
+      return Number(result?.aggregate?.totalPopulation)||0;
+    };
+    const [populationInnerTotal,populationOuterTotal]=await Promise.all([populationDensity(1),populationDensity(2)]);
     const densities={
       commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(1),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(2)},
       residential:{inner:Number(inner?.community||0)/area(1),outer:Number(outer?.community||0)/area(2)},
       health:{inner:Number(inner?.health||0)/area(1),outer:Number(outer?.health||0)/area(2)},
       competition:{inner:competitionInner/area(1),outer:competitionOuter/area(2)},
-      population
+      population:{inner:populationInnerTotal/area(1),outer:populationOuterTotal/area(2)}
     };
     for(const item of Object.values(densities)){
-      if(item && item.concentration===undefined)item.concentration=item.outer>0?item.inner/item.outer:null;
+      item.concentration=item.outer>0?item.inner/item.outer:null;
     }
     return densities;
   }
@@ -1201,7 +1204,7 @@
       if(token!==state.searchToken)return;
       const c=data.candidates?.[0];
       if(!c)throw new Error('No Canadian match found.');
-      const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x,c.attributes?.Province||c.attributes?.Region||'');
+      const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x);
       const subject={address:c.address||address,lat:c.location.y,lng:c.location.x,amenityDensityDetail:densities};
       state.rxSiteAnalysis.subject=subject;
       const searchView=el('rxSiteAnalysisSearchView');
