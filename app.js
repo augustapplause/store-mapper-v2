@@ -1065,9 +1065,9 @@
   function rxSiteDiamondSvg(cx,cy,r,subject=false){
     const p={top:[cx,cy-r],right:[cx+r,cy],bottom:[cx,cy+r],left:[cx-r,cy]};
     const points=`${p.top[0]},${p.top[1]} ${p.right[0]},${p.right[1]} ${p.bottom[0]},${p.bottom[1]} ${p.left[0]},${p.left[1]}`;
-    const valueSize=subject?13:11;
+    const valueSize=14;
     const titleSize=subject?13:11;
-    const valueGap=10;
+    const valueGap=12;
     const n=1/Math.sqrt(2);
     const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
     const edgeOffset=subject?11:8;
