@@ -1443,11 +1443,25 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-map-close b{font-size:24px;line-height:16px;font-weight:400}
 .rx-diamond .rx-d-field{fill:rgba(255,255,255,.12);stroke:none}
 .rx-diamond .rx-d-outline{fill:none;stroke:#18384c;stroke-width:2.2}
-.rx-d-title-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-value-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-pop-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-pop-value-bg{fill:rgba(255,255,255,.72);stroke:none}
-.rx-d-title{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(255,255,255,.8);stroke-width:2px;stroke-linejoin:round}
-.rx-d-value{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(255,255,255,.78);stroke-width:2px;stroke-linejoin:round}
+.rx-d-title-bg,.rx-d-value-bg,.rx-d-pop-bg,.rx-d-pop-value-bg{fill:none;stroke:none}
+.rx-d-title,.rx-d-value,.rx-d-pop-label,.rx-d-pop{paint-order:stroke;stroke:rgba(183,232,202,.82);stroke-width:3px;stroke-linejoin:round}
+.rx-d-title{font-family:inherit;font-weight:700}
+.rx-d-value{font-family:inherit;font-weight:700}
 .rx-d-pop-label{font-family:inherit;font-size:8px;font-weight:800;letter-spacing:.06em;text-anchor:middle;fill:#284254}
-.rx-d-pop{font-family:inherit;font-size:15px;font-weight:800;text-anchor:middle;fill:#13283a;paint-order:stroke;stroke:rgba(255,255,255,.8);stroke-width:2px}
+.rx-d-pop{font-family:inherit;font-size:15px;font-weight:800;text-anchor:middle;fill:#13283a}
 .rx-diamond-subject .rx-d-outline{stroke-width:2.4}
 .rx-diamond-subject .rx-d-pop{font-size:18px}
 .rx-diamond-subject .rx-d-pop-label{font-size:9px}
+
+
+/* v1.302 popup width: add 30px to the non-quartile/metrics side; keep quartile column width unchanged */
+.store-popup-card{width:480px;}
+.store-popup-body{grid-template-columns:260px minmax(0,200px);}
+.store-popup-metrics-scroll{width:260px;min-width:260px;max-width:260px;}
+.store-popup-metrics-scroll table{width:252px;min-width:252px;max-width:252px;}
+@media (max-width:760px){
+  .store-popup-card{width:min(480px,calc(100% - 24px));}
+  .store-popup-body{grid-template-columns:260px minmax(0,200px);}
+  .store-popup-metrics-scroll{width:260px;min-width:260px;max-width:260px;}
+  .store-popup-metrics-scroll table{width:252px;min-width:252px;max-width:252px;}
+}
