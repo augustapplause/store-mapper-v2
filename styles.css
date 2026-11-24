@@ -880,9 +880,9 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
   box-sizing:border-box;
 }
 @media (max-width:760px){
-  .store-popup-card{width:min(450px,calc(100% - 24px));height:264px;}
-  .store-popup-body{grid-template-columns:230px minmax(0,1fr);column-gap:4px;}
-  .store-popup-metrics-scroll{width:230px;min-width:230px;max-width:230px;}
+  .store-popup-card{width:min(480px,calc(100% - 24px));height:264px;}
+  .store-popup-body{grid-template-columns:260px minmax(0,1fr);column-gap:4px;}
+  .store-popup-metrics-scroll{width:260px;min-width:260px;max-width:260px;}
   .store-popup-quartile{min-width:0;}
   .popup-quartile-scale{margin-left:2px;margin-right:34px;}
   .popup-quartile-label{left:calc(50% + 40px);max-width:70px;}
@@ -891,7 +891,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 
 /* v1.121 deterministic popup geometry refinements */
 .store-popup-card{
-  width:450px;
+  width:480px;
   height:244px;
   grid-template-rows:53px 165px 26px;
 }
@@ -905,7 +905,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-quartile-heading{left:10px;}
 .store-popup-ticker{height:34px;min-height:34px;max-height:34px;}
 @media (max-width:760px){
-  .store-popup-card{width:min(450px,calc(100% - 24px));height:244px;}
+  .store-popup-card{width:min(480px,calc(100% - 24px));height:244px;}
 }
 
 /* v1.121 popup refinements */
@@ -1146,7 +1146,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-amenity-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:1px;line-height:14px;}
 .popup-amenity-grid span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.popup-amenity-grid strong{font-weight:700;text-align:right}.popup-amenity-grid .amenity-total-label,.popup-amenity-grid .amenity-total-value{border-top:1px solid #ddd;padding-top:1px;margin-top:1px}
 .popup-amenity-loading,.popup-amenity-error{color:#555;font-size:10px;line-height:14px}.popup-amenity-helptext{margin-top:4px;padding:5px 6px;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;color:#222;line-height:13px;font-size:9px;max-height:95px;overflow:auto;}
-.store-popup-card .store-popup-body{grid-template-columns:230px minmax(0,1fr);}
+.store-popup-card .store-popup-body{grid-template-columns:260px minmax(0,1fr);}
 .store-popup-card .store-popup-metrics-scroll{flex:1 1 auto;height:auto;max-height:none;min-height:0;}
 
 /* v1.223 amenity detail lists and full-row popup scrolling */
@@ -1443,11 +1443,11 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-map-close b{font-size:24px;line-height:16px;font-weight:400}
 .rx-diamond .rx-d-field{fill:rgba(255,255,255,.12);stroke:none}
 .rx-diamond .rx-d-outline{fill:none;stroke:#18384c;stroke-width:2.2}
-.rx-d-title-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-value-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-pop-bg{fill:rgba(255,255,255,.68);stroke:none}.rx-d-pop-value-bg{fill:rgba(255,255,255,.72);stroke:none}
-.rx-d-title{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(255,255,255,.8);stroke-width:2px;stroke-linejoin:round}
-.rx-d-value{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(255,255,255,.78);stroke-width:2px;stroke-linejoin:round}
-.rx-d-pop-label{font-family:inherit;font-size:8px;font-weight:800;letter-spacing:.06em;text-anchor:middle;fill:#284254}
-.rx-d-pop{font-family:inherit;font-size:15px;font-weight:800;text-anchor:middle;fill:#13283a;paint-order:stroke;stroke:rgba(255,255,255,.8);stroke-width:2px}
+.rx-d-title-bg,.rx-d-value-bg,.rx-d-pop-bg,.rx-d-pop-value-bg{fill:none;stroke:none}
+.rx-d-title{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(248,246,238,.92);stroke-width:5px;stroke-linejoin:round}
+.rx-d-value{font-family:inherit;font-weight:700;paint-order:stroke;stroke:rgba(248,246,238,.92);stroke-width:5px;stroke-linejoin:round}
+.rx-d-pop-label{font-family:inherit;font-size:8px;font-weight:800;letter-spacing:.06em;text-anchor:middle;fill:#284254;paint-order:stroke;stroke:rgba(248,246,238,.92);stroke-width:5px;stroke-linejoin:round}
+.rx-d-pop{font-family:inherit;font-size:15px;font-weight:800;text-anchor:middle;fill:#13283a;paint-order:stroke;stroke:rgba(248,246,238,.92);stroke-width:5px;stroke-linejoin:round}
 .rx-diamond-subject .rx-d-outline{stroke-width:2.4}
 .rx-diamond-subject .rx-d-pop{font-size:18px}
 .rx-diamond-subject .rx-d-pop-label{font-size:9px}
