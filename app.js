@@ -1105,6 +1105,39 @@
     return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}"><defs>${defs}</defs><polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
   }
 
+  async function rxSiteBuildAmenityDetail(lat,lng){
+    const [inner,outer]=await Promise.all([
+      calculateAmenityProfile(lat,lng,1),
+      calculateAmenityProfile(lat,lng,2)
+    ]);
+    const area=(radius)=>Math.PI*radius*radius;
+    const densities={
+      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(1),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(2)},
+      residential:{inner:Number(inner?.community||0)/area(1),outer:Number(outer?.community||0)/area(2)},
+      health:{inner:Number(inner?.health||0)/area(1),outer:Number(outer?.health||0)/area(2)}
+    };
+    for(const item of Object.values(densities)){
+      item.concentration=item.outer>0?item.inner/item.outer:null;
+    }
+    return densities;
+  }
+
+  function rxSiteRenderAmenityDetail(densities){
+    const grid=el('rxSiteAnalysisDetailGrid');
+    if(!grid||!densities)return;
+    const rows={commercial:densities.commercial,residential:densities.residential,health:densities.health};
+    for(const key of Object.keys(rows)){
+      const row=grid.querySelector(`[data-rx-detail-key="${key}"]`);
+      if(!row)continue;
+      const cells=row.querySelectorAll('span');
+      const d=rows[key];
+      if(cells.length!==3)continue;
+      cells[0].textContent=Number.isFinite(d.inner)?d.inner.toFixed(0):'—';
+      cells[1].textContent=Number.isFinite(d.outer)?d.outer.toFixed(0):'—';
+      cells[2].textContent=Number.isFinite(d.concentration)?`${d.concentration.toFixed(1)}×`:'—';
+    }
+  }
+
   function rxSiteRender(subject){
     rxSiteOverlayClear();
     const oldCenter=map.getCenter();
@@ -1141,7 +1174,8 @@
       if(token!==state.searchToken)return;
       const c=data.candidates?.[0];
       if(!c)throw new Error('No Canadian match found.');
-      const subject={address:c.address||address,lat:c.location.y,lng:c.location.x};
+      const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x);
+      const subject={address:c.address||address,lat:c.location.y,lng:c.location.x,amenityDensityDetail:densities};
       state.rxSiteAnalysis.subject=subject;
       const searchView=el('rxSiteAnalysisSearchView');
       const detailView=el('rxSiteAnalysisDetailView');
@@ -1149,6 +1183,7 @@
       if(subjectAddress)subjectAddress.textContent=subject.address||address;
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
+      rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
       rxSiteRender(subject);
       if(status)status.textContent='Site Analysis active • 4 km comparison geometry.';
     }catch(err){

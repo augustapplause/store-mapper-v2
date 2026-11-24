@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.307</title>
+  <title>Store Explorer v1.309</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.308.0.popup-grid-value-red" />
+      <link rel="stylesheet" href="styles.css?v=1.309.0.site-analysis-amenity-detail" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.308</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.309</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -230,9 +230,9 @@
             <div class="rx-site-analysis-detail-header" role="row">
               <span>Measure</span><span>Inner</span><span>Outer</span><span>Concentration</span>
             </div>
-            <div class="rx-site-analysis-detail-row" role="row"><strong>Commercial</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" role="row"><strong>Residential</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" role="row"><strong>Health / Serv</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" data-rx-detail-key="commercial" role="row"><strong>Commercial</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" data-rx-detail-key="residential" role="row"><strong>Residential</strong><span>—</span><span>—</span><span>—</span></div>
+            <div class="rx-site-analysis-detail-row" data-rx-detail-key="health" role="row"><strong>Health / Serv</strong><span>—</span><span>—</span><span>—</span></div>
             <div class="rx-site-analysis-detail-row" role="row"><strong>Competitor</strong><span>—</span><span>—</span><span>—</span></div>
             <div class="rx-site-analysis-detail-row" role="row"><strong>Population</strong><span>—</span><span>—</span><span>—</span></div>
           </div>
@@ -522,7 +522,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.308.0.popup-grid-value-red"></script>
+  <script src="app.js?v=1.309.0.site-analysis-amenity-detail"></script>
 
 
 </body>
