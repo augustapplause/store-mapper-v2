@@ -1,4 +1,4 @@
-/* Store Explorer - v1.278
+/* Store Explorer - v1.327
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -94,7 +94,7 @@
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
     primaryTabs: [], popupTabConfigs: [], popupTabDrafts: [], popupTabSelected: {tab:0,r:0,c:0}, popupTabSelectionAnchor: {tab:0,r:0,c:0},
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, popupAmenityRadius:1, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     activeGeographicCentre: null,
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
@@ -2024,10 +2024,6 @@
   const AMENITY_BIN_URL='aportee_amenities_v1.bin';
   const AMENITY_MANIFEST_URL='aportee_amenities_v1_manifest.json';
   const AMENITY_RADIUS_KM=1;
-  const AMENITY_RADIUS_STORAGE_KEY='storeExplorer.popupAmenityRadius.v1';
-  function loadPopupAmenityRadius(){try{const n=Number(localStorage.getItem(AMENITY_RADIUS_STORAGE_KEY));return Number.isFinite(n)&&n>=0.1&&n<=25?n:AMENITY_RADIUS_KM;}catch(_){return AMENITY_RADIUS_KM;}}
-  function savePopupAmenityRadius(){try{localStorage.setItem(AMENITY_RADIUS_STORAGE_KEY,String(Number(state.popupAmenityRadius).toFixed(1)));}catch(_){}}
-  function popupAmenityRadiusLabel(){return `${Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1)} km`;}
   const AMENITY_GRID_DEG=0.01;
   const AMENITY_RECORD_BYTES=12;
   const AMENITY_CATEGORY_MASKS={retail:1,food:2,health:4,community:8};
@@ -2062,82 +2058,7 @@
 
 
 
-    function renderPopupAmenityStatic(profile){
-    const fmt=(v)=>Number.isFinite(Number(v))?Number(v).toLocaleString('en-CA'):'—';
-    if(!profile)return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · ${popupAmenityRadiusLabel()}</div><div class="popup-amenity-loading">Calculating…</div></div>`;
-    return `<div class="popup-amenity-profile popup-amenity-static" data-popup-amenity><div class="popup-amenity-title">Amenities · ${popupAmenityRadiusLabel()}</div><div class="popup-amenity-grid"><div class="popup-amenity-category"><span>Retail</span><strong>${fmt(profile.retail)}</strong></div><div class="popup-amenity-category"><span>Food &amp; Leisure</span><strong>${fmt(profile.food)}</strong></div><div class="popup-amenity-category"><span>Health &amp; Services</span><strong>${fmt(profile.health)}</strong></div><div class="popup-amenity-category"><span>Community &amp; Recreation</span><strong>${fmt(profile.community)}</strong></div></div><div class="popup-amenity-grid-total"><span>Total</span><strong>${fmt(profile.total)}</strong></div></div>`;
-  }
-
-  function popupTabTokenize(formula,headers){
-    const tokens=[];let i=0,text=String(formula??'');const candidates=[...(headers||[])].filter(Boolean).sort((a,b)=>b.length-a.length);
-    while(i<text.length){while(i<text.length&&/\s/.test(text[i]))i++;if(i>=text.length)break;const ch=text[i];if(/[()+*/-]/.test(ch)){tokens.push({type:'op',value:ch});i++;continue;}const rest=text.slice(i);const h=candidates.find(x=>rest.startsWith(x)&&(!text[i-1]||/[\s()+*/-]/.test(text[i-1]))&&(!text[i+x.length]||/[\s()+*/-]/.test(text[i+x.length])));if(h){tokens.push({type:'operand',value:h});i+=h.length;continue;}const n=rest.match(/^(?:\d+(?:\.\d+)?|\.\d+)/);if(n){tokens.push({type:'operand',value:n[0]});i+=n[0].length;continue;}return null;}return tokens;
-  }
-  function popupTabEvaluateFormula(formula,values,headers){const tokens=popupTabTokenize(formula,headers);if(!tokens)return NaN;const ops=[],vals=[],prec=o=>(o==='+'||o==='-')?1:2;const apply=()=>{const op=ops.pop(),b=vals.pop(),a=vals.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){vals.push(NaN);return;}vals.push(op==='+'?a+b:op==='-'?a-b:op==='*'?a*b:b===0?NaN:a/b);};for(const t of tokens){if(t.type==='operand'){vals.push(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)?Number(t.value):Number(values[t.value]));continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)==='(')ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length)apply();return vals.length===1?vals[0]:NaN;}
-  function popupTabAggregate(rows,cell,headers){const f=String(cell.content||'').trim();if(!f)return '';if(headers.includes(f)){if(cell.aggregation==='count')return rows.length.toLocaleString('en-CA');const nums=rows.map(r=>toNumber(r[f])).filter(v=>Number.isFinite(v));if(!nums.length)return '—';const v=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);return formatTickerValue(v,cell.numberFormat,f,cell.decimalPlaces);}const values={};for(const h of headers){const nums=rows.map(r=>toNumber(r[h])).filter(v=>Number.isFinite(v));if(nums.length)values[h]=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);}return formatTickerValue(popupTabEvaluateFormula(f,values,headers),cell.numberFormat,f,cell.decimalPlaces);}
-  function popupFilterMatches(row, filter){
-    if(!filter || !filter.column)return true;
-    const operator=String(filter.operator||'=');
-    const actual=row?.[filter.column];
-    const target=filter.value;
-    if(operator==='=')return norm(actual)===norm(target);
-    const aNum=toNumber(actual),tNum=toNumber(target);
-    if(Number.isFinite(aNum)&&Number.isFinite(tNum)){
-      if(operator==='<')return aNum<tNum;
-      if(operator==='<=' )return aNum<=tNum;
-      if(operator==='>')return aNum>tNum;
-      if(operator==='>=')return aNum>=tNum;
-      return false;
-    }
-    const a=String(actual??'').trim(),b=String(target??'').trim();
-    if(operator==='<')return a<b;
-    if(operator==='<=' )return a<=b;
-    if(operator==='>')return a>b;
-    if(operator==='>=')return a>=b;
-    return false;
-  }
-  function popupConfiguredGridColumnTemplate(rows, cells){
-    const widths=Array.from({length:Math.max(1, cells)},()=>72);
-    for(const row of rows){
-      for(let c=0;c<cells;c++){
-        const text=String(row?.[c]??'');
-        const estimate=Math.max(72,Math.min(300,Math.round(text.length*7.1+28)));
-        if(estimate>widths[c])widths[c]=estimate;
-      }
-    }
-    return widths.map(w=>`${w}px`).join(' ');
-  }
-  async function popupConfiguredExtraTabsHtml(row){
-    const configs=state.popupTabConfigs||[];
-    if(configs.length<2)return '';
-    const profileCol=state.columns.storeId,profileValue=profileCol?String(row[profileCol]??'').trim():'';
-    let html='';
-    for(let i=1;i<configs.length;i++){
-      const cfg=configs[i],tab=state.primaryTabs?.[i];
-      if(!cfg||!tab||!cfg.grid||!cfg.grid.cells.some(r=>r.some(c=>String(c?.content||'').trim())))continue;
-      const grid=normalizePopupGrid(cfg.grid);
-      let baseRows=tab.rows||[];
-      const key=tab.storeProfileHeader||tab.headers.find(h=>norm(h)==='store profile number');
-      if(cfg.filterOnProfile&&key)baseRows=baseRows.filter(r=>String(r[key]??'').trim()===profileValue);
-      const activeFilters=Array.isArray(cfg.filters)?cfg.filters.filter(f=>f&&f.column):[];
-      const rendered=[];
-      const allOutputRows=[];
-      for(let r=0;r<grid.rows;r++){
-        const rowCells=grid.cells[r]||[];
-        if(!rowCells.some(raw=>String(raw?.content??'').trim()!==''))continue;
-        const rowId=grid.rowIds?.[r];
-        const scoped=activeFilters.filter(f=>!f.scope||f.scope==='all'||(f.scope==='row'&&f.rowId===rowId));
-        const rowsForOutput=baseRows.filter(sourceRow=>scoped.every(f=>popupFilterMatches(sourceRow,f)));
-        const values=rowCells.map(raw=>{const c=normalizePopupGridCell(raw);return c.type==='text'?String(c.content||''):popupTabAggregate(rowsForOutput,c,tab.headers);});
-        rendered.push(values); allOutputRows.push(rowsForOutput.length);
-      }
-      const colTemplate=popupConfiguredGridColumnTemplate(rendered,grid.cols);
-      const maxMatches=allOutputRows.length?Math.max(...allOutputRows):0;
-      const gridHtml=rendered.map(values=>`<div class="popup-configured-tab-grid-row">${values.map(value=>`<div class="popup-configured-tab-grid-cell">${esc(value)}</div>`).join('')}</div>`).join('');
-      html+=`<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">${esc(cfg.name)}</div><div class="popup-configured-tab-grid" style="--popup-output-cols:${grid.cols};--popup-output-template:${colTemplate}">${gridHtml}</div><div class="popup-configured-tab-note">${maxMatches.toLocaleString('en-CA')} matching rows</div></div>`;
-    }
-    return html;
-  }
-  async function popupCardContent(row,censusValues={},amenityProfile=null){
+    async function popupCardContent(row,censusValues={}){
     const c=state.columns;
     const popupFields=popupItems();
     const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
@@ -2156,7 +2077,7 @@
     let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll"><table>`;
     for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}
     const extraTabs=await popupConfiguredExtraTabsHtml(row);
-    html+=`</table>${extraTabs}${renderPopupAmenityStatic(amenityProfile)}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    html+=`</table>${extraTabs}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
     return html;
   }
 
@@ -2314,15 +2235,11 @@
     if(hasPopulationWork)await showPopulationCalcStatus();
     try{
       const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
-      const c=state.columns;
-      const lat=toNumber(row[c?.lat]), lng=toNumber(row[c?.lon]);
-      const amenityPromise=(lat!==null&&lng!==null)?calculateAmenityProfile(lat,lng,state.popupAmenityRadius).catch(()=>null):Promise.resolve(null);
       const values=await valuesPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       await computePopupQuartiles(row);
-      const amenityProfile=await amenityPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
-      storePopupCard.innerHTML=await popupCardContent(row,values,amenityProfile);
+      storePopupCard.innerHTML=await popupCardContent(row,values);
       wirePopupCardActions(marker);
     requestStorePopupLayout();
     requestAnimationFrame(()=>{
@@ -5561,8 +5478,6 @@
   });
   el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
   el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
-  el('popupAmenityRadius')?.addEventListener('input',e=>{const n=Number(e.target.value);if(!Number.isFinite(n)||n<0.1||n>25)return;state.popupAmenityRadius=Math.round(n*10)/10;savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
-  el('popupAmenityRadius')?.addEventListener('blur',e=>{const n=Number(e.target.value);const v=Number.isFinite(n)?Math.max(0.1,Math.min(25,Math.round(n*10)/10)):AMENITY_RADIUS_KM;state.popupAmenityRadius=v;e.target.value=v.toFixed(1);savePopupAmenityRadius();state.amenityPopupCache.clear();if(state.openPopupMarker)refreshOpenPopupCard();});
   // ---------- Subjects configuration ----------
   function ensureDraftTable(){if(!state.subjectConfigDraftTable)state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));return state.subjectConfigDraftTable;}
   function selectedSubjectCell(){const t=ensureDraftTable();state.subjectSelectedCell=state.subjectSelectedCell||{r:0,c:0};const r=Math.max(0,Math.min(t.rows-1,Number(state.subjectSelectedCell.r)||0));const c=Math.max(0,Math.min(t.cols-1,Number(state.subjectSelectedCell.c)||0));state.subjectSelectedCell={r,c};return {t,r,c,cell:t.cells[r][c]};}
@@ -5680,7 +5595,7 @@
 
   function openPopupConfig(){
     if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
-    if(!state.popupHeader)loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);if(!Array.isArray(state.popupConfig)||!state.popupConfig.length)loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);loadPopupTabConfigs();state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};renderPopupHeaderConfig();bindPopupHeaderConfig();const ar=el('popupAmenityRadius');if(ar)ar.value=Number(state.popupAmenityRadius||AMENITY_RADIUS_KM).toFixed(1);state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));renderPopupTabConfigSections();el('popupDialog').showModal();
+    if(!state.popupHeader)loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);if(!Array.isArray(state.popupConfig)||!state.popupConfig.length)loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);loadPopupTabConfigs();state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};renderPopupHeaderConfig();bindPopupHeaderConfig();state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));renderPopupTabConfigSections();el('popupDialog').showModal();
   }
   function applyPopupConfig(){
     const next=popupTabGridToLegacyFields();if(!next.length){alert('Tab 1 needs at least one Value or Formula cell.');return;}
@@ -6407,7 +6322,6 @@
   if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
   if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
   if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
-  state.popupAmenityRadius=loadPopupAmenityRadius();
   loadMarkerAnimationConfig();
   populateMarkerAnimationControls();
   wireMarkerAnimationControls();
