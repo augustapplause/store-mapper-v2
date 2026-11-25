@@ -17,7 +17,7 @@ html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-
 button,input{font:inherit}
 button{cursor:pointer;border:0;border-radius:8px;padding:10px 13px;background:var(--blue);color:white;font-weight:600}
 button:hover{filter:brightness(.96)}
-button:disabled{opacity:.45;cursor:not-allowed}
+button:disabled{opacity:.7;cursor:not-allowed}
 button.secondary{background:#eef3f7;color:var(--navy);border:1px solid var(--line)}
 button.full{width:100%;margin-top:8px}
 input[type=text],input[type=search],input[type=number]{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 11px;background:white;color:var(--text)}
@@ -40,8 +40,8 @@ input[type=text],input[type=search],input[type=number]{width:100%;border:1px sol
 .store-popup h3{font-size:14px;margin:0;color:#fff;font-weight:800}.store-popup-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-right:2px}.store-popup-map-link{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-right:0;text-decoration:none;font-size:14px;font-weight:900;color:#111;border:1px solid #c79f00;border-radius:4px;background:#ffd400;box-sizing:border-box;box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 2px 0 #a88400,0 2px 4px rgba(0,0,0,.22);transform:translateY(0);transition:transform .08s ease,box-shadow .08s ease,background .08s ease}.store-popup-map-link:hover{background:#ffdf3d;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 2px 0 #a88400,0 3px 5px rgba(0,0,0,.24)}.store-popup-map-link:active{transform:translateY(2px);box-shadow:inset 0 1px 2px rgba(0,0,0,.18),0 0 0 #a88400,0 1px 2px rgba(0,0,0,.2)}.store-popup-map-link:focus{outline:2px solid #fff;outline-offset:1px}.store-popup table{width:100%;border-collapse:collapse;font-size:11px}.store-popup td{padding:3px 0;border-bottom:1px solid #eee}.store-popup td:last-child{text-align:right;font-weight:700;padding-left:8px}.popup-ebit-pos{color:var(--green)}.popup-ebit-neg{color:var(--red)}
 .store-marker-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center;position:relative;overflow:visible;transform-origin:center center;}
 .store-marker-image{display:block;width:20px;height:20px;object-fit:contain;position:relative;z-index:2;flex:0 0 20px;pointer-events:none;user-select:none;}
-.store-marker-image.out{opacity:.45;}
-.store-marker-image.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}.store-marker-image.static-cover-hidden{visibility:hidden;}.store-marker{width:12px;height:12px;border:2px solid white;box-shadow:0 0 0 1px #3344;background:var(--store-marker-color,var(--red));border-radius:50%;position:relative;overflow:hidden;z-index:2}.store-marker.out{opacity:.45}.store-marker.group-highlight{width:14px;height:14px;background:#ff9d2e;border:2px solid #18324a;border-radius:3px;transform:rotate(45deg);box-shadow:0 0 0 2px white,0 1px 5px #18324a66;z-index:6}.marker-animation{overflow:visible;contain:layout;backface-visibility:hidden;isolation:isolate}.marker-animation-ripple::after{content:"";position:absolute;left:50%;top:50%;width:var(--marker-primary-size,20px);height:var(--marker-primary-size,20px);box-sizing:border-box;border-radius:50%;transform:translate(-50%,-50%) scale(1);background:transparent;border:2px solid #7a3db8;box-shadow:0 0 5px 1px rgba(122,61,184,.95),0 0 12px 3px rgba(208,168,234,.72),inset 0 0 3px rgba(255,255,255,.35);opacity:.96;pointer-events:none;z-index:3;animation:storeMarkerRipple 2.8s ease-in-out infinite;animation-delay:var(--marker-animation-delay,0ms)} .marker-animation-fade .marker-fade-object{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;z-index:3;animation:storeMarkerFade 2.8s ease-in-out infinite;animation-delay:var(--marker-animation-delay,0ms);font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif;font-size:18px;line-height:1;}
+.store-marker-image.out{opacity:.7;}
+.store-marker-image.navigation-result-store{outline:3px solid rgba(255,255,255,.95);outline-offset:2px;filter:drop-shadow(0 0 3px rgba(0,0,0,.55));}.store-marker-image.static-cover-hidden{visibility:hidden;}.store-marker{width:12px;height:12px;border:2px solid white;box-shadow:0 0 0 1px #3344;background:var(--store-marker-color,var(--red));border-radius:50%;position:relative;overflow:hidden;z-index:2}.store-marker.out{opacity:.7}.store-marker.group-highlight{width:14px;height:14px;background:#ff9d2e;border:2px solid #18324a;border-radius:3px;transform:rotate(45deg);box-shadow:0 0 0 2px white,0 1px 5px #18324a66;z-index:6}.marker-animation{overflow:visible;contain:layout;backface-visibility:hidden;isolation:isolate}.marker-animation-ripple::after{content:"";position:absolute;left:50%;top:50%;width:var(--marker-primary-size,20px);height:var(--marker-primary-size,20px);box-sizing:border-box;border-radius:50%;transform:translate(-50%,-50%) scale(1);background:transparent;border:2px solid #7a3db8;box-shadow:0 0 5px 1px rgba(122,61,184,.95),0 0 12px 3px rgba(208,168,234,.72),inset 0 0 3px rgba(255,255,255,.35);opacity:.96;pointer-events:none;z-index:3;animation:storeMarkerRipple 2.8s ease-in-out infinite;animation-delay:var(--marker-animation-delay,0ms)} .marker-animation-fade .marker-fade-object{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;z-index:3;animation:storeMarkerFade 2.8s ease-in-out infinite;animation-delay:var(--marker-animation-delay,0ms);font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif;font-size:18px;line-height:1;}
 .marker-animation-fade .marker-fade-smiley{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif;font-size:18px}
 .marker-animation-fade .marker-fade-starburst{color:#ffcc00;font-size:22px;font-weight:900;text-shadow:0 0 1px #111}.marker-animation-fade .marker-fade-lightning{color:#ffd400;font-size:20px;font-weight:900;text-shadow:0 0 1px #111}
 .store-marker.static-cover-hidden{visibility:hidden}.marker-animation-static .marker-static-object{position:absolute;left:50%;top:50%;width:28px;height:28px;transform:translate(-50%,-50%);pointer-events:none;z-index:1;display:block}.marker-animation-static .marker-static-svg{display:block;width:100%;height:100%;overflow:visible}.store-marker.group-highlight{position:absolute;z-index:6 !important;}
@@ -252,7 +252,7 @@ select,
 
 /* v0.63 Filter clear button */
 #clearFiltersBtn { background:#c62828 !important; color:#fff !important; border:1px solid #c62828 !important; font-size:13px !important; font-weight:700 !important; }
-#clearFiltersBtn:disabled { background:#c62828 !important; color:#fff !important; opacity:.45; }
+#clearFiltersBtn:disabled { background:#c62828 !important; color:#fff !important; opacity:.7; }
 
 
 /* v0.64 filter control layout: two equal square/rectangular buttons side-by-side. */
@@ -261,7 +261,7 @@ select,
 .filter-action-button .config-count{margin:0;background:var(--navy);color:#fff;border-radius:999px;min-width:25px;text-align:center;padding:3px 7px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
 .configure-filter-button{background:#f8fbfd;color:var(--navy)}
 .clear-filter-button{background:#c62828!important;color:#fff!important;border-color:#c62828!important}
-.clear-filter-button:disabled{background:#c62828!important;color:#fff!important;opacity:.45}
+.clear-filter-button:disabled{background:#c62828!important;color:#fff!important;opacity:.7}
 
 /* v0.67: pressable 3D-style action controls */
 .config-button-inline,
@@ -363,7 +363,7 @@ button,
 .ticker-empty{display:flex;align-items:center;height:68px;padding:0 12px;font-size:12px;opacity:.65;white-space:nowrap;}
 .ticker-config-btn{flex:0 0 auto;background:#ffffff12;color:#fff;border:1px solid #ffffff35;border-radius:7px;padding:9px 10px;font-size:12px;font-weight:600;cursor:pointer;}
 .ticker-config-btn:hover{background:#ffffff20;}
-.ticker-config-btn:disabled{opacity:.45;cursor:not-allowed;}
+.ticker-config-btn:disabled{opacity:.7;cursor:not-allowed;}
 .ticker-viewport.paused{cursor:grab;}
 .ticker-viewport.paused:active{cursor:grabbing;}
 .ticker-dialog{width:min(1040px,96vw);height:min(760px,92vh);max-height:none;border:1px solid var(--line);border-radius:13px;padding:0;box-shadow:0 20px 60px #0005;}
@@ -580,7 +580,7 @@ button,
 }
 .circle-action-button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 0 #c36f0d;filter:brightness(.98)}
 .circle-action-button:active:not(:disabled){transform:translateY(2px);border-bottom-width:1px !important;box-shadow:0 0 0 #c36f0d}
-.circle-action-button:disabled{opacity:.45;cursor:not-allowed}
+.circle-action-button:disabled{opacity:.7;cursor:not-allowed}
 .circle-button-icon{width:14px;height:14px;border:2px solid #fff;border-radius:50%;display:inline-block;flex:0 0 14px}
 
 /* v1.23: radius label sits beneath the radius/size handle and is narrower. */
@@ -1423,7 +1423,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 /* v1.291 popup configuration layout refinements */
 .popup-config-dialog .subject-cell-editor-grid{grid-template-columns:100px 150px minmax(240px,1fr) 96px 76px 94px;gap:8px;align-items:start;width:100%;box-sizing:border-box;}
 .popup-config-dialog .subject-cell-editor-grid label{font-weight:600;min-width:0;overflow:hidden;}
-.popup-config-dialog .subject-cell-editor-grid label.is-disabled{opacity:.45;}
+.popup-config-dialog .subject-cell-editor-grid label.is-disabled{opacity:.7;}
 .popup-config-dialog .subject-cell-editor-grid select:disabled,.popup-config-dialog .subject-cell-editor-grid input:disabled{background:#eef1f3;color:#7b8790;cursor:not-allowed;}
 .popup-config-dialog .subject-cell-editor-grid .subject-cell-expression-field{min-width:0;}
 .popup-config-dialog .subject-cell-editor-grid input,
