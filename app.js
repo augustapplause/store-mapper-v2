@@ -6053,6 +6053,7 @@
       );
       rectangle.setBounds(nb);
       updateActiveGeographicCentreFromShape();
+      updateRectangleLabel();
       centerHandle.setLatLng(nb.getCenter());
       moveHandle.setLatLng(nb.getNorthEast());
       cornerHandle.setLatLng(nb.getSouthEast());
