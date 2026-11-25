@@ -1480,3 +1480,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .popup-tab-row-number-head{background:#eef3f6;}
 .popup-tab-row-number:last-child{border-bottom:0;}
 .popup-tab-config-box .subject-canvas-cell.popup-grid-value-cell,.popup-tab-config-box .subject-canvas-cell.popup-grid-formula-cell{color:#d22;}
+.census-site-analysis-box{margin-top:10px;border:1px solid #b8dcc3;border-radius:10px;background:#edf8f0;padding:10px}
+.census-site-analysis-action{display:flex;flex-direction:column;gap:8px}
+.rx-site-analysis-run-button{width:100%;margin-top:0;border:1px solid #2f6b45!important;border-radius:7px!important;background:linear-gradient(#6e9f7b,#4f815f)!important;color:#fff!important;font-weight:700!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 0 #2f5d3d,0 3px 5px rgba(0,0,0,.18)!important;text-shadow:0 1px 1px rgba(0,0,0,.25);transform:translateY(0);transition:transform .05s ease,box-shadow .05s ease}
+.rx-site-analysis-run-button:hover{background:linear-gradient(#78a986,#568867)!important}
+.rx-site-analysis-run-button:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 0 0 #2f5d3d,0 1px 2px rgba(0,0,0,.16)!important}
+.census-site-analysis-box .rx-site-analysis-active-centre{margin-top:0;background:#fff}
+.census-site-analysis-box .rx-site-analysis-detail-view{margin-top:0}
