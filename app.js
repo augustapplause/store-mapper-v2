@@ -6000,6 +6000,7 @@
     });
     moveHandle.on('drag',e=>{
       if(!state.circleSelection||!circleMoveDragStartCenter||!circleMoveDragStartHandle)return;
+      circle.__activeCentreLabel='';
       const startHandlePoint=map.latLngToContainerPoint(circleMoveDragStartHandle);
       const nextPoint=map.latLngToContainerPoint(e.target.getLatLng());
       const nextCenterPoint=map.latLngToContainerPoint(circleMoveDragStartCenter);
