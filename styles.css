@@ -1296,6 +1296,12 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-card .section-subtitle{font-size:11px;color:#55715e}
 .rx-site-analysis-disabled{filter:saturate(.6)}
 .rx-site-analysis-form{margin-top:10px}
+.rx-site-analysis-active-centre{margin-top:10px;border:1px solid #c8e7d0;border-radius:8px;background:#fff;padding:8px 9px}
+.rx-site-analysis-active-centre-label{font-size:10px;color:#55715e;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.rx-site-analysis-active-centre-value{margin-top:2px;font-size:11px;color:#24323b;line-height:1.35}
+.rx-site-analysis-active-centre-source{margin-top:2px;font-size:10px;color:#55715e}
+.rx-site-analysis-run-button{width:100%;margin-top:8px}
+
 .rx-site-analysis-detail-view{margin-top:6px}
 .rx-site-analysis-detail-view.hidden{display:none!important}
 .rx-site-analysis-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}

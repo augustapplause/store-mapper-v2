@@ -96,6 +96,7 @@
     primaryTabs: [], popupTabConfigs: [], popupTabDrafts: [], popupTabSelected: {tab:0,r:0,c:0}, popupTabSelectionAnchor: {tab:0,r:0,c:0},
     subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, popupAmenityRadius:1, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
+    activeGeographicCentre: null,
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
     markerColor: '#d34c4c',
     markerConfig: {primarySize:22, secondarySize:11, secondaryIconSizes:{}},
@@ -693,7 +694,7 @@
         showNavigationResult(lat,lng,'address',null,()=>{
           if(token!==state.searchToken)return;
           state.navigationDaSuppressed=false;
-          createOrReplaceCircle(L.latLng(lat,lng),1000,'address navigation');
+          createOrReplaceCircle(L.latLng(lat,lng),1000,'address navigation',c.address||query);
         });
       };
       map.once('moveend',finish);
@@ -927,14 +928,56 @@
   const RX_SITE_PALE_RED='#fdecec';
   const RX_SITE_PALE_GREEN='#eaf7ee';
 
+  function rxSiteFormatCentreLabel(centre){
+    if(!centre) return 'None — enter an address or draw a shape.';
+    const label=centre.label ? String(centre.label) : `${centre.lat.toFixed(5)}, ${centre.lng.toFixed(5)}`;
+    return label;
+  }
+
+  function rxSiteUpdateActiveCentreUi(){
+    const centre=state.activeGeographicCentre;
+    const status=el('rxSiteAnalysisStatus');
+    const go=el('rxSiteAnalysisGo');
+    const value=el('rxSiteAnalysisActiveCentre');
+    const source=el('rxSiteAnalysisActiveCentreSource');
+    const ready=!!centre && !!state.rxSiteAnalysis.enabled;
+    if(go) go.disabled=!ready;
+    if(value) value.textContent=rxSiteFormatCentreLabel(centre);
+    if(source) source.textContent=centre ? `Source: ${centre.source}` : 'Source: none';
+    if(status && !state.rxSiteAnalysis.overlay){
+      status.textContent=ready ? 'Ready • press Site Analysis to analyze the active geographic centre.' : state.rxSiteAnalysis.enabled ? 'No active geographic centre — enter an address or draw a shape.' : 'Load both Primary Store Data and Secondary Locations to enable analysis.';
+    }
+  }
+
+  function setActiveGeographicCentre(latlng,{source='Map centre',label=''}={}){
+    const ll=L.latLng(latlng);
+    state.activeGeographicCentre={lat:ll.lat,lng:ll.lng,source,label:String(label||'')};
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  function clearActiveGeographicCentre(){
+    state.activeGeographicCentre=null;
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  function updateActiveGeographicCentreFromShape(){
+    if(state.circleSelection?.circle){
+      setActiveGeographicCentre(state.circleSelection.circle.getLatLng(),{source:'Circle centre',label:state.circleSelection.circle.__activeCentreLabel||''});
+      return;
+    }
+    if(state.rectangleSelection?.rectangle){
+      setActiveGeographicCentre(state.rectangleSelection.rectangle.getBounds().getCenter(),{source:'Box centre'});
+      return;
+    }
+    clearActiveGeographicCentre();
+  }
+
   function rxSiteStateReady(){
     const ready=Array.isArray(state.rows)&&state.rows.length>0&&Array.isArray(state.secondaryLocations)&&state.secondaryLocations.length>0;
     state.rxSiteAnalysis.enabled=ready;
-    const card=el('rxSiteAnalysisCard'),go=el('rxSiteAnalysisGo');
+    const card=el('rxSiteAnalysisCard');
     if(card)card.classList.toggle('rx-site-analysis-disabled',!ready);
-    if(go)go.disabled=!ready;
-    const status=el('rxSiteAnalysisStatus');
-    if(status && !state.rxSiteAnalysis.overlay) status.textContent=ready?'Ready • enter an address to map the 4 km comparison points.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
+    rxSiteUpdateActiveCentreUi();
     return ready;
   }
 
@@ -1208,20 +1251,17 @@
     state.rxSiteAnalysis.overlay={layer,closeButton:close,subject,mapState,escHandler:esc};
   }
 
-  async function rxSiteAnalyzeAddress(address){
-    if(!state.rxSiteAnalysis.enabled)return;
-    const token=++state.searchToken;
-    const status=el('rxSiteAnalysisStatus');if(status)status.textContent='Finding address…';
+  async function rxSiteAnalyzeCentre(centre){
+    if(!state.rxSiteAnalysis.enabled||!centre)return;
+    const status=el('rxSiteAnalysisStatus');
+    if(status)status.textContent='Calculating Site Analysis…';
     try{
-      const qs=new URLSearchParams({SingleLine:address,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});
-      const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});
-      if(token!==state.searchToken)return;
-      const c=data.candidates?.[0];
-      if(!c)throw new Error('No Canadian match found.');
       state.rxSiteAnalysis.detailMode='density';
-      const modeToggle=el('rxSiteAnalysisModeToggle');if(modeToggle)modeToggle.checked=false;
-      const densities=await rxSiteBuildAmenityDetail(c.location.y,c.location.x);
-      const subject={address:c.address||address,lat:c.location.y,lng:c.location.x,amenityDensityDetail:densities};
+      const modeToggle=el('rxSiteAnalysisModeToggle');
+      if(modeToggle)modeToggle.checked=false;
+      const densities=await rxSiteBuildAmenityDetail(centre.lat,centre.lng);
+      const address=centre.label||`${centre.lat.toFixed(5)}, ${centre.lng.toFixed(5)}`;
+      const subject={address,lat:centre.lat,lng:centre.lng,amenityDensityDetail:densities};
       const points=rxSiteDiamondPoints(subject);
       const innerRadius=Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5;
       const comparableDiamondData=await rxSiteBuildComparableDiamondData(points,innerRadius);
@@ -1230,16 +1270,16 @@
       const searchView=el('rxSiteAnalysisSearchView');
       const detailView=el('rxSiteAnalysisDetailView');
       const subjectAddress=el('rxSiteAnalysisSubjectAddress');
-      if(subjectAddress)subjectAddress.textContent=subject.address||address;
+      if(subjectAddress)subjectAddress.textContent=subject.address;
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
-        rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
+      rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
       rxSiteWireRadiusInputs();
       rxSiteRender(subject);
       if(status)status.textContent='Site Analysis active • 4 km comparison geometry.';
     }catch(err){
       if(status)status.textContent=`Analysis failed: ${err.message}`;
-      alert(`Site Analysis failed: ${err.message}`);
+      throw err;
     }
   }
 
@@ -1288,9 +1328,20 @@
   }
 
   function rxSiteWire(){
-    const form=el('rxSiteAnalysisForm');
-    if(form&&!form.dataset.bound){form.dataset.bound='1';form.addEventListener('submit',async e=>{e.preventDefault();const address=el('rxSiteAnalysisAddress')?.value.trim();if(!address||!state.rxSiteAnalysis.enabled)return;const btn=el('rxSiteAnalysisGo');if(btn)btn.disabled=true;try{await rxSiteAnalyzeAddress(address);}catch(_){ }finally{if(btn)btn.disabled=!state.rxSiteAnalysis.enabled;}});}
-    const g=el('rxSiteAnalysisGo');if(g)g.disabled=!state.rxSiteAnalysis.enabled;
+    const g=el('rxSiteAnalysisGo');
+    if(g&&!g.dataset.bound){
+      g.dataset.bound='1';
+      g.addEventListener('click',async e=>{
+        e.preventDefault();
+        if(!state.rxSiteAnalysis.enabled||!state.activeGeographicCentre)return;
+        const centre=state.activeGeographicCentre;
+        g.disabled=true;
+        try{ await rxSiteAnalyzeCentre(centre); }
+        catch(err){ const status=el('rxSiteAnalysisStatus'); if(status)status.textContent=`Analysis failed: ${err.message}`; }
+        finally{ rxSiteUpdateActiveCentreUi(); }
+      });
+    }
+    rxSiteUpdateActiveCentreUi();
   }
 
   async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxSiteWire(); }
@@ -1309,7 +1360,7 @@
   }
   function clearSecondaryLocations(){
     state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
-    rxSiteOverlayClear();state.rxSiteAnalysis.detailMode='density';state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    rxSiteOverlayClear();state.rxSiteAnalysis.detailMode='density';state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
   }
   function afterSecondaryLoaded(file,parsed){
@@ -1343,7 +1394,7 @@
     el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${((parsed.tabs?.[0]?.headerIndex??parsed.headerIndex??0)+1)}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
     refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
-    rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteMaybeBuild();
+    rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteMaybeBuild();
   }
   function clearFinancial(){rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.primaryTabs=[];state.popupTabConfigs=[];state.popupTabDrafts=[];state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
@@ -5956,6 +6007,7 @@
       const dy=nextPoint.y-startHandlePoint.y;
       const nextCenter=map.containerPointToLatLng(L.point(nextCenterPoint.x+dx,nextCenterPoint.y+dy));
       circle.setLatLng(nextCenter);
+      updateActiveGeographicCentreFromShape();
       updateCircleHandlePositions();
       updateCensusShapeStatus();
       invalidateCensusShapeCache();
@@ -6008,6 +6060,7 @@
         [current.getNorth()+dLat,current.getEast()+dLng]
       );
       rectangle.setBounds(nb);
+      updateActiveGeographicCentreFromShape();
       centerHandle.setLatLng(nb.getCenter());
       moveHandle.setLatLng(nb.getNorthEast());
       cornerHandle.setLatLng(nb.getSouthEast());
@@ -6029,6 +6082,7 @@
       const east=Math.max(fixedNW.lng+minLngDelta,pointer.lng);
       const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
       rectangle.setBounds(nb);
+      updateActiveGeographicCentreFromShape();
       moveHandle.setLatLng(nb.getNorthEast());
       cornerHandle.setLatLng(nb.getSouthEast());
       centerHandle.setLatLng(nb.getCenter());
@@ -6064,6 +6118,7 @@
     if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
+    clearActiveGeographicCentre();
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
     clearCensusGeoSelection();
     // The shape is only the spatial metric scope. Filters and viewport-driven
@@ -6088,6 +6143,7 @@
     if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
+    clearActiveGeographicCentre();
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
     clearDaOverlay();
     state.daSelectionResult=null;
@@ -6097,7 +6153,7 @@
   }
 
   function clearCircle(){clearCensusShape();}
-  function createOrReplaceCircle(center,radiusMeters,reason='circle draw'){
+  function createOrReplaceCircle(center,radiusMeters,reason='circle draw',centreLabel=''){
     CENSUS_DEBUG.log('circle:create:start',{lat:center.lat,lng:center.lng,radiusMeters,reason});
     clearCensusShape();
     state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
@@ -6114,6 +6170,8 @@
     });
     const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
     state.circleSelection={circle,label};
+    circle.__activeCentreLabel=String(centreLabel||'');
+    updateActiveGeographicCentreFromShape();
     setCensusScope('circle',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showCircleHandles();
     requestAnimationFrame(()=>{ if(state.circleSelection?.circle===circle) showCircleHandles(); });
@@ -6135,6 +6193,7 @@
     });
     const label=makeRectangleDimensionsLabel(bounds).addTo(map);
     state.rectangleSelection={rectangle,label};
+    updateActiveGeographicCentreFromShape();
     setCensusScope('box',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showRectangleHandles();
     scheduleCensusQuery(null,reason);
