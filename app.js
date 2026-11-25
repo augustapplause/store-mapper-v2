@@ -1,4 +1,4 @@
-/* Store Explorer - v1.327
+/* Store Explorer - v1.328
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -94,7 +94,7 @@
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
     primaryTabs: [], popupTabConfigs: [], popupTabDrafts: [], popupTabSelected: {tab:0,r:0,c:0}, popupTabSelectionAnchor: {tab:0,r:0,c:0},
-    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{}, subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{} , subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
     selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
     activeGeographicCentre: null,
     censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
@@ -2055,10 +2055,76 @@
     health:['Bank','Clinic','Dentist','Hospital','Nursing home','Laundromat','Post office'],
     community:['School','Elementary school','Secondary school','College or university','Library','Park','Large park','Neighbourhood park','Pocket park','Playground','Childcare','Community centre','Dog park','Place of worship','Pool','Ice rink','Sports field or court']
   };
-
-
-
-    async function popupCardContent(row,censusValues={}){
+  function popupTabTokenize(formula,headers){
+    const tokens=[];let i=0,text=String(formula??'');const candidates=[...(headers||[])].filter(Boolean).sort((a,b)=>b.length-a.length);
+    while(i<text.length){while(i<text.length&&/\s/.test(text[i]))i++;if(i>=text.length)break;const ch=text[i];if(/[()+*/-]/.test(ch)){tokens.push({type:'op',value:ch});i++;continue;}const rest=text.slice(i);const h=candidates.find(x=>rest.startsWith(x)&&(!text[i-1]||/[\s()+*/-]/.test(text[i-1]))&&(!text[i+x.length]||/[\s()+*/-]/.test(text[i+x.length])));if(h){tokens.push({type:'operand',value:h});i+=h.length;continue;}const n=rest.match(/^(?:\d+(?:\.\d+)?|\.\d+)/);if(n){tokens.push({type:'operand',value:n[0]});i+=n[0].length;continue;}return null;}return tokens;
+  }
+  function popupTabEvaluateFormula(formula,values,headers){const tokens=popupTabTokenize(formula,headers);if(!tokens)return NaN;const ops=[],vals=[],prec=o=>(o==='+'||o==='-')?1:2;const apply=()=>{const op=ops.pop(),b=vals.pop(),a=vals.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){vals.push(NaN);return;}vals.push(op==='+'?a+b:op==='-'?a-b:op==='*'?a*b:b===0?NaN:a/b);};for(const t of tokens){if(t.type==='operand'){vals.push(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)?Number(t.value):Number(values[t.value]));continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)==='(')ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length)apply();return vals.length===1?vals[0]:NaN;}
+  function popupTabAggregate(rows,cell,headers){const f=String(cell.content||'').trim();if(!f)return '';if(headers.includes(f)){if(cell.aggregation==='count')return rows.length.toLocaleString('en-CA');const nums=rows.map(r=>toNumber(r[f])).filter(v=>Number.isFinite(v));if(!nums.length)return '—';const v=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);return formatTickerValue(v,cell.numberFormat,f,cell.decimalPlaces);}const values={};for(const h of headers){const nums=rows.map(r=>toNumber(r[h])).filter(v=>Number.isFinite(v));if(nums.length)values[h]=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);}return formatTickerValue(popupTabEvaluateFormula(f,values,headers),cell.numberFormat,f,cell.decimalPlaces);}
+  function popupFilterMatches(row, filter){
+    if(!filter || !filter.column)return true;
+    const operator=String(filter.operator||'=');
+    const actual=row?.[filter.column];
+    const target=filter.value;
+    if(operator==='=')return norm(actual)===norm(target);
+    const aNum=toNumber(actual),tNum=toNumber(target);
+    if(Number.isFinite(aNum)&&Number.isFinite(tNum)){
+      if(operator==='<')return aNum<tNum;
+      if(operator==='<=' )return aNum<=tNum;
+      if(operator==='>')return aNum>tNum;
+      if(operator==='>=')return aNum>=tNum;
+      return false;
+    }
+    const a=String(actual??'').trim(),b=String(target??'').trim();
+    if(operator==='<')return a<b;
+    if(operator==='<=' )return a<=b;
+    if(operator==='>')return a>b;
+    if(operator==='>=')return a>=b;
+    return false;
+  }
+  function popupConfiguredGridColumnTemplate(rows, cells){
+    const widths=Array.from({length:Math.max(1, cells)},()=>72);
+    for(const row of rows){
+      for(let c=0;c<cells;c++){
+        const text=String(row?.[c]??'');
+        const estimate=Math.max(72,Math.min(300,Math.round(text.length*7.1+28)));
+        if(estimate>widths[c])widths[c]=estimate;
+      }
+    }
+    return widths.map(w=>`${w}px`).join(' ');
+  }
+  async function popupConfiguredExtraTabsHtml(row){
+    const configs=state.popupTabConfigs||[];
+    if(configs.length<2)return '';
+    const profileCol=state.columns.storeId,profileValue=profileCol?String(row[profileCol]??'').trim():'';
+    let html='';
+    for(let i=1;i<configs.length;i++){
+      const cfg=configs[i],tab=state.primaryTabs?.[i];
+      if(!cfg||!tab||!cfg.grid||!cfg.grid.cells.some(r=>r.some(c=>String(c?.content||'').trim())))continue;
+      const grid=normalizePopupGrid(cfg.grid);
+      let baseRows=tab.rows||[];
+      const key=tab.storeProfileHeader||tab.headers.find(h=>norm(h)==='store profile number');
+      if(cfg.filterOnProfile&&key)baseRows=baseRows.filter(r=>String(r[key]??'').trim()===profileValue);
+      const activeFilters=Array.isArray(cfg.filters)?cfg.filters.filter(f=>f&&f.column):[];
+      const rendered=[];
+      const allOutputRows=[];
+      for(let r=0;r<grid.rows;r++){
+        const rowCells=grid.cells[r]||[];
+        if(!rowCells.some(raw=>String(raw?.content??'').trim()!==''))continue;
+        const rowId=grid.rowIds?.[r];
+        const scoped=activeFilters.filter(f=>!f.scope||f.scope==='all'||(f.scope==='row'&&f.rowId===rowId));
+        const rowsForOutput=baseRows.filter(sourceRow=>scoped.every(f=>popupFilterMatches(sourceRow,f)));
+        const values=rowCells.map(raw=>{const c=normalizePopupGridCell(raw);return c.type==='text'?String(c.content||''):popupTabAggregate(rowsForOutput,c,tab.headers);});
+        rendered.push(values); allOutputRows.push(rowsForOutput.length);
+      }
+      const colTemplate=popupConfiguredGridColumnTemplate(rendered,grid.cols);
+      const maxMatches=allOutputRows.length?Math.max(...allOutputRows):0;
+      const gridHtml=rendered.map(values=>`<div class="popup-configured-tab-grid-row">${values.map(value=>`<div class="popup-configured-tab-grid-cell">${esc(value)}</div>`).join('')}</div>`).join('');
+      html+=`<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">${esc(cfg.name)}</div><div class="popup-configured-tab-grid" style="--popup-output-cols:${grid.cols};--popup-output-template:${colTemplate}">${gridHtml}</div><div class="popup-configured-tab-note">${maxMatches.toLocaleString('en-CA')} matching rows</div></div>`;
+    }
+    return html;
+  }
+  async function popupCardContent(row,censusValues={},amenityProfile=null){
     const c=state.columns;
     const popupFields=popupItems();
     const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
@@ -2238,7 +2304,6 @@
       const values=await valuesPromise;
       if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       await computePopupQuartiles(row);
-      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
       storePopupCard.innerHTML=await popupCardContent(row,values);
       wirePopupCardActions(marker);
     requestStorePopupLayout();
