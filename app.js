@@ -2899,7 +2899,18 @@
     state.selectionUpdateFrame=requestAnimationFrame(()=>{state.selectionUpdateFrame=null;updateSelection();});
   }
   function fmtThousands(v){return Number.isFinite(v)?Math.round(v/1000).toLocaleString('en-CA'):'—';}
+  function updateKpiScopeLabel(){
+    const type=metricSelectionScope();
+    const scopeLabel=type==='circle' ? 'Circle'
+      : type==='box' ? 'Box'
+      : type==='canada' ? 'Canada'
+      : type==='province' ? String(state.censusScope?.name || state.censusGeoSelection?.name || 'Province')
+      : 'viewport';
+    const scopeEl=el('kpiScopeLabel');
+    if(scopeEl) scopeEl.textContent=scopeLabel;
+  }
   function updateKpis(){
+    updateKpiScopeLabel();
     const rows=state.selectedRows,c=state.columns,e=c.ebit,s=c.sales;
     el('kpiStores').textContent=rows.length.toLocaleString();
     const salesVals=s?rows.map(r=>toNumber(r[s])).filter(v=>v!==null):[];
