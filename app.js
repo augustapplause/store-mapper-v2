@@ -1,9 +1,20 @@
-/* Store Explorer - v1.328
+/* Store Explorer - v1.337
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
 */
 (() => {
+  // Global configuration-dialog close handler: every standard X closes its owning dialog.
+  document.addEventListener('click', e=>{
+    const btn=e.target.closest('dialog .icon-btn[aria-label="Close"], dialog .dialog-close[aria-label="Close"], dialog [data-dialog-close]');
+    if(!btn)return;
+    const dlg=btn.closest('dialog');
+    if(!dlg)return;
+    e.preventDefault();
+    e.stopPropagation();
+    if(typeof dlg.close==='function')dlg.close();
+  }, true);
+
   'use strict';
 
   const CONFIG = {
@@ -91,6 +102,22 @@
     'button-prescription-sales':''
   };
 
+  // Seed first-run menu configuration from the embedded HTML preset. Existing saved browser settings always win.
+  function seedEmbeddedMenuDefaults(){
+    try{
+      const node=document.getElementById('storeExplorerDefaultMenuConfig');
+      if(!node)return;
+      const preset=JSON.parse(node.textContent||'{}');
+      if(!preset || typeof preset!=='object')return;
+      Object.entries(preset).forEach(([key,value])=>{
+        if(!key || localStorage.getItem(key)!==null)return;
+        localStorage.setItem(key, typeof value==='string' ? value : JSON.stringify(value));
+      });
+    }catch(err){
+      console.warn('Embedded menu defaults unavailable:',err);
+    }
+  }
+
   const state = {
     rows: [], headers: [], types: {}, columns: {}, fileName: null,
     primaryTabs: [], popupTabConfigs: [], popupTabDrafts: [], popupTabSelected: {tab:0,r:0,c:0}, popupTabSelectionAnchor: {tab:0,r:0,c:0},
@@ -121,6 +148,8 @@
     censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
     rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null,detailMode:'density'} 
   };
+
+  seedEmbeddedMenuDefaults();
 
   const el = id => document.getElementById(id);
   const fmtInt = v => Number.isFinite(v) ? Math.round(v).toLocaleString() : '—';
@@ -5432,47 +5461,6 @@
     }catch(_){state.helpConfig={...HELP_DEFAULTS};}
   }
   function saveHelpConfig(){try{localStorage.setItem(HELP_STORAGE_KEY,JSON.stringify(state.helpConfig));}catch(_){} applyAllHelpTooltips();}
-
-  const MENU_CONFIG_EXPORT_KEYS=[
-    HELP_STORAGE_KEY,
-    SUBJECT_STORAGE_KEY,
-    'storeExplorer.secondaryPopup.v1',
-    'storeExplorer.secondaryHover.v1',
-    'cse_popup_header_config_v176',
-    'cse_popup_config_v171',
-    'cse_popup_ticker_config_v102',
-    'cse_ticker_config_v075_exact',
-    'cse_marker_animation_v102',
-    'store_explorer_marker_config_v1',
-    'storeExplorer.popupTabs.v1'
-  ];
-
-  function exportCurrentMenuConfig(){
-    const payload={
-      exportVersion:1,
-      exportedAt:new Date().toISOString(),
-      sourceAppVersion:'v1.335',
-      description:'Saved Store Explorer menu configuration. Runtime state, loaded files, map position, shapes, selections, and geographic state are intentionally excluded.',
-      localStorage:{}
-    };
-    for(const key of MENU_CONFIG_EXPORT_KEYS){
-      try{
-        const raw=localStorage.getItem(key);
-        if(raw===null)continue;
-        try{payload.localStorage[key]=JSON.parse(raw);}catch(_){payload.localStorage[key]=raw;}
-      }catch(_){}
-    }
-    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
-    a.href=url;
-    a.download=`store-explorer-menu-config-${stamp}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),0);
-  }
   function helpButtonKey(btn){
     if(btn.dataset.helpKey) return btn.dataset.helpKey;
     if(btn.id==='tickerConfigBtn') return 'ticker-config';
@@ -6454,7 +6442,6 @@
   loadHelpConfig();
   el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
   el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
-  el('exportMenuConfig').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();exportCurrentMenuConfig();});
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
   applyAllHelpTooltips();
   loadHeaderCsdLookup();
