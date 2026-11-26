@@ -1048,16 +1048,18 @@
       if(!this._map||!this._svg)return;
       const w=Math.max(1,this._map.getSize().x);
       const h=Math.max(1,this._map.getSize().y);
+      const origin=this._map.containerPointToLayerPoint([0,0]);
       this._svg.setAttribute('width',String(w));
       this._svg.setAttribute('height',String(h));
       this._svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+      L.DomUtil.setPosition(this._svg,origin);
       this._svg.innerHTML=`<rect x="0" y="0" width="${w}" height="${h}" fill="rgba(0,0,0,0.22)" pointer-events="none" />`;
       for(const pt of this.points){
-        const q=this._map.latLngToContainerPoint([pt.lat,pt.lng]);
-        this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x,q.y,52,false,this.diamondData?.[pt.key]||null));
+        const q=this._map.latLngToLayerPoint([pt.lat,pt.lng]);
+        this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x-origin.x,q.y-origin.y,52,false,this.diamondData?.[pt.key]||null));
       }
-      const sq=this._map.latLngToContainerPoint([this.subject.lat,this.subject.lng]);
-      this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x,sq.y,72,true,this.diamondData?.subject||null));
+      const sq=this._map.latLngToLayerPoint([this.subject.lat,this.subject.lng]);
+      this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x-origin.x,sq.y-origin.y,72,true,this.diamondData?.subject||null));
     }
   }
 
