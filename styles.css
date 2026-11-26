@@ -216,6 +216,12 @@ select,
 .marker-color-swatch { border-radius:0 !important; }
 
 
+/* v1.337: keep Selected Stores output constrained to the right-panel card width. */
+.stores-box{min-width:0;width:100%;max-width:100%;box-sizing:border-box;overflow:hidden;}
+.stores-box .selected-stores-scroll{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:auto;}
+.stores-box .selected-stores-scroll table{width:100%;max-width:100%;min-width:0;table-layout:fixed;}
+.stores-box .selected-stores-scroll th,.stores-box .selected-stores-scroll td{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word;}
+
 /* v0.62 interface cleanup */
 .group-box,
 .group-box .box-title,
