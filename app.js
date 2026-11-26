@@ -5432,6 +5432,47 @@
     }catch(_){state.helpConfig={...HELP_DEFAULTS};}
   }
   function saveHelpConfig(){try{localStorage.setItem(HELP_STORAGE_KEY,JSON.stringify(state.helpConfig));}catch(_){} applyAllHelpTooltips();}
+
+  const MENU_CONFIG_EXPORT_KEYS=[
+    HELP_STORAGE_KEY,
+    SUBJECT_STORAGE_KEY,
+    'storeExplorer.secondaryPopup.v1',
+    'storeExplorer.secondaryHover.v1',
+    'cse_popup_header_config_v176',
+    'cse_popup_config_v171',
+    'cse_popup_ticker_config_v102',
+    'cse_ticker_config_v075_exact',
+    'cse_marker_animation_v102',
+    'store_explorer_marker_config_v1',
+    'storeExplorer.popupTabs.v1'
+  ];
+
+  function exportCurrentMenuConfig(){
+    const payload={
+      exportVersion:1,
+      exportedAt:new Date().toISOString(),
+      sourceAppVersion:'v1.335',
+      description:'Saved Store Explorer menu configuration. Runtime state, loaded files, map position, shapes, selections, and geographic state are intentionally excluded.',
+      localStorage:{}
+    };
+    for(const key of MENU_CONFIG_EXPORT_KEYS){
+      try{
+        const raw=localStorage.getItem(key);
+        if(raw===null)continue;
+        try{payload.localStorage[key]=JSON.parse(raw);}catch(_){payload.localStorage[key]=raw;}
+      }catch(_){}
+    }
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+    a.href=url;
+    a.download=`store-explorer-menu-config-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),0);
+  }
   function helpButtonKey(btn){
     if(btn.dataset.helpKey) return btn.dataset.helpKey;
     if(btn.id==='tickerConfigBtn') return 'ticker-config';
@@ -6413,6 +6454,7 @@
   loadHelpConfig();
   el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
   el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
+  el('exportMenuConfig').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();exportCurrentMenuConfig();});
   el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
   applyAllHelpTooltips();
   loadHeaderCsdLookup();
