@@ -1,4 +1,4 @@
-/* Store Explorer - v1.337!
+/* Store Explorer - v1.338
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -146,7 +146,8 @@
     daActivationTrigger: null,
     daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
     censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
-    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null,detailMode:'density'} 
+    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null,detailMode:'density'},
+    rxCheckSurrounding:{overlay:null} 
   };
 
   seedEmbeddedMenuDefaults();
@@ -1358,7 +1359,134 @@
     }
   }
 
+  function rxCheckSurroundingUpdateUi(){
+    const btn=el('rxCheckSurroundingGo');
+    const input=el('rxCheckSurroundingDistance');
+    const ready=!!state.activeGeographicCentre && Array.isArray(state.secondaryLocations) && state.secondaryLocations.length>0 && !state.rxCheckSurrounding.overlay;
+    if(btn)btn.disabled=!ready;
+    if(input)input.disabled=!!state.rxCheckSurrounding.overlay;
+  }
+
+  function rxCheckSurroundingShape(){
+    if(state.circleSelection?.circle){
+      const circle=state.circleSelection.circle, centre=circle.getLatLng();
+      return {type:'circle',centre:{lat:centre.lat,lng:centre.lng},radiusKm:circle.getRadius()/1000,bounds:circle.getBounds()};
+    }
+    if(state.rectangleSelection?.rectangle){
+      const bounds=state.rectangleSelection.rectangle.getBounds();
+      return {type:'rectangle',centre:bounds.getCenter(),bounds};
+    }
+    return null;
+  }
+
+  function rxCheckSurroundingExpandedShape(shape,distanceKm){
+    if(shape.type==='circle'){
+      const widerRadius=shape.radiusKm+distanceKm;
+      const layer=L.circle([shape.centre.lat,shape.centre.lng],{radius:widerRadius*1000});
+      return {type:'circle',layer,radiusKm:widerRadius,bounds:layer.getBounds()};
+    }
+    const centre=shape.bounds.getCenter();
+    const latPad=distanceKm/110.574;
+    const cos=Math.max(0.15,Math.cos(centre.lat*Math.PI/180));
+    const lonPad=distanceKm/(111.320*cos);
+    const bounds=L.latLngBounds([
+      [shape.bounds.getSouth()-latPad,shape.bounds.getWest()-lonPad],
+      [shape.bounds.getNorth()+latPad,shape.bounds.getEast()+lonPad]
+    ]);
+    return {type:'rectangle',layer:L.rectangle(bounds),bounds};
+  }
+
+  function rxCheckSurroundingAreaKm2(shapeSpec){
+    if(shapeSpec.type==='circle')return Math.PI*shapeSpec.radiusKm*shapeSpec.radiusKm;
+    const b=shapeSpec.bounds;
+    return Number(turf.area(turf.bboxPolygon([b.getWest(),b.getSouth(),b.getEast(),b.getNorth()]))) / 1000000;
+  }
+
+  async function rxCheckSurroundingAmenityCounts(shapeSpec){
+    const asset=await loadAmenityAsset(), view=new DataView(asset.buffer);
+    const ids=shapeSpec.type==='circle'
+      ? amenityIndicesWithinRadius(shapeSpec.centre.lat,shapeSpec.centre.lng,shapeSpec.radiusKm)
+      : amenityIndicesWithinBounds(shapeSpec.bounds);
+    const counts={retail:0,food:0,health:0,community:0,total:0};
+    for(const i of ids){const r=amenityReadRecord(i,view);counts.total++;if(r.mask&1)counts.retail++;if(r.mask&2)counts.food++;if(r.mask&4)counts.health++;if(r.mask&8)counts.community++;}
+    return counts;
+  }
+
+  function rxCheckSurroundingCompetitorCount(shapeSpec){
+    if(!state.secondarySpatialIndex)return 0;
+    if(shapeSpec.type==='circle'){
+      const candidates=secondaryProximityCandidates(shapeSpec.centre.lat,shapeSpec.centre.lng,shapeSpec.radiusKm), origin=L.latLng(shapeSpec.centre.lat,shapeSpec.centre.lng), maxMeters=shapeSpec.radiusKm*1000;
+      let count=0; for(const item of candidates){if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;}
+      return count;
+    }
+    const b=shapeSpec.bounds, centre=b.getCenter(), latPad=0.001, lonPad=0.001;
+    const candidates=state.secondarySpatialIndex.search({minX:b.getWest()-lonPad,maxX:b.getEast()+lonPad,minY:b.getSouth()-latPad,maxY:b.getNorth()+latPad});
+    let count=0; for(const item of candidates){if(Number.isFinite(item.lat)&&Number.isFinite(item.lng)&&b.contains([item.lat,item.lng]))count++;} return count;
+  }
+
+  function rxCheckSurroundingBuildMetrics(counts,areaKm2){
+    const commercial=Number(counts.retail||0)+Number(counts.food||0);
+    const safeArea=Math.max(0.000001,areaKm2);
+    return {residential:{count:Number(counts.community||0),density:Number(counts.community||0)/safeArea},commercial:{count:commercial,density:commercial/safeArea},health:{count:Number(counts.health||0),density:Number(counts.health||0)/safeArea},competition:{count:Number(counts.competitor||0),density:Number(counts.competitor||0)/safeArea}};
+  }
+
+  function rxCheckSurroundingFormat(n){return Number.isFinite(Number(n))?Number(n).toLocaleString(undefined,{maximumFractionDigits:0}):'—';}
+
+  function rxCheckSurroundingAnnotationHtml(widerMetrics,subjectMetrics){
+    const rows=[['Residential',widerMetrics.residential,subjectMetrics.residential],['Commercial',widerMetrics.commercial,subjectMetrics.commercial],['Health / Serv',widerMetrics.health,subjectMetrics.health],['Competitor',widerMetrics.competition,subjectMetrics.competition]];
+    const rowHtml=rows.map(([label,w,s])=>`<div class="rx-check-surrounding-row"><span>${esc(label)}</span><span>${rxCheckSurroundingFormat(w.count)} / ${rxCheckSurroundingFormat(w.density)}</span><span>${rxCheckSurroundingFormat(s.count)} / ${rxCheckSurroundingFormat(s.density)}</span></div>`).join('');
+    return `<div class="rx-check-surrounding-annotation"><div class="rx-check-surrounding-title">Wider shape</div><div class="rx-check-surrounding-subtitle">Count / Density</div><div class="rx-check-surrounding-table"><div></div><strong>Wider</strong><strong>Subject</strong>${rowHtml}</div></div>`;
+  }
+
+  function rxCheckSurroundingClear(){
+    const o=state.rxCheckSurrounding.overlay; if(!o||o.closing)return; o.closing=true;
+    if(o.escHandler)document.removeEventListener('keydown',o.escHandler,true);
+    if(o.closeButton?.parentNode)o.closeButton.parentNode.removeChild(o.closeButton);
+    if(o.group&&map.hasLayer(o.group))map.removeLayer(o.group);
+    if(o.mapState){
+      const restore=(control,enabled)=>{if(!control)return;if(enabled)control.enable();else control.disable()};
+      restore(map.dragging,o.mapState.dragging);restore(map.scrollWheelZoom,o.mapState.scrollWheelZoom);restore(map.doubleClickZoom,o.mapState.doubleClickZoom);restore(map.boxZoom,o.mapState.boxZoom);restore(map.keyboard,o.mapState.keyboard);restore(map.touchZoom,o.mapState.touchZoom);
+      map.invalidateSize({pan:false,debounceMoveend:true}); map.setView([o.mapState.center.lat,o.mapState.center.lng],o.mapState.zoom,{animate:false});
+      requestAnimationFrame(()=>{map.invalidateSize({pan:false,debounceMoveend:true});map.setView([o.mapState.center.lat,o.mapState.center.lng],o.mapState.zoom,{animate:false});});
+    }
+    state.rxCheckSurrounding.overlay=null; rxCheckSurroundingUpdateUi();
+  }
+
+  async function rxCheckSurroundingRun(){
+    if(state.rxCheckSurrounding.overlay)return;
+    const shape=rxCheckSurroundingShape(), distanceKm=Number(el('rxCheckSurroundingDistance')?.value);
+    if(!shape||!Number.isFinite(distanceKm)||distanceKm<=0)return;
+    const subjectSpec=shape.type==='circle'?{type:'circle',centre:shape.centre,radiusKm:shape.radiusKm,bounds:shape.bounds}:{type:'rectangle',bounds:shape.bounds};
+    const widerSpec=rxCheckSurroundingExpandedShape(shape,distanceKm);
+    const oldCenter=map.getCenter();
+    const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
+    if(!map.getPane('rxSiteAnalysisPane')){const pane=map.createPane('rxSiteAnalysisPane');pane.style.zIndex='650';pane.style.pointerEvents='none';}
+    const group=L.layerGroup().addTo(map);
+    const style={pane:'rxSiteAnalysisPane',color:'#7a2ea8',weight:4,opacity:.95,fillColor:'#7a2ea8',fillOpacity:.025,dashArray:'8 6',interactive:false};
+    let widerLayer; if(widerSpec.type==='circle')widerLayer=L.circle([shape.centre.lat,shape.centre.lng],{...style,radius:widerSpec.radiusKm*1000}).addTo(group); else widerLayer=L.rectangle(widerSpec.bounds,{...style}).addTo(group);
+    const subjectArea=rxCheckSurroundingAreaKm2(subjectSpec), widerArea=rxCheckSurroundingAreaKm2(widerSpec), ringArea=Math.max(.000001,widerArea-subjectArea);
+    const [subjectAmenities,widerAmenities]=await Promise.all([rxCheckSurroundingAmenityCounts(subjectSpec),rxCheckSurroundingAmenityCounts(widerSpec)]);
+    const subjectCompetitors=rxCheckSurroundingCompetitorCount(subjectSpec), widerCompetitors=rxCheckSurroundingCompetitorCount(widerSpec);
+    subjectAmenities.competitor=subjectCompetitors; widerAmenities.competitor=Math.max(0,widerCompetitors-subjectCompetitors);
+    const subjectMetrics=rxCheckSurroundingBuildMetrics(subjectAmenities,subjectArea), widerMetrics=rxCheckSurroundingBuildMetrics(widerAmenities,ringArea);
+    const currentZoom=map.getZoom(); map.fitBounds(widerSpec.bounds,{padding:[70,180],maxZoom:currentZoom,animate:false}); await new Promise(requestAnimationFrame);
+    const annotation=L.marker(widerSpec.bounds.getCenter(),{pane:'rxSiteAnalysisPane',interactive:false,zIndexOffset:1000,icon:L.divIcon({className:'rx-check-surrounding-divicon',html:rxCheckSurroundingAnnotationHtml(widerMetrics,subjectMetrics),iconSize:null,iconAnchor:[0,0]})}).addTo(group);
+    const container=map.getContainer(), close=document.createElement('button'); close.type='button'; close.className='rx-site-map-close'; close.setAttribute('aria-label','Close Site Analysis'); close.innerHTML='<span>Close Site Analysis</span><b>×</b>'; close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}); close.style.pointerEvents='auto'; container.appendChild(close);
+    map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
+    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}}; document.addEventListener('keydown',esc,true);
+    state.rxCheckSurrounding.overlay={group,widerLayer,annotation,closeButton:close,escHandler:esc,mapState}; rxCheckSurroundingUpdateUi();
+  }
+
   function rxSiteWire(){
+    const check=el('rxCheckSurroundingGo');
+    if(check&&!check.dataset.bound){
+      check.dataset.bound='1';
+      check.addEventListener('click',async e=>{
+        e.preventDefault();
+        try{await rxCheckSurroundingRun();}catch(err){console.error('Check Surrounding failed',err);if(!state.rxCheckSurrounding.overlay)rxCheckSurroundingUpdateUi();}
+      });
+    }
+    rxCheckSurroundingUpdateUi();
     const g=el('rxSiteAnalysisGo');
     if(g&&!g.dataset.bound){
       g.dataset.bound='1';
@@ -1375,7 +1503,7 @@
     rxSiteUpdateActiveCentreUi();
   }
 
-  async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxSiteWire(); }
+  async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxSiteWire(); rxCheckSurroundingUpdateUi(); }
 
   async function readSecondaryLocationsFile(file){
     if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
@@ -1390,6 +1518,7 @@
     return {headers,rows:valid,lat,lon};
   }
   function clearSecondaryLocations(){
+    rxCheckSurroundingClear();
     state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
     rxSiteOverlayClear();state.rxSiteAnalysis.detailMode='density';state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
     if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
@@ -1401,6 +1530,7 @@
     if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
     renderSecondaryCanvas();
     rxSiteMaybeBuild();
+    rxCheckSurroundingUpdateUi();
   }
 
   function afterWorkbookLoaded(file,parsed){
@@ -1427,7 +1557,7 @@
     const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
     rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteMaybeBuild();
   }
-  function clearFinancial(){rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.primaryTabs=[];state.popupTabConfigs=[];state.popupTabDrafts=[];state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function clearFinancial(){rxSiteOverlayClear();rxCheckSurroundingClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.primaryTabs=[];state.popupTabConfigs=[];state.popupTabDrafts=[];state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
   function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
 
   // ---------- Navigation result markers / one-shot basketball animation ----------
