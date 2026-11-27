@@ -13,8 +13,8 @@
   {"key":"rcls","label":"RCLS","asset":"rcss.png","defaultSize":17},
   {"key":"rcwc","label":"RCWC","asset":"rcss.png","defaultSize":17},
   {"key":"atlantic superstore","label":"Atlantic Superstore","asset":"rcss.png","defaultSize":17},
-  {"key":"loblaws","label":"Loblaws","asset":"loblaw.png","defaultSize":17},
-  {"key":"yig","label":"YIG","asset":"loblaw.png","defaultSize":17},
-  {"key":"zehrs","label":"Zehrs","asset":"loblaw.png","defaultSize":17},
+  {"key":"loblaws","label":"Loblaws","asset":"loblaw.png","defaultSize":16},
+  {"key":"yig","label":"YIG","asset":"loblaw.png","defaultSize":16},
+  {"key":"zehrs","label":"Zehrs","asset":"loblaw.png","defaultSize":16},
   {"key":"save-on-foods","label":"Save-On-Foods","asset":"save-on-foods.png","defaultSize":17}
 ]
