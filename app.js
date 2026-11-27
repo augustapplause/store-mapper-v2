@@ -1,4 +1,4 @@
-/* Store Explorer - v1.341
+/* Store Explorer - v1.342
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1520,6 +1520,17 @@
     state.rxCheckSurrounding.overlay=null; rxCheckSurroundingUpdateUi();
   }
 
+  function rxCheckSurroundingDestination(center, distanceKm, bearingDeg){
+    const R=6371.0088;
+    const br=bearingDeg*Math.PI/180;
+    const lat1=center.lat*Math.PI/180;
+    const lng1=center.lng*Math.PI/180;
+    const dr=distanceKm/R;
+    const lat2=Math.asin(Math.sin(lat1)*Math.cos(dr)+Math.cos(lat1)*Math.sin(dr)*Math.cos(br));
+    const lng2=lng1+Math.atan2(Math.sin(br)*Math.sin(dr)*Math.cos(lat1),Math.cos(dr)-Math.sin(lat1)*Math.sin(lat2));
+    return L.latLng(lat2*180/Math.PI,((lng2*180/Math.PI+540)%360)-180);
+  }
+
   async function rxCheckSurroundingRun(){
     if(state.rxCheckSurrounding.overlay)return;
     const shape=rxCheckSurroundingShape(), distanceKm=Number(el('rxCheckSurroundingDistance')?.value);
@@ -1548,9 +1559,9 @@
       L.circle([widerSpec.centre.lat,widerSpec.centre.lng],{...shapeStyle,radius:widerSpec.radiusKm*1000,dashArray:'8 6'}).addTo(group);
       L.circle([subjectSpec.centre.lat,subjectSpec.centre.lng],{...shapeStyle,radius:subjectSpec.radiusKm*1000,weight:3}).addTo(group);
       for(const bearing of [0,90,180,270]){
-        const innerPt=turf.destination([subjectSpec.centre.lng,subjectSpec.centre.lat],subjectSpec.radiusKm,{units:'kilometers',bearing}).geometry.coordinates;
-        const outerPt=turf.destination([widerSpec.centre.lng,widerSpec.centre.lat],widerSpec.radiusKm,{units:'kilometers',bearing}).geometry.coordinates;
-        L.polyline([[innerPt[1],innerPt[0]],[outerPt[1],outerPt[0]]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
+        const innerPt=rxCheckSurroundingDestination(subjectSpec.centre,subjectSpec.radiusKm,bearing);
+        const outerPt=rxCheckSurroundingDestination(widerSpec.centre,widerSpec.radiusKm,bearing);
+        L.polyline([innerPt,outerPt],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
       }
     } else {
       L.rectangle(widerSpec.bounds,{...shapeStyle,dashArray:'8 6'}).addTo(group);
@@ -1602,8 +1613,8 @@
       if(widerSpec.type==='circle'){
         const angle={NE:45,SE:135,SW:225,NW:315}[q.key];
         const mid=(subjectSpec.radiusKm+widerSpec.radiusKm)/2;
-        const pt=turf.destination([widerSpec.centre.lng,widerSpec.centre.lat],mid,{units:'kilometers',bearing:angle}).geometry.coordinates;
-        [lng,lat]=pt;
+        const pt=rxCheckSurroundingDestination(widerSpec.centre,mid,angle);
+        lat=pt.lat; lng=pt.lng;
       } else {
         const b=widerSpec.bounds,c=widerSpec.centre;
         const x=q.key.includes('E')?(c.lng+b.getEast())/2:(b.getWest()+c.lng)/2;
@@ -1633,13 +1644,7 @@
 
   function rxSiteWire(){
     const check=el('rxCheckSurroundingGo');
-    if(check&&!check.dataset.bound){
-      check.dataset.bound='1';
-      check.addEventListener('click',async e=>{
-        e.preventDefault();
-        try{await rxCheckSurroundingRun();}catch(err){console.error('Check Surrounding failed',err);if(!state.rxCheckSurrounding.overlay)rxCheckSurroundingUpdateUi();}
-      });
-    }
+    rxCheckSurroundingBindDirect();
     rxCheckSurroundingUpdateUi();
     const g=el('rxSiteAnalysisGo');
     if(g&&!g.dataset.bound){
@@ -1657,7 +1662,21 @@
     rxSiteUpdateActiveCentreUi();
   }
 
-  async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxSiteWire(); rxCheckSurroundingUpdateUi(); }
+  function rxCheckSurroundingBindDirect(){
+    const check=el('rxCheckSurroundingGo');
+    if(!check || check.dataset.directBound)return;
+    check.dataset.directBound='1';
+    check.addEventListener('click',async e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const status=el('rxSiteAnalysisStatus');
+      if(status)status.textContent='Check Surrounding clicked — rendering quadrants…';
+      try{ await rxCheckSurroundingRun(); }
+      catch(err){ console.error('Check Surrounding failed',err); if(status)status.textContent=`Check Surrounding failed: ${err.message}`; if(!state.rxCheckSurrounding.overlay)rxCheckSurroundingUpdateUi(); }
+    });
+  }
+
+  async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxCheckSurroundingBindDirect(); rxSiteWire(); rxCheckSurroundingUpdateUi(); }
 
   async function readSecondaryLocationsFile(file){
     if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
@@ -6744,4 +6763,6 @@
     updateSelection();
     updateHeaderGeography();
   });
+  rxCheckSurroundingBindDirect();
+
 })();
