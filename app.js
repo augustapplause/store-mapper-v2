@@ -1,4 +1,4 @@
-/* Store Explorer - v1.338
+/* Store Explorer - v1.339
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1359,13 +1359,12 @@
     }
   }
 
-  function rxCheckSurroundingUpdateUi(){
-    const btn=el('rxCheckSurroundingGo');
-    const input=el('rxCheckSurroundingDistance');
-    const ready=!!state.activeGeographicCentre && Array.isArray(state.secondaryLocations) && state.secondaryLocations.length>0 && !state.rxCheckSurrounding.overlay;
-    if(btn)btn.disabled=!ready;
-    if(input)input.disabled=!!state.rxCheckSurrounding.overlay;
-  }
+  const RX_CHECK_SURROUNDING_QUADRANTS=[
+    {key:'NW',label:'NW',min:270,max:360},
+    {key:'NE',label:'NE',min:0,max:90},
+    {key:'SE',label:'SE',min:90,max:180},
+    {key:'SW',label:'SW',min:180,max:270}
+  ];
 
   function rxCheckSurroundingShape(){
     if(state.circleSelection?.circle){
@@ -1374,16 +1373,24 @@
     }
     if(state.rectangleSelection?.rectangle){
       const bounds=state.rectangleSelection.rectangle.getBounds();
-      return {type:'rectangle',centre:bounds.getCenter(),bounds};
+      return {type:'rectangle',centre:{lat:bounds.getCenter().lat,lng:bounds.getCenter().lng},bounds};
     }
     return null;
+  }
+
+  function rxCheckSurroundingUpdateUi(){
+    const btn=el('rxCheckSurroundingGo');
+    const input=el('rxCheckSurroundingDistance');
+    const ready=!!rxCheckSurroundingShape() && !state.rxCheckSurrounding.overlay;
+    if(btn)btn.disabled=!ready;
+    if(input)input.disabled=!!state.rxCheckSurrounding.overlay;
   }
 
   function rxCheckSurroundingExpandedShape(shape,distanceKm){
     if(shape.type==='circle'){
       const widerRadius=shape.radiusKm+distanceKm;
       const layer=L.circle([shape.centre.lat,shape.centre.lng],{radius:widerRadius*1000});
-      return {type:'circle',layer,radiusKm:widerRadius,bounds:layer.getBounds()};
+      return {type:'circle',layer,radiusKm:widerRadius,bounds:layer.getBounds(),centre:shape.centre};
     }
     const centre=shape.bounds.getCenter();
     const latPad=distanceKm/110.574;
@@ -1393,7 +1400,23 @@
       [shape.bounds.getSouth()-latPad,shape.bounds.getWest()-lonPad],
       [shape.bounds.getNorth()+latPad,shape.bounds.getEast()+lonPad]
     ]);
-    return {type:'rectangle',layer:L.rectangle(bounds),bounds};
+    return {type:'rectangle',layer:L.rectangle(bounds),bounds,centre:{lat:centre.lat,lng:centre.lng}};
+  }
+
+  function rxCheckSurroundingBearingDegrees(center,lat,lng){
+    const lat1=center.lat*Math.PI/180,lat2=lat*Math.PI/180,dlon=(lng-center.lng)*Math.PI/180;
+    const y=Math.sin(dlon)*Math.cos(lat2);
+    const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dlon);
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+
+  function rxCheckSurroundingQuadrantKey(center,lat,lng){
+    const b=rxCheckSurroundingBearingDegrees(center,lat,lng);
+    return b<90?'NE':b<180?'SE':b<270?'SW':'NW';
+  }
+
+  function rxCheckSurroundingInQuadrant(q,center,lat,lng){
+    return rxCheckSurroundingQuadrantKey(center,lat,lng)===q.key;
   }
 
   function rxCheckSurroundingAreaKm2(shapeSpec){
@@ -1402,40 +1425,85 @@
     return Number(turf.area(turf.bboxPolygon([b.getWest(),b.getSouth(),b.getEast(),b.getNorth()]))) / 1000000;
   }
 
-  async function rxCheckSurroundingAmenityCounts(shapeSpec){
-    const asset=await loadAmenityAsset(), view=new DataView(asset.buffer);
-    const ids=shapeSpec.type==='circle'
-      ? amenityIndicesWithinRadius(shapeSpec.centre.lat,shapeSpec.centre.lng,shapeSpec.radiusKm)
-      : amenityIndicesWithinBounds(shapeSpec.bounds);
-    const counts={retail:0,food:0,health:0,community:0,total:0};
-    for(const i of ids){const r=amenityReadRecord(i,view);counts.total++;if(r.mask&1)counts.retail++;if(r.mask&2)counts.food++;if(r.mask&4)counts.health++;if(r.mask&8)counts.community++;}
-    return counts;
+  function rxCheckSurroundingQuadrantPolygon(bounds,qKey,center){
+    const west=bounds.getWest(),east=bounds.getEast(),south=bounds.getSouth(),north=bounds.getNorth(),clng=center.lng,clat=center.lat;
+    const box=qKey==='NE'?[clng,clat,east,north]:qKey==='SE'?[clng,south,east,clat]:qKey==='SW'?[west,south,clng,clat]:[west,clat,clng,north];
+    return turf.bboxPolygon(box);
   }
 
-  function rxCheckSurroundingCompetitorCount(shapeSpec){
-    if(!state.secondarySpatialIndex)return 0;
-    if(shapeSpec.type==='circle'){
-      const candidates=secondaryProximityCandidates(shapeSpec.centre.lat,shapeSpec.centre.lng,shapeSpec.radiusKm), origin=L.latLng(shapeSpec.centre.lat,shapeSpec.centre.lng), maxMeters=shapeSpec.radiusKm*1000;
-      let count=0; for(const item of candidates){if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;}
-      return count;
+  function rxCheckSurroundingQuadrantAreaKm2(subjectSpec,widerSpec,qKey){
+    if(subjectSpec.type==='circle'){
+      const ringArea=Math.PI*Math.max(0,widerSpec.radiusKm*widerSpec.radiusKm-subjectSpec.radiusKm*subjectSpec.radiusKm);
+      return ringArea/4;
     }
-    const b=shapeSpec.bounds, centre=b.getCenter(), latPad=0.001, lonPad=0.001;
-    const candidates=state.secondarySpatialIndex.search({minX:b.getWest()-lonPad,maxX:b.getEast()+lonPad,minY:b.getSouth()-latPad,maxY:b.getNorth()+latPad});
-    let count=0; for(const item of candidates){if(Number.isFinite(item.lat)&&Number.isFinite(item.lng)&&b.contains([item.lat,item.lng]))count++;} return count;
+    const outer=turf.bboxPolygon([widerSpec.bounds.getWest(),widerSpec.bounds.getSouth(),widerSpec.bounds.getEast(),widerSpec.bounds.getNorth()]);
+    const inner=turf.bboxPolygon([subjectSpec.bounds.getWest(),subjectSpec.bounds.getSouth(),subjectSpec.bounds.getEast(),subjectSpec.bounds.getNorth()]);
+    const qOuter=turf.intersect(turf.featureCollection([outer,rxCheckSurroundingQuadrantPolygon(widerSpec.bounds,qKey,widerSpec.centre)]));
+    const qInner=turf.intersect(turf.featureCollection([inner,rxCheckSurroundingQuadrantPolygon(subjectSpec.bounds,qKey,subjectSpec.centre)]));
+    return Math.max(0,((qOuter?Number(turf.area(qOuter)):0)-(qInner?Number(turf.area(qInner)):0))/1000000);
   }
 
-  function rxCheckSurroundingBuildMetrics(counts,areaKm2){
-    const commercial=Number(counts.retail||0)+Number(counts.food||0);
-    const safeArea=Math.max(0.000001,areaKm2);
-    return {residential:{count:Number(counts.community||0),density:Number(counts.community||0)/safeArea},commercial:{count:commercial,density:commercial/safeArea},health:{count:Number(counts.health||0),density:Number(counts.health||0)/safeArea},competition:{count:Number(counts.competitor||0),density:Number(counts.competitor||0)/safeArea}};
+  async function rxCheckSurroundingQuadrantCounts(subjectSpec,widerSpec){
+    const asset=await loadAmenityAsset(),view=new DataView(asset.buffer);
+    const amenityIds=widerSpec.type==='circle'
+      ? amenityIndicesWithinRadius(widerSpec.centre.lat,widerSpec.centre.lng,widerSpec.radiusKm)
+      : amenityIndicesWithinBounds(widerSpec.bounds);
+    const result={};
+    for(const q of RX_CHECK_SURROUNDING_QUADRANTS)result[q.key]={retail:0,food:0,health:0,community:0,competitor:null};
+    for(const i of amenityIds){
+      const r=amenityReadRecord(i,view);
+      if(!Number.isFinite(r.lat)||!Number.isFinite(r.lng))continue;
+      const insideOuter=widerSpec.type==='circle'
+        ? map.distance(L.latLng(widerSpec.centre.lat,widerSpec.centre.lng),L.latLng(r.lat,r.lng))<=widerSpec.radiusKm*1000+0.001
+        : widerSpec.bounds.contains([r.lat,r.lng]);
+      if(!insideOuter)continue;
+      const insideSubject=subjectSpec.type==='circle'
+        ? map.distance(L.latLng(subjectSpec.centre.lat,subjectSpec.centre.lng),L.latLng(r.lat,r.lng))<=subjectSpec.radiusKm*1000+0.001
+        : subjectSpec.bounds.contains([r.lat,r.lng]);
+      if(insideSubject)continue;
+      const q=rxCheckSurroundingQuadrantKey(widerSpec.centre,r.lat,r.lng),c=result[q];
+      if(!c)continue;
+      if(r.mask&1)c.retail++;if(r.mask&2)c.food++;if(r.mask&4)c.health++;if(r.mask&8)c.community++;
+    }
+    if(state.secondarySpatialIndex){
+      const candidates=widerSpec.type==='circle'
+        ? secondaryProximityCandidates(widerSpec.centre.lat,widerSpec.centre.lng,widerSpec.radiusKm)
+        : state.secondarySpatialIndex.search({minX:widerSpec.bounds.getWest(),maxX:widerSpec.bounds.getEast(),minY:widerSpec.bounds.getSouth(),maxY:widerSpec.bounds.getNorth()});
+      for(const item of candidates){
+        if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        const insideOuter=widerSpec.type==='circle'
+          ? map.distance(L.latLng(widerSpec.centre.lat,widerSpec.centre.lng),L.latLng(item.lat,item.lng))<=widerSpec.radiusKm*1000+0.001
+          : widerSpec.bounds.contains([item.lat,item.lng]);
+        if(!insideOuter)continue;
+        const insideSubject=subjectSpec.type==='circle'
+          ? map.distance(L.latLng(subjectSpec.centre.lat,subjectSpec.centre.lng),L.latLng(item.lat,item.lng))<=subjectSpec.radiusKm*1000+0.001
+          : subjectSpec.bounds.contains([item.lat,item.lng]);
+        if(insideSubject)continue;
+        const q=rxCheckSurroundingQuadrantKey(widerSpec.centre,item.lat,item.lng),c=result[q];
+        if(c)c.competitor=(c.competitor||0)+1;
+      }
+    }
+    return result;
+  }
+
+  function rxCheckSurroundingQuadrantMetrics(counts,areaKm2){
+    const safeArea=Math.max(0.000001,Number(areaKm2)||0.000001);
+    const commercial=Number(counts.retail||0)+Number(counts.food||0), residential=Number(counts.community||0), health=Number(counts.health||0);
+    const competitor=counts.competitor===null?null:Number(counts.competitor||0);
+    return {
+      residential:{count:residential,density:residential/safeArea},
+      commercial:{count:commercial,density:commercial/safeArea},
+      health:{count:health,density:health/safeArea},
+      competition:{count:competitor,density:competitor===null?null:competitor/safeArea}
+    };
   }
 
   function rxCheckSurroundingFormat(n){return Number.isFinite(Number(n))?Number(n).toLocaleString(undefined,{maximumFractionDigits:0}):'—';}
 
-  function rxCheckSurroundingAnnotationHtml(widerMetrics,subjectMetrics){
-    const rows=[['Residential',widerMetrics.residential,subjectMetrics.residential],['Commercial',widerMetrics.commercial,subjectMetrics.commercial],['Health / Serv',widerMetrics.health,subjectMetrics.health],['Competitor',widerMetrics.competition,subjectMetrics.competition]];
-    const rowHtml=rows.map(([label,w,s])=>`<div class="rx-check-surrounding-row"><span>${esc(label)}</span><span>${rxCheckSurroundingFormat(w.count)} / ${rxCheckSurroundingFormat(w.density)}</span><span>${rxCheckSurroundingFormat(s.count)} / ${rxCheckSurroundingFormat(s.density)}</span></div>`).join('');
-    return `<div class="rx-check-surrounding-annotation"><div class="rx-check-surrounding-title">Wider shape</div><div class="rx-check-surrounding-subtitle">Count / Density</div><div class="rx-check-surrounding-table"><div></div><strong>Wider</strong><strong>Subject</strong>${rowHtml}</div></div>`;
+  function rxCheckSurroundingAnnotationHtml(label,metrics){
+    const rows=[['Residential',metrics.residential],['Commercial',metrics.commercial],['Health / Serv',metrics.health],['Competitor',metrics.competition]];
+    const body=rows.map(([name,v])=>`<div class="rx-check-surrounding-q-row"><span>${esc(name)}</span><span>${rxCheckSurroundingFormat(v.count)} / ${rxCheckSurroundingFormat(v.density)}</span></div>`).join('');
+    return `<div class="rx-check-surrounding-q-annotation"><div class="rx-check-surrounding-q-title">${esc(label)}</div><div class="rx-check-surrounding-q-subtitle">Count / Density</div><div class="rx-check-surrounding-q-table">${body}</div></div>`;
   }
 
   function rxCheckSurroundingClear(){
@@ -1456,25 +1524,53 @@
     if(state.rxCheckSurrounding.overlay)return;
     const shape=rxCheckSurroundingShape(), distanceKm=Number(el('rxCheckSurroundingDistance')?.value);
     if(!shape||!Number.isFinite(distanceKm)||distanceKm<=0)return;
-    const subjectSpec=shape.type==='circle'?{type:'circle',centre:shape.centre,radiusKm:shape.radiusKm,bounds:shape.bounds}:{type:'rectangle',bounds:shape.bounds};
+    const subjectSpec=shape.type==='circle'?{type:'circle',centre:shape.centre,radiusKm:shape.radiusKm,bounds:shape.bounds}:{type:'rectangle',bounds:shape.bounds,centre:shape.centre};
     const widerSpec=rxCheckSurroundingExpandedShape(shape,distanceKm);
     const oldCenter=map.getCenter();
     const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
     if(!map.getPane('rxSiteAnalysisPane')){const pane=map.createPane('rxSiteAnalysisPane');pane.style.zIndex='650';pane.style.pointerEvents='none';}
     const group=L.layerGroup().addTo(map);
-    const style={pane:'rxSiteAnalysisPane',color:'#7a2ea8',weight:4,opacity:.95,fillColor:'#7a2ea8',fillOpacity:.025,dashArray:'8 6',interactive:false};
-    let widerLayer; if(widerSpec.type==='circle')widerLayer=L.circle([shape.centre.lat,shape.centre.lng],{...style,radius:widerSpec.radiusKm*1000}).addTo(group); else widerLayer=L.rectangle(widerSpec.bounds,{...style}).addTo(group);
-    const subjectArea=rxCheckSurroundingAreaKm2(subjectSpec), widerArea=rxCheckSurroundingAreaKm2(widerSpec), ringArea=Math.max(.000001,widerArea-subjectArea);
-    const [subjectAmenities,widerAmenities]=await Promise.all([rxCheckSurroundingAmenityCounts(subjectSpec),rxCheckSurroundingAmenityCounts(widerSpec)]);
-    const subjectCompetitors=rxCheckSurroundingCompetitorCount(subjectSpec), widerCompetitors=rxCheckSurroundingCompetitorCount(widerSpec);
-    subjectAmenities.competitor=subjectCompetitors; widerAmenities.competitor=Math.max(0,widerCompetitors-subjectCompetitors);
-    const subjectMetrics=rxCheckSurroundingBuildMetrics(subjectAmenities,subjectArea), widerMetrics=rxCheckSurroundingBuildMetrics(widerAmenities,ringArea);
+    const shapeStyle={pane:'rxSiteAnalysisPane',color:'#d62828',weight:3,opacity:.92,fill:false,interactive:false};
+    if(widerSpec.type==='circle'){
+      L.circle([widerSpec.centre.lat,widerSpec.centre.lng],{...shapeStyle,radius:widerSpec.radiusKm*1000,dashArray:'8 6'}).addTo(group);
+      L.circle([subjectSpec.centre.lat,subjectSpec.centre.lng],{...shapeStyle,radius:subjectSpec.radiusKm*1000,weight:3}).addTo(group);
+      for(const bearing of [0,90,180,270]){
+        const innerPt=turf.destination([subjectSpec.centre.lng,subjectSpec.centre.lat],subjectSpec.radiusKm,{units:'kilometers',bearing}).geometry.coordinates;
+        const outerPt=turf.destination([widerSpec.centre.lng,widerSpec.centre.lat],widerSpec.radiusKm,{units:'kilometers',bearing}).geometry.coordinates;
+        L.polyline([[innerPt[1],innerPt[0]],[outerPt[1],outerPt[0]]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
+      }
+    } else {
+      L.rectangle(widerSpec.bounds,{...shapeStyle,dashArray:'8 6'}).addTo(group);
+      L.rectangle(subjectSpec.bounds,{...shapeStyle}).addTo(group);
+      const b=widerSpec.bounds,c=widerSpec.centre;
+      L.polyline([[b.getNorth(),c.lng],[b.getSouth(),c.lng]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
+      L.polyline([[c.lat,b.getWest()],[c.lat,b.getEast()]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
+    }
+    const counts=await rxCheckSurroundingQuadrantCounts(subjectSpec,widerSpec);
+    const metrics={};
+    for(const q of RX_CHECK_SURROUNDING_QUADRANTS)metrics[q.key]=rxCheckSurroundingQuadrantMetrics(counts[q.key],rxCheckSurroundingQuadrantAreaKm2(subjectSpec,widerSpec,q.key));
     const currentZoom=map.getZoom(); map.fitBounds(widerSpec.bounds,{padding:[70,180],maxZoom:currentZoom,animate:false}); await new Promise(requestAnimationFrame);
-    const annotation=L.marker(widerSpec.bounds.getCenter(),{pane:'rxSiteAnalysisPane',interactive:false,zIndexOffset:1000,icon:L.divIcon({className:'rx-check-surrounding-divicon',html:rxCheckSurroundingAnnotationHtml(widerMetrics,subjectMetrics),iconSize:null,iconAnchor:[0,0]})}).addTo(group);
+    const annotationMarkers=[];
+    for(const q of RX_CHECK_SURROUNDING_QUADRANTS){
+      let lat,lng;
+      if(widerSpec.type==='circle'){
+        const angle={NE:45,SE:135,SW:225,NW:315}[q.key];
+        const mid=(subjectSpec.radiusKm+widerSpec.radiusKm)/2;
+        const pt=turf.destination([widerSpec.centre.lng,widerSpec.centre.lat],mid,{units:'kilometers',bearing:angle}).geometry.coordinates;
+        [lng,lat]=pt;
+      } else {
+        const b=widerSpec.bounds,c=widerSpec.centre;
+        const x=q.key.includes('E')?(c.lng+b.getEast())/2:(b.getWest()+c.lng)/2;
+        const y=q.key.includes('N')?(c.lat+b.getNorth())/2:(b.getSouth()+c.lat)/2;
+        lng=x;lat=y;
+      }
+      const m=L.marker([lat,lng],{pane:'rxSiteAnalysisPane',interactive:false,zIndexOffset:1000,icon:L.divIcon({className:`rx-check-surrounding-q-divicon rx-q-${q.key.toLowerCase()}`,html:rxCheckSurroundingAnnotationHtml(q.label,metrics[q.key]),iconSize:null,iconAnchor:[0,0]})}).addTo(group);
+      annotationMarkers.push(m);
+    }
     const container=map.getContainer(), close=document.createElement('button'); close.type='button'; close.className='rx-site-map-close'; close.setAttribute('aria-label','Close Site Analysis'); close.innerHTML='<span>Close Site Analysis</span><b>×</b>'; close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}); close.style.pointerEvents='auto'; container.appendChild(close);
     map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
     const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}}; document.addEventListener('keydown',esc,true);
-    state.rxCheckSurrounding.overlay={group,widerLayer,annotation,closeButton:close,escHandler:esc,mapState}; rxCheckSurroundingUpdateUi();
+    state.rxCheckSurrounding.overlay={group,annotation:annotationMarkers,closeButton:close,escHandler:esc,mapState}; rxCheckSurroundingUpdateUi();
   }
 
   function rxSiteWire(){
