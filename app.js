@@ -1,4 +1,4 @@
-/* Store Explorer - v1.340
+/* Store Explorer - v1.341
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1524,13 +1524,26 @@
     if(state.rxCheckSurrounding.overlay)return;
     const shape=rxCheckSurroundingShape(), distanceKm=Number(el('rxCheckSurroundingDistance')?.value);
     if(!shape||!Number.isFinite(distanceKm)||distanceKm<=0)return;
-    const subjectSpec=shape.type==='circle'?{type:'circle',centre:shape.centre,radiusKm:shape.radiusKm,bounds:shape.bounds}:{type:'rectangle',bounds:shape.bounds,centre:shape.centre};
+
+    const subjectSpec=shape.type==='circle'
+      ? {type:'circle',centre:shape.centre,radiusKm:shape.radiusKm,bounds:shape.bounds}
+      : {type:'rectangle',bounds:shape.bounds,centre:shape.centre};
     const widerSpec=rxCheckSurroundingExpandedShape(shape,distanceKm);
     const oldCenter=map.getCenter();
     const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
-    if(!map.getPane('rxSiteAnalysisPane')){const pane=map.createPane('rxSiteAnalysisPane');pane.style.zIndex='650';pane.style.pointerEvents='none';}
+
+    if(!map.getPane('rxSiteAnalysisPane')){
+      const pane=map.createPane('rxSiteAnalysisPane');
+      pane.style.zIndex='650';
+      pane.style.pointerEvents='none';
+    }
+
+    // Build and commit the visual overlay BEFORE any data load or analysis.
+    // This guarantees that Check Surrounding always produces visible geometry
+    // even when an amenity/competitor source subsequently fails.
     const group=L.layerGroup().addTo(map);
     const shapeStyle={pane:'rxSiteAnalysisPane',color:'#d62828',weight:3,opacity:.92,fill:false,interactive:false};
+    const annotationMarkers=[];
     if(widerSpec.type==='circle'){
       L.circle([widerSpec.centre.lat,widerSpec.centre.lng],{...shapeStyle,radius:widerSpec.radiusKm*1000,dashArray:'8 6'}).addTo(group);
       L.circle([subjectSpec.centre.lat,subjectSpec.centre.lng],{...shapeStyle,radius:subjectSpec.radiusKm*1000,weight:3}).addTo(group);
@@ -1546,11 +1559,44 @@
       L.polyline([[b.getNorth(),c.lng],[b.getSouth(),c.lng]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
       L.polyline([[c.lat,b.getWest()],[c.lat,b.getEast()]],{pane:'rxSiteAnalysisPane',color:'#d62828',weight:2,opacity:.8,interactive:false}).addTo(group);
     }
-    const counts=await rxCheckSurroundingQuadrantCounts(subjectSpec,widerSpec);
+
+    // Commit overlay state immediately so the UI knows a live overlay exists.
+    state.rxCheckSurrounding.overlay={group,annotation:annotationMarkers,closeButton:null,escHandler:null,mapState};
+    rxCheckSurroundingUpdateUi();
+
+    // Fit immediately as well; do not wait on the analysis request.
+    const currentZoom=map.getZoom();
+    map.fitBounds(widerSpec.bounds,{padding:[70,180],maxZoom:currentZoom,animate:false});
+    await new Promise(requestAnimationFrame);
+
+    // Lock navigation while the surrounding analysis is active.
+    map.dragging.disable();
+    map.scrollWheelZoom.disable();
+    map.doubleClickZoom.disable();
+    map.boxZoom.disable();
+    map.keyboard.disable();
+    map.touchZoom.disable();
+
+    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}};
+    document.addEventListener('keydown',esc,true);
+    state.rxCheckSurrounding.overlay.escHandler=esc;
+
+    let counts;
+    try{
+      counts=await rxCheckSurroundingQuadrantCounts(subjectSpec,widerSpec);
+    }catch(err){
+      console.error('Check Surrounding analysis failed',err);
+      const status=el('rxCheckSurroundingStatus');
+      if(status)status.textContent=`Quadrant geometry rendered. Analysis failed: ${err.message}`;
+      // Keep the geometry visible so the user can inspect the quadrant layout.
+      return;
+    }
+
     const metrics={};
-    for(const q of RX_CHECK_SURROUNDING_QUADRANTS)metrics[q.key]=rxCheckSurroundingQuadrantMetrics(counts[q.key],rxCheckSurroundingQuadrantAreaKm2(subjectSpec,widerSpec,q.key));
-    const currentZoom=map.getZoom(); map.fitBounds(widerSpec.bounds,{padding:[70,180],maxZoom:currentZoom,animate:false}); await new Promise(requestAnimationFrame);
-    const annotationMarkers=[];
+    for(const q of RX_CHECK_SURROUNDING_QUADRANTS){
+      metrics[q.key]=rxCheckSurroundingQuadrantMetrics(counts[q.key],rxCheckSurroundingQuadrantAreaKm2(subjectSpec,widerSpec,q.key));
+    }
+
     for(const q of RX_CHECK_SURROUNDING_QUADRANTS){
       let lat,lng;
       if(widerSpec.type==='circle'){
@@ -1564,13 +1610,25 @@
         const y=q.key.includes('N')?(c.lat+b.getNorth())/2:(b.getSouth()+c.lat)/2;
         lng=x;lat=y;
       }
-      const m=L.marker([lat,lng],{pane:'rxSiteAnalysisPane',interactive:false,zIndexOffset:1000,icon:L.divIcon({className:`rx-check-surrounding-q-divicon rx-q-${q.key.toLowerCase()}`,html:rxCheckSurroundingAnnotationHtml(q.label,metrics[q.key]),iconSize:null,iconAnchor:[0,0]})}).addTo(group);
+      const m=L.marker([lat,lng],{
+        pane:'rxSiteAnalysisPane',
+        interactive:false,
+        zIndexOffset:1000,
+        icon:L.divIcon({className:`rx-check-surrounding-q-divicon rx-q-${q.key.toLowerCase()}`,html:rxCheckSurroundingAnnotationHtml(q.label,metrics[q.key]),iconSize:null,iconAnchor:[0,0]})
+      }).addTo(group);
       annotationMarkers.push(m);
     }
-    const container=map.getContainer(), close=document.createElement('button'); close.type='button'; close.className='rx-site-map-close'; close.setAttribute('aria-label','Close Site Analysis'); close.innerHTML='<span>Close Site Analysis</span><b>×</b>'; close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}); close.style.pointerEvents='auto'; container.appendChild(close);
-    map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
-    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();}}; document.addEventListener('keydown',esc,true);
-    state.rxCheckSurrounding.overlay={group,annotation:annotationMarkers,closeButton:close,escHandler:esc,mapState}; rxCheckSurroundingUpdateUi();
+
+    const container=map.getContainer(), close=document.createElement('button');
+    close.type='button';
+    close.className='rx-site-map-close';
+    close.setAttribute('aria-label','Close Site Analysis');
+    close.innerHTML='<span>Close Site Analysis</span><b>×</b>';
+    close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxCheckSurroundingClear();});
+    close.style.pointerEvents='auto';
+    container.appendChild(close);
+    state.rxCheckSurrounding.overlay.closeButton=close;
+    state.rxCheckSurrounding.overlay.annotation=annotationMarkers;
   }
 
   function rxSiteWire(){
