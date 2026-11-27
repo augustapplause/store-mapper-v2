@@ -13,5 +13,8 @@
   {"key":"rcls","label":"RCLS","asset":"rcss.png","defaultSize":17},
   {"key":"rcwc","label":"RCWC","asset":"rcss.png","defaultSize":17},
   {"key":"atlantic superstore","label":"Atlantic Superstore","asset":"rcss.png","defaultSize":17},
+  {"key":"loblaws","label":"Loblaws","asset":"loblaw.png","defaultSize":17},
+  {"key":"yig","label":"YIG","asset":"loblaw.png","defaultSize":17},
+  {"key":"zehrs","label":"Zehrs","asset":"loblaw.png","defaultSize":17},
   {"key":"sav-on foods","label":"Sav-On Foods","asset":"sav-on-foods.png","defaultSize":17}
 ]
