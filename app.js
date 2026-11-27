@@ -1,4 +1,4 @@
-/* Store Explorer - v1.339
+/* Store Explorer - v1.340
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -6385,6 +6385,8 @@
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     clearActiveGeographicCentre();
+    // Keep Check Surrounding enabled state synchronized with the live shape state.
+    rxCheckSurroundingUpdateUi();
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
     clearCensusGeoSelection();
     // The shape is only the spatial metric scope. Filters and viewport-driven
@@ -6410,6 +6412,7 @@
     if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
     state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
     clearActiveGeographicCentre();
+    rxCheckSurroundingUpdateUi();
     state.daProvinceCacheKey=null;state.daProvinceCache=null;
     clearDaOverlay();
     state.daSelectionResult=null;
@@ -6438,6 +6441,8 @@
     state.circleSelection={circle,label};
     circle.__activeCentreLabel=String(centreLabel||'');
     updateActiveGeographicCentreFromShape();
+    // A shape is now present; re-evaluate the Check Surrounding button.
+    rxCheckSurroundingUpdateUi();
     setCensusScope('circle',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showCircleHandles();
     requestAnimationFrame(()=>{ if(state.circleSelection?.circle===circle) showCircleHandles(); });
@@ -6460,6 +6465,8 @@
     const label=makeRectangleDimensionsLabel(bounds).addTo(map);
     state.rectangleSelection={rectangle,label};
     updateActiveGeographicCentreFromShape();
+    // A shape is now present; re-evaluate the Check Surrounding button.
+    rxCheckSurroundingUpdateUi();
     setCensusScope('box',{reason, generation:state.censusScopeGeneration});
     updateCensusShapeStatus();showRectangleHandles();
     scheduleCensusQuery(null,reason);
