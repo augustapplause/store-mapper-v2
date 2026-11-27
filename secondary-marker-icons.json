@@ -8,6 +8,6 @@
   {"key":"sobeys","label":"Sobeys","asset":"sobeys.png","defaultSize":17},
   {"key":"pharmacie jean coutu","label":"Pharmacie Jean Coutu","asset":"pharmacie jean coutu.png","defaultSize":17},
   {"key":"wal-mart","label":"Wal-Mart","asset":"wal-mart.png","defaultSize":17},
-  {"key":"no frills","label":"No Frills","asset":"frills.png","defaultSize":17},
+  {"key":"No Frills","label":"No Frills","asset":"frills.png","defaultSize":17},
   {"key":"sav-on foods","label":"Sav-On Foods","asset":"sav-on foods.png","defaultSize":17}
 ]
