@@ -1496,7 +1496,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-site-analysis-box .rx-site-analysis-active-centre{margin-top:0;background:#fff}
 .census-site-analysis-box .rx-site-analysis-detail-view{margin-top:0}
 
-/* v1.339: Check Surrounding quadrant map annotation */
+/* v1.340: Check Surrounding quadrant map annotation */
 .rx-check-surrounding-control{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;margin-top:8px}
 .rx-check-surrounding-run-button{height:32px;border:1px solid #7a2ea8;border-radius:7px;background:linear-gradient(#a86ac7,#7a2ea8);color:#fff;font-size:13px;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,.32),0 2px 0 #592078,0 3px 5px rgba(0,0,0,.16);cursor:pointer}
 .rx-check-surrounding-run-button:hover{background:linear-gradient(#b274d0,#8740ad)}
