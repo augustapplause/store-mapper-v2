@@ -1496,7 +1496,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-site-analysis-box .rx-site-analysis-active-centre{margin-top:0;background:#fff}
 .census-site-analysis-box .rx-site-analysis-detail-view{margin-top:0}
 
-/* v1.347: Check Surrounding toggles Subject Circle alternate view + viewport close */
+/* v1.348: Check Surrounding toggles Subject Circle alternate view + viewport close */
 .rx-check-surrounding-controls{display:flex;align-items:stretch;gap:6px;width:100%;}
 .rx-check-surrounding-controls .rx-check-surrounding-button{flex:1;min-width:0;}
 .rx-check-surrounding-radius{display:flex;align-items:center;gap:4px;flex:0 0 auto;height:100%;padding:0 7px;border:1px solid #7890a0;border-radius:7px;background:#fff;box-shadow:0 2px 0 rgba(37,62,80,.28),0 3px 5px rgba(0,0,0,.12);color:#405767;font-size:11px;font-weight:700;box-sizing:border-box;}
@@ -1512,18 +1512,18 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-surrounding-label{background:rgba(8,18,28,.86);border:1px solid rgba(120,220,255,.72);border-radius:5px;color:#b9f1ff;font-family:Georgia,"Times New Roman",serif;font-size:11px;font-weight:300;letter-spacing:.08em;line-height:1;padding:5px 7px;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,.24);text-transform:uppercase}
 
 .rx-quadrant-card-wrap,.rx-surrounding-title-wrap{pointer-events:none!important;background:transparent!important;border:0!important;box-shadow:none!important;}
-.rx-quadrant-card{width:193px;box-sizing:border-box;padding:5px 8px 7px;background:transparent;border:1px solid #356a93;box-shadow:0 0 0 3px rgba(255,255,255,.42),0 0 8px rgba(255,255,255,.22);color:#356a93;font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif;font-weight:300;letter-spacing:.01em;}
-.rx-quadrant-card *{-webkit-text-stroke:5px rgba(255,255,255,.70);paint-order:stroke fill;}
-.rx-quadrant-card-title{font-size:22px;line-height:1;font-weight:300;letter-spacing:.16em;margin-bottom:4px;}
-.rx-quadrant-card-area{font-size:10px;line-height:1.15;letter-spacing:.035em;margin-bottom:6px;white-space:nowrap;}
+.rx-quadrant-card{width:205px;box-sizing:border-box;padding:5px 8px 7px;background:transparent;border:1px solid #356a93;box-shadow:0 0 0 3px rgba(255,255,255,.42),0 0 8px rgba(255,255,255,.22);color:#356a93;font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif;font-weight:700;letter-spacing:.01em;}
+.rx-quadrant-card *{-webkit-text-stroke:5px rgba(255,255,255,.70);paint-order:stroke fill;font-weight:700;}
+.rx-quadrant-card-title{font-size:22px;line-height:1;font-weight:700;letter-spacing:.16em;margin-bottom:4px;}
+.rx-quadrant-card-area{font-size:10px;line-height:1.15;letter-spacing:.035em;margin-bottom:6px;white-space:nowrap;font-weight:700;}
 .rx-q-rows{display:flex;flex-direction:column;gap:2px;}
-.rx-q-row{display:grid;grid-template-columns:max-content 20px max-content;align-items:baseline;font-size:12px;line-height:1.2;white-space:nowrap;}
-.rx-q-row span:last-child{font-variant-numeric:tabular-nums;justify-self:start;}
+.rx-q-row{display:grid;grid-template-columns:90px minmax(0,1fr);column-gap:20px;align-items:baseline;font-size:12px;line-height:1.2;white-space:nowrap;font-weight:700;}
+.rx-q-row span:last-child{font-variant-numeric:tabular-nums;justify-self:start;white-space:nowrap;}
 .rx-quadrant-card-total{display:grid;grid-template-columns:max-content 20px max-content;align-items:baseline;gap:0;margin-top:6px;padding-top:5px;border-top:1px solid rgba(53,106,147,.72);font-size:12px;letter-spacing:.04em;white-space:nowrap;}
 .rx-quadrant-card-total span:last-child{font-variant-numeric:tabular-nums;}
 .rx-surrounding-title{background:transparent;border:0;border-radius:0;color:#356a93;font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif;font-size:11px;font-weight:300;letter-spacing:.13em;line-height:1;padding:3px 4px;white-space:nowrap;text-shadow:none;-webkit-text-stroke:5px rgba(255,255,255,.70);paint-order:stroke fill;}
 
-/* v1.347: surrounding counts + competitor density and Subject Circle alternate view */
+/* v1.348: surrounding counts + competitor density and Subject Circle alternate view */
 .rx-quadrant-card-subtotal{display:flex;justify-content:flex-end;gap:6px;margin-top:3px;font-size:9px;letter-spacing:.05em;}
 .rx-quadrant-card-subtotal strong{font-size:10px;font-weight:300;}
 .rx-site-analysis-primary-buttons{display:grid;grid-template-columns:1fr;gap:8px;}
@@ -1534,7 +1534,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-site-analysis-detail-back:hover{background:#f0f8f2;}
 .rx-site-analysis-detail-head .rx-site-analysis-mode-toggle{margin-left:auto;}
 
-/* v1.347: exact quadrant-card styling + Subject Circle comparison table */
+/* v1.348: exact quadrant-card styling + Subject Circle comparison table */
 .rx-site-analysis-mode-toggle.hidden{display:none!important;}
 .rx-subject-metrics-grid{display:flex!important;flex-direction:column!important;gap:0;border:1px solid #b9dcc4;border-radius:9px;overflow:hidden;background:#fff;}
 .rx-subject-metric-header{display:grid;grid-template-columns:1fr auto;gap:20px;padding:9px 11px;border-bottom:1px solid #dceee1;background:#f2f8f4;color:#46634f;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
