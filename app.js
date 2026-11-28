@@ -1,4 +1,4 @@
-/* Store Explorer - v1.342
+/* Store Explorer - v1.343
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1001,9 +1001,13 @@
 
   function rxCheckSurroundingBearingDeg(center, point){
     const p=Math.PI/180;
-    const lat1=center.lat*p;
-    const lat2=point.lat*p;
-    const dLon=(point.lng-center.lng)*p;
+    const lat1=Number(center.lat)*p;
+    const pointLat=Number(point.lat);
+    const pointLon=Number(point.lng ?? point.lon);
+    const centerLon=Number(center.lng);
+    if(!Number.isFinite(pointLat)||!Number.isFinite(pointLon)||!Number.isFinite(Number(center.lat))||!Number.isFinite(centerLon))return null;
+    const lat2=pointLat*p;
+    const dLon=(pointLon-centerLon)*p;
     const y=Math.sin(dLon)*Math.cos(lat2);
     const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
     return (Math.atan2(y,x)*180/Math.PI+360)%360;
@@ -1033,13 +1037,15 @@
 
     const labels=['NE','SE','SW','NW'];
     const offsets=[45,135,225,315];
+    const quadrantLabels=[];
     offsets.forEach((bearing,i)=>{
       const point=rxCheckSurroundingDestination(center,outerRadius*.72,bearing);
-      L.marker(point,{icon:L.divIcon({className:'rx-surrounding-label-wrap',html:`<div class="rx-surrounding-label">${labels[i]}</div>`,iconSize:[54,30],iconAnchor:[27,15]}),interactive:false,zIndexOffset:1200}).addTo(layer);
+      const marker=L.marker(point,{icon:L.divIcon({className:'rx-surrounding-label-wrap',html:`<div class="rx-surrounding-label">${labels[i]}</div>`,iconSize:[54,30],iconAnchor:[27,15]}),interactive:false,zIndexOffset:1200}).addTo(layer);
+      quadrantLabels.push(marker);
     });
 
     layer.addTo(map);
-    state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius}};
+    state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius,quadrantLabels}};
     return true;
   }
 
@@ -1070,6 +1076,7 @@
       const distanceKm=map.distance(origin,L.latLng(r.lat,r.lon))/1000;
       if(distanceKm<=innerKm || distanceKm>outerKm)continue;
       const bearing=rxCheckSurroundingBearingDeg(center,r);
+      if(bearing===null)continue;
       const quadrant=bearing<90?'NE':bearing<180?'SE':bearing<270?'SW':'NW';
       const q=result.quadrants[quadrant];
       q.total++;
@@ -1089,9 +1096,10 @@
     const overlay=state.rxCheckSurrounding?.overlay;
     if(!overlay||!result)return;
     const {layer,center,outerRadius}=overlay;
+    for(const marker of overlay.quadrantLabels||[])layer.removeLayer(marker);
     const configs=[
-      {key:'NE',bearing:45,rotation:-3},
-      {key:'SE',bearing:135,rotation:3},
+      {key:'NE',bearing:45,rotation:-2.5},
+      {key:'SE',bearing:135,rotation:2.5},
       {key:'SW',bearing:225,rotation:-2},
       {key:'NW',bearing:315,rotation:2}
     ];
@@ -1109,8 +1117,8 @@
         </tbody></table>
         <div class="rx-quadrant-card-total"><span>TOTAL</span><strong>${fmtInt(q.total)}</strong><span class="rx-quadrant-density">${q.density.toFixed(1)} / km²</span></div>
       </div>`;
-      const point=rxCheckSurroundingDestination(center,outerRadius*.67,cfg.bearing);
-      L.marker(point,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[220,158],iconAnchor:[110,79]}),interactive:false,zIndexOffset:1500}).addTo(layer);
+      const point=rxCheckSurroundingDestination(center,outerRadius*.76,cfg.bearing);
+      L.marker(point,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[168,126],iconAnchor:[84,63]}),interactive:false,zIndexOffset:1500}).addTo(layer);
     }
     const titlePoint=rxCheckSurroundingDestination(center,outerRadius*.18,45);
     L.marker(titlePoint,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[190,28],iconAnchor:[95,14]}),interactive:false,zIndexOffset:1501}).addTo(layer);
@@ -1140,11 +1148,13 @@
     const clear=el('rxClearSurroundingBtn');
     if(clear&&!clear.dataset.bound){
       clear.dataset.bound='1';
-      clear.addEventListener('click',e=>{
+      const clearHandler=e=>{
         e.preventDefault();
         e.stopPropagation();
         rxCheckSurroundingClearToMap();
-      });
+      };
+      clear.addEventListener('pointerdown',clearHandler);
+      clear.addEventListener('click',clearHandler);
     }
     if(!document.body.dataset.rxCheckSurroundingEscapeBound){
       document.body.dataset.rxCheckSurroundingEscapeBound='1';
