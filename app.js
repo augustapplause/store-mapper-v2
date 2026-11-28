@@ -1,4 +1,4 @@
-/* Store Explorer - v1.346
+/* Store Explorer - v1.347
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -998,13 +998,19 @@
     const radiusInput=el('rxSiteAnalysisInnerRadius');
     const subtitle=el('rxSiteAnalysisDetailSubtitle');
     const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
+    const toggle=el('rxSiteAnalysisModeToggle');
+    const toggleWrap=toggle?.closest('.rx-site-analysis-mode-toggle');
+    const grid=el('rxSiteAnalysisDetailGrid');
     if(searchView)searchView.classList.remove('hidden');
     if(detailView)detailView.classList.add('hidden');
     if(radiusInput)radiusInput.disabled=false;
+    if(toggleWrap)toggleWrap.classList.remove('hidden');
+    if(grid?.dataset.defaultHtml){grid.innerHTML=grid.dataset.defaultHtml;grid.className='rx-site-analysis-detail-grid';}
     if(heading)heading.textContent='Subject Site';
     if(subtitle)subtitle.textContent='(per sq km)';
     state.rxSiteAnalysis.detailViewMode='search';
     state.rxSiteAnalysis.subject=null;
+    rxSiteWireRadiusInputs();
     rxSiteUpdateActiveCentreUi();
   }
 
@@ -1026,6 +1032,7 @@
 
   function rxCheckSurroundingClear({updateUi=true}={}){
     const overlay=state.rxCheckSurrounding?.overlay;
+    if(overlay?.annotationZoomHandler)map.off('zoomend',overlay.annotationZoomHandler);
     if(overlay?.closeButton?.parentNode)overlay.closeButton.parentNode.removeChild(overlay.closeButton);
     if(overlay?.layer && map.hasLayer(overlay.layer))map.removeLayer(overlay.layer);
     state.rxCheckSurrounding={overlay:null};
@@ -1084,15 +1091,12 @@
     return true;
   }
 
-  async function rxCheckSurroundingAnalyze(){
-    const overlay=state.rxCheckSurrounding?.overlay;
-    if(!overlay)return null;
-    const {center,innerRadius,outerRadius}=overlay;
-    const innerKm=innerRadius/1000;
-    const outerKm=outerRadius/1000;
-    const quadrantAreaKm2=Math.PI*(outerKm*outerKm-innerKm*innerKm)/4;
+  async function rxCheckSurroundingAnalyzeRegion(center,minKm,maxKm){
+    const outerKm=Math.max(0,maxKm);
+    const innerKm=Math.max(0,minKm);
+    const quadrantAreaKm2=Math.PI*Math.max(0,outerKm*outerKm-innerKm*innerKm)/4;
     const result={
-      areaKm2:quadrantAreaKm2,
+      minKm, outerKm, areaKm2:quadrantAreaKm2,
       quadrants:{
         NE:{total:0,retail:0,food:0,health:0,community:0,competitor:0},
         SE:{total:0,retail:0,food:0,health:0,community:0,competitor:0},
@@ -1100,12 +1104,10 @@
         NW:{total:0,retail:0,food:0,health:0,community:0,competitor:0}
       }
     };
-
     const asset=await loadAmenityAsset();
     const view=new DataView(asset.buffer);
     const ids=amenityIndicesWithinRadius(center.lat,center.lng,outerKm);
     const origin=L.latLng(center.lat,center.lng);
-
     for(const i of ids){
       const r=amenityReadRecord(i,view);
       const distanceKm=map.distance(origin,L.latLng(r.lat,r.lon))/1000;
@@ -1120,7 +1122,6 @@
       if(r.mask&AMENITY_CATEGORY_MASKS.health)q.health++;
       if(r.mask&AMENITY_CATEGORY_MASKS.community)q.community++;
     }
-
     const competitorCandidates=secondaryProximityCandidates(center.lat,center.lng,outerKm);
     const maxMeters=outerKm*1000;
     for(const item of competitorCandidates){
@@ -1132,12 +1133,54 @@
       const quadrant=bearing<90?'NE':bearing<180?'SE':bearing<270?'SW':'NW';
       result.quadrants[quadrant].competitor++;
     }
-
     for(const q of Object.values(result.quadrants)){
+      q.retailDensity=quadrantAreaKm2>0?q.retail/quadrantAreaKm2:0;
+      q.foodDensity=quadrantAreaKm2>0?q.food/quadrantAreaKm2:0;
+      q.healthDensity=quadrantAreaKm2>0?q.health/quadrantAreaKm2:0;
+      q.communityDensity=quadrantAreaKm2>0?q.community/quadrantAreaKm2:0;
       q.density=quadrantAreaKm2>0?q.total/quadrantAreaKm2:0;
       q.competitorDensity=quadrantAreaKm2>0?q.competitor/quadrantAreaKm2:0;
     }
     return result;
+  }
+
+  async function rxCheckSurroundingAnalyze(){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(!overlay)return null;
+    return rxCheckSurroundingAnalyzeRegion(overlay.center,overlay.innerRadius/1000,overlay.outerRadius/1000);
+  }
+
+  function rxCheckSurroundingCardIcon(html,{dx,dy,rotation=0}={}){
+    const iconWidth=205, iconHeight=142;
+    return L.divIcon({
+      className:'rx-quadrant-card-wrap',html,
+      iconSize:[iconWidth,iconHeight],
+      iconAnchor:[iconWidth/2-dx,iconHeight/2-dy]
+    });
+  }
+
+  function rxCheckSurroundingUpdateCardPositions(){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(!overlay?.annotationMarkers?.length)return;
+    const centrePoint=map.latLngToContainerPoint(overlay.center);
+    const edgePoint=map.latLngToContainerPoint(rxCheckSurroundingDestination(overlay.center,overlay.innerRadius,45));
+    const innerScreenRadius=Math.max(0,Math.hypot(edgePoint.x-centrePoint.x,edgePoint.y-centrePoint.y));
+    const iconWidth=205, iconHeight=142;
+    const halfDiagonal=Math.hypot(iconWidth/2,iconHeight/2);
+    const radialDistance=Math.max(innerScreenRadius+halfDiagonal+28,155);
+    const configs=[
+      {key:'NW',angle:225,rotation:-1.0},
+      {key:'NE',angle:315,rotation:1.0},
+      {key:'SW',angle:135,rotation:-.8},
+      {key:'SE',angle:45,rotation:.8}
+    ];
+    overlay.annotationMarkers.forEach((marker,index)=>{
+      const cfg=configs[index];
+      const rad=cfg.angle*Math.PI/180;
+      const dx=Math.cos(rad)*radialDistance;
+      const dy=Math.sin(rad)*radialDistance;
+      marker.setIcon(rxCheckSurroundingCardIcon(marker._rxCardHtml,{dx,dy,rotation:cfg.rotation}));
+    });
   }
 
   function rxCheckSurroundingRenderAnnotations(result){
@@ -1145,39 +1188,39 @@
     if(!overlay||!result)return;
     const {layer,center}=overlay;
     for(const marker of overlay.quadrantLabels||[])layer.removeLayer(marker);
+    for(const marker of overlay.annotationMarkers||[])layer.removeLayer(marker);
+    if(overlay.annotationZoomHandler)map.off('zoomend',overlay.annotationZoomHandler);
+
     const configs=[
-      {key:'NW',dx:-125,dy:-85,rotation:-1.2},
-      {key:'NE',dx:125,dy:-85,rotation:1.2},
-      {key:'SW',dx:-125,dy:85,rotation:-1.0},
-      {key:'SE',dx:125,dy:85,rotation:1.0}
+      {key:'NW',rotation:-1.0}, {key:'NE',rotation:1.0},
+      {key:'SW',rotation:-.8}, {key:'SE',rotation:.8}
     ];
-    const labels={retail:'Retail',food:'Food / Leisure',health:'Health / Services',community:'Community / Recreation',competitor:'Competitor'};
-    const iconWidth=230;
-    const iconHeight=148;
+    const labels={retail:'Retail',food:'Food / Leisure',health:'Health / Serv',community:'Community',competitor:'Competitor'};
+    const rows=(q)=>`
+      <div class="rx-q-row"><span>${labels.retail}</span><span>${fmtInt(q.retail)} / ${q.retailDensity.toFixed(1)}</span></div>
+      <div class="rx-q-row"><span>${labels.food}</span><span>${fmtInt(q.food)} / ${q.foodDensity.toFixed(1)}</span></div>
+      <div class="rx-q-row"><span>${labels.health}</span><span>${fmtInt(q.health)} / ${q.healthDensity.toFixed(1)}</span></div>
+      <div class="rx-q-row"><span>${labels.community}</span><span>${fmtInt(q.community)} / ${q.communityDensity.toFixed(1)}</span></div>
+      <div class="rx-q-row"><span>${labels.competitor}</span><span>${fmtInt(q.competitor)} / ${q.competitorDensity.toFixed(1)}</span></div>`;
+    const markers=[];
     for(const cfg of configs){
       const q=result.quadrants[cfg.key];
-      const anchorX=iconWidth/2-cfg.dx;
-      const anchorY=iconHeight/2-cfg.dy;
       const html=`<div class="rx-quadrant-card" style="transform:rotate(${cfg.rotation}deg)">
         <div class="rx-quadrant-card-title">${cfg.key}</div>
         <div class="rx-quadrant-card-area">${result.areaKm2.toFixed(2)} km² SURROUNDING</div>
-        <table><tbody>
-          <tr><td>${labels.retail}</td><td>${fmtInt(q.retail)}</td></tr>
-          <tr><td>${labels.food}</td><td>${fmtInt(q.food)}</td></tr>
-          <tr><td>${labels.health}</td><td>${fmtInt(q.health)}</td></tr>
-          <tr><td>${labels.community}</td><td>${fmtInt(q.community)}</td></tr>
-          <tr><td>${labels.competitor}</td><td>${fmtInt(q.competitor)}</td></tr>
-        </tbody></table>
-        <div class="rx-quadrant-card-total">
-          <span>TOTAL</span><strong>${fmtInt(q.total)}</strong><span class="rx-quadrant-density">${q.density.toFixed(1)} / km²</span>
-        </div>
-        <div class="rx-quadrant-card-subtotal">
-          <span>COMP DENS</span><strong>${q.competitorDensity.toFixed(1)} / km²</strong>
-        </div>
+        <div class="rx-q-rows">${rows(q)}</div>
+        <div class="rx-quadrant-card-total"><span>TOTAL</span><span>${fmtInt(q.total)} / ${q.density.toFixed(1)}</span></div>
       </div>`;
-      L.marker(center,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[iconWidth,iconHeight],iconAnchor:[anchorX,anchorY]}),interactive:false,zIndexOffset:1500}).addTo(layer);
+      const marker=L.marker(center,{icon:rxCheckSurroundingCardIcon(html,{dx:0,dy:0,rotation:cfg.rotation}),interactive:false,zIndexOffset:1500}).addTo(layer);
+      marker._rxCardHtml=html;
+      markers.push(marker);
     }
-    L.marker(center,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[260,32],iconAnchor:[130,16]}),interactive:false,zIndexOffset:1501}).addTo(layer);
+    overlay.annotationMarkers=markers;
+    overlay.annotationZoomHandler=()=>rxCheckSurroundingUpdateCardPositions();
+    map.on('zoomend',overlay.annotationZoomHandler);
+    rxCheckSurroundingUpdateCardPositions();
+    const title=L.marker(center,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[260,32],iconAnchor:[130,16]}),interactive:false,zIndexOffset:1501}).addTo(layer);
+    overlay.titleMarker=title;
   }
 
   function rxCheckSurroundingUpdateUi(){
@@ -1552,6 +1595,38 @@
     state.rxSiteAnalysis.overlay={layer,closeButton:close,subject,mapState,escHandler:esc};
   }
 
+  function rxSiteRenderSubjectCircleMetrics(result,radiusKm){
+    const grid=el('rxSiteAnalysisDetailGrid');
+    if(!grid||!result)return;
+    grid.dataset.defaultHtml=grid.dataset.defaultHtml||grid.innerHTML;
+    const q={
+      retail:0, food:0, health:0, community:0, competitor:0, total:0,
+      retailDensity:0, foodDensity:0, healthDensity:0, communityDensity:0, competitorDensity:0, density:0
+    };
+    for(const item of Object.values(result.quadrants)){
+      for(const key of ['retail','food','health','community','competitor','total'])q[key]+=item[key];
+    }
+    const areaKm2=Math.PI*radiusKm*radiusKm;
+    q.retailDensity=areaKm2>0?q.retail/areaKm2:0;
+    q.foodDensity=areaKm2>0?q.food/areaKm2:0;
+    q.healthDensity=areaKm2>0?q.health/areaKm2:0;
+    q.communityDensity=areaKm2>0?q.community/areaKm2:0;
+    q.competitorDensity=areaKm2>0?q.competitor/areaKm2:0;
+    q.density=areaKm2>0?q.total/areaKm2:0;
+    const row=(title,value,density)=>`<div class="rx-subject-metric-row"><span>${title}</span><strong>${fmtInt(value)} / ${density.toFixed(1)}</strong></div>`;
+    grid.className='rx-site-analysis-detail-grid rx-subject-metrics-grid';
+    grid.innerHTML=`
+      <div class="rx-subject-metric-header"><span>Measure</span><span>VALUE / DENSITY</span></div>
+      ${row('Retail',q.retail,q.retailDensity)}
+      ${row('Food / Leisure',q.food,q.foodDensity)}
+      ${row('Health / Serv',q.health,q.healthDensity)}
+      ${row('Community',q.community,q.communityDensity)}
+      ${row('Competitor',q.competitor,q.competitorDensity)}
+      <div class="rx-subject-metric-row rx-subject-metric-total"><span>TOTAL</span><strong>${fmtInt(q.total)} / ${q.density.toFixed(1)}</strong></div>`;
+    const radiusLabel=el('rxSiteAnalysisDetailSubtitle');
+    if(radiusLabel)radiusLabel.textContent=`${radiusKm.toFixed(2)} km radius • value / density per km²`;
+  }
+
   async function rxSiteAnalyzeSubjectCircle(){
     const circle=state.circleSelection?.circle;
     if(!circle)return;
@@ -1560,30 +1635,25 @@
     const status=el('rxSiteAnalysisStatus');
     if(status)status.textContent='Calculating Subject Circle…';
     try{
+      const result=await rxCheckSurroundingAnalyzeRegion(centre,0,radiusKm);
       state.rxSiteAnalysis.detailMode='density';
       state.rxSiteAnalysis.detailViewMode='subjectCircle';
-      const modeToggle=el('rxSiteAnalysisModeToggle');
-      if(modeToggle)modeToggle.checked=false;
-      const densities=await rxSiteBuildAmenityDetail(centre.lat,centre.lng,radiusKm,radiusKm);
-      const subject={address:'Subject Circle',lat:centre.lat,lng:centre.lng,amenityDensityDetail:densities};
-      state.rxSiteAnalysis.subject=subject;
       const searchView=el('rxSiteAnalysisSearchView');
       const detailView=el('rxSiteAnalysisDetailView');
       const subjectAddress=el('rxSiteAnalysisSubjectAddress');
-      const subtitle=el('rxSiteAnalysisDetailSubtitle');
       const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
-      const radiusInput=el('rxSiteAnalysisInnerRadius');
+      const toggle=el('rxSiteAnalysisModeToggle');
+      const toggleWrap=toggle?.closest('.rx-site-analysis-mode-toggle');
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
       if(heading)heading.textContent='Subject Circle';
       if(subjectAddress)subjectAddress.textContent='Subject Circle';
-      if(subtitle)subtitle.textContent='Subject circle • per sq km';
-      if(radiusInput){radiusInput.value=radiusKm.toFixed(1);radiusInput.disabled=true;}
-      rxSiteWireRadiusInputs();
-      rxSiteRenderAmenityDetail(densities);
+      if(toggleWrap)toggleWrap.classList.add('hidden');
+      rxSiteRenderSubjectCircleMetrics(result,radiusKm);
       const back=el('rxSiteAnalysisBack');
       if(back)back.textContent='Back';
       if(status)status.textContent='Subject Circle active • actual Census circle radius.';
+      state.rxSiteAnalysis.subject={address:'Subject Circle',lat:centre.lat,lng:centre.lng,radiusKm,amenityDensityDetail:null,quadrantResult:result};
     }catch(err){
       if(status)status.textContent=`Subject Circle failed: ${err.message}`;
       throw err;
@@ -1687,9 +1757,15 @@
         if(radiusInput)radiusInput.disabled=false;
         const subtitle=el('rxSiteAnalysisDetailSubtitle');
         const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
+        const toggle=el('rxSiteAnalysisModeToggle');
+        const toggleWrap=toggle?.closest('.rx-site-analysis-mode-toggle');
+        const grid=el('rxSiteAnalysisDetailGrid');
+        if(toggleWrap)toggleWrap.classList.remove('hidden');
+        if(grid?.dataset.defaultHtml){grid.innerHTML=grid.dataset.defaultHtml;grid.className='rx-site-analysis-detail-grid';}
         if(heading)heading.textContent='Subject Site';
         if(subtitle)subtitle.textContent='(per sq km)';
         state.rxSiteAnalysis.detailViewMode='search';
+        rxSiteWireRadiusInputs();
         rxSiteUpdateActiveCentreUi();
       });
     }
