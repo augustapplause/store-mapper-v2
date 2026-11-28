@@ -1,543 +1,6540 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.343</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.341" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="header-main">
-      <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.343</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
-        <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
-      </div>
-      <div class="ticker-wrap" aria-label="Ticker metrics">
-        <div id="tickerViewport" class="ticker-viewport" tabindex="0" aria-live="polite">
-          <div id="tickerTrack" class="ticker-track"></div>
+/* Store Explorer - v1.338
+   Financial workbook processing is entirely client-side. Workbook data is never uploaded.
+   DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
+   Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
+*/
+(() => {
+  // Global configuration-dialog close handler: every standard X closes its owning dialog.
+  document.addEventListener('click', e=>{
+    const btn=e.target.closest('dialog .icon-btn[aria-label="Close"], dialog .dialog-close[aria-label="Close"], dialog [data-dialog-close]');
+    if(!btn)return;
+    const dlg=btn.closest('dialog');
+    if(!dlg)return;
+    e.preventDefault();
+    e.stopPropagation();
+    if(typeof dlg.close==='function')dlg.close();
+  }, true);
+
+  'use strict';
+
+  const CONFIG = {
+    canadaBounds: [[41.6, -141.2], [83.2, -52.3]],
+    canadaView: {center:[56.5, -99.5], zoom:4},
+    csdLayer: 9,
+    geocodeUrl: 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates',
+    daAssetBase: '.',
+    daFiles: {
+      AB:'AB_da_spatial_asset_v1.json', BC:'BC_da_spatial_asset_v1.json', MB:'MB_da_spatial_asset_v1.json',
+      NB:'NB_da_spatial_asset_v1.json', NL:'NL_da_spatial_asset_v1.json', NS:'NS_da_spatial_asset_v1.json',
+      NT:'NT_da_spatial_asset_v1.json', NU:'NU_da_spatial_asset_v1.json', ON:'ON_da_spatial_asset_v1.json',
+      PE:'PE_da_spatial_asset_v1.json', QC:'QC_da_spatial_asset_v1.json', SK:'SK_da_spatial_asset_v1.json',
+      YT:'YT_da_spatial_asset_v1.json'
+    },
+    prCodeByUid: {'10':'NL','11':'PE','12':'NS','13':'NB','24':'QC','35':'ON','46':'MB','47':'SK','48':'AB','59':'BC','60':'YT','61':'NT','62':'NU'},
+    daMinRenderZoom: 8,
+    // Precomputed province totals used when a candidate province is fully contained
+    // in the active viewport/circle. This avoids loading the province DA asset for totals.
+    provinceAggregates: {
+      AB:{total_population:4262635,population_65_plus:628920,population_40_64:1387155,visible_minority_population:1156960,total_households:1632615,incomeWeighted:681797100,da_count:6216},
+      BC:{total_population:5000879,population_65_plus:1015980,population_40_64:1668985,visible_minority_population:1686695,total_households:2040715,incomeWeighted:807433700,da_count:7873},
+      MB:{total_population:1342153,population_65_plus:228925,population_40_64:415175,visible_minority_population:288905,total_households:517860,incomeWeighted:198230800,da_count:2225},
+      NB:{total_population:775610,population_65_plus:177005,population_40_64:274480,visible_minority_population:41860,total_households:337530,incomeWeighted:116248600,da_count:1470},
+      NL:{total_population:510550,population_65_plus:120595,population_40_64:187685,visible_minority_population:15145,total_households:223065,incomeWeighted:79260700,da_count:1084},
+      NS:{total_population:969383,population_65_plus:215220,population_40_64:333110,visible_minority_population:91140,total_households:428195,incomeWeighted:139549500,da_count:1672},
+      NT:{total_population:41070,population_65_plus:4090,population_40_64:13550,visible_minority_population:4900,total_households:15145,incomeWeighted:10533300,da_count:98},
+      NU:{total_population:36858,population_65_plus:1615,population_40_64:8825,visible_minority_population:1370,total_households:9915,incomeWeighted:4821300,da_count:50},
+      ON:{total_population:14223942,population_65_plus:2637090,population_40_64:4732200,visible_minority_population:4805055,total_households:5490200,incomeWeighted:2364264460,da_count:20520},
+      PE:{total_population:154331,population_65_plus:32665,population_40_64:51655,visible_minority_population:13740,total_households:64555,incomeWeighted:23376100,da_count:319},
+      QC:{total_population:8501833,population_65_plus:1753955,population_40_64:2852340,visible_minority_population:1325005,total_households:3748525,incomeWeighted:1237514200,da_count:13827},
+      SK:{total_population:1132505,population_65_plus:197445,population_40_64:347290,visible_minority_population:156565,total_households:448210,incomeWeighted:182436700,da_count:2628},
+      YT:{total_population:40232,population_65_plus:6010,population_40_64:13615,visible_minority_population:5060,total_households:17065,incomeWeighted:5282700,da_count:74}
+    }
+  };
+
+  const CENSUS_PROVINCE_NAMES = {AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NL:'Newfoundland and Labrador',NS:'Nova Scotia',NT:'Northwest Territories',NU:'Nunavut',ON:'Ontario',PE:'Prince Edward Island',QC:'Quebec',SK:'Saskatchewan',YT:'Yukon'};
+
+  const HELP_STORAGE_KEY='storeExplorer.help.v1';
+  const SUBJECT_STORAGE_KEY='storeExplorer.subjects.v1';
+  const HELP_DEFAULTS={
+    'financial-file':'Start here: load Excel / CSV to populate store data.  Only first tab is read, header s/b one row, will be autodetected, must have at least "latitude", "longitude", "store profile number", "province", columns',
+    'secondary-file':'Load a separate set of locations that remain independent of the primary store data and analysis.',
+    'clear-financial':'Remove current workbook and reset store data. Census map tools remain available.',
+    'circle':'Draw circular Census catchment. Click on map to place its centre.',
+    'box':'Draw rectangular Census catchment. Click on map to place its centre.',
+    'clear-census':'Remove active Census catchment & its calculated DA results.',
+    'go-search':'Jump to a city, postal code, or address.',
+    'store-jump':'Jump to a Store Profile number.',
+    'filter-config':'Build filters to isolate workbook data.',
+    'filter-clear':'Remove all workbook filters.',
+    'animate-when':'Choose single data file column filter that controls marker animation.',
+    'popup-config':'Choose data file columns to be shown in a map marker popup.',
+    'subjects-config':'Configure table of average values below',
+    'groups-config':'Choose data file column on which to group stores for comparison.',
+    'distribution-config':'Build distribution bar chart for chosen data file column (all data file rows incl)',
+    'distribution2-config':'Build distribution bar chart for chosen data file column (all data file rows incl)',
+    'selected-config':'Choose data file columns shown for the Selected Stores list.',
+    'selected-export':'Export currently selected stores to XLS',
+    'selected-da-export':'Export the currently selected Census DAs to XLS',
+    'ticker-config':'Configure metrics streamed in header ticker.',
+    'marker-red':'Set map marker colour to red.',
+    'marker-blue':'Set map marker colour to royal blue.',
+    'marker-purple':'Set map marker colour to purple.',
+    'marker-black':'Set map marker colour to black.',
+    'help-config':'Customize hover help shown for the main controls in this app.',
+    'secondaryPopupConfigBtn':'',
+    'secondaryHoverConfigBtn':'',
+    'clearSecondaryBtn':'',
+    'markerConfigBtn':'Set size of map markers',
+    'button-retail':'',
+    'button-food-leisure':'',
+    'button-health-services':'',
+    'button-community-recreation':'',
+    'exportSubjectsBtn':'Export Subject table to xls',
+    'button-total-sales':'',
+    'button-gross-profit':'',
+    'button-total-labour-expense':'',
+    'button-total-occupancy-expense':'',
+    'button-store-4-wall-profit-ebit':'',
+    'button-shrink':'',
+    'button-prescription-count':'',
+    'button-fs-sales':'',
+    'button-cosmetics-sales':'',
+    'button-prescription-sales':''
+  };
+
+  // Seed first-run menu configuration from the embedded HTML preset. Existing saved browser settings always win.
+  function seedEmbeddedMenuDefaults(){
+    try{
+      const node=document.getElementById('storeExplorerDefaultMenuConfig');
+      if(!node)return;
+      const preset=JSON.parse(node.textContent||'{}');
+      if(!preset || typeof preset!=='object')return;
+      Object.entries(preset).forEach(([key,value])=>{
+        if(!key || localStorage.getItem(key)!==null)return;
+        localStorage.setItem(key, typeof value==='string' ? value : JSON.stringify(value));
+      });
+    }catch(err){
+      console.warn('Embedded menu defaults unavailable:',err);
+    }
+  }
+
+  const state = {
+    rows: [], headers: [], types: {}, columns: {}, fileName: null,
+    primaryTabs: [], popupTabConfigs: [], popupTabDrafts: [], popupTabSelected: {tab:0,r:0,c:0}, popupTabSelectionAnchor: {tab:0,r:0,c:0},
+    subjects: [], groups: [], distributionSubject: null, distributionBinKey: null, distributionSubject2: null, distributionBinKey2: null, distributionDialogTarget: 1, filters: [], filterDraft: [], filterValuePickerIndex: null, selectedStoreColumns: [], popupConfig: [], popupConfigDraft: [], popupHeader: null, popupHeaderDraft: null, popupCensusCache: new Map(), filterCensusCache: new WeakMap(), popupQuartileDistributionCache: new Map(), populationCalcStatusDepth: 0, populationCalcStatusFrame: 0, popupRenderToken: 0, popupTickerMetrics: [], popupTickerDraft: [], popupTickerPlaying:true, popupTickerIndex:0, popupTickerTimer:null, popupQuartileValues:{} , subjectVirtualCache:new WeakMap(), subjectDistributionPopup:null, subjectDistributionAnchor:null, subjectDistributionBuckets:6, subjectDistributionIndex:null,
+    selection: {type:'national', name:'Canada', feature:null, provinceCode:null, radius:null},
+    activeGeographicCentre: null,
+    censusScope: {type:'viewport', code:null, name:null, generation:0, reason:'initial'},
+    markerColor: '#d34c4c',
+    markerConfig: {primarySize:22, secondarySize:11, secondaryIconSizes:{}},
+    markerAnimation: {enabled:false,type:'ripple',fadeObject:'smiley',column:'',formula:'',operator:'=',value:'',values:[],typeMode:'numeric'},
+    markerAnimationPassCache: new WeakMap(),
+    filterPassCache: new WeakMap(),
+    selectedRows: [], filteredRows: [], viewportSelectedRows: [],
+    selectedGroupKey: null,
+    selectedStoreRow: null,
+    csdGeo: null,
+    daCache: new Map(), currentDaProvince: null, daLayer: null, daSelectionResult: null, showDaOverlay: true,
+    csdLookupGeo: null, csdLookupLoading: false, csdLookupPromise: null, csdLookupIndex: new Map(), csdLookupCellSize: 0.5, csdProvinceBBoxes: new Map(), lastHeaderCsdKey: null, headerLookupReady: false, headerLookupPointKey: null,
+    markerCluster: null, markers: [], secondaryLocationLayer: null, secondaryCanvasLayer: null, secondaryLocations: [], secondaryHeaders: [], secondaryLatColumn: null, secondaryLonColumn: null, secondaryCompetitorColumn: null, secondaryFileName: null, secondaryPopupConfig: null, secondaryHoverColumn: null, secondarySpatialIndex: null, secondarySpatialItems: [], secondaryVisible: false, secondaryHoverRow: null, secondaryEdits: {}, secondaryHitRadiusPx: 10, secondaryPopupItem: null, secondaryPopupLayer: null, secondaryPopupSvg: null, secondaryPopupCard: null, secondaryPopupResizeObserver: null, amenityAssetState: {status:'idle', promise:null, buffer:null, meta:null, gridIndex:null}, amenityNamesAssetState: {status:'idle', promise:null, buffer:null, meta:null}, amenityPopupCache: new Map(), spiderfyGroup: null, spiderfyOriginalPositions: new Map(), navigationResultLayer:null, navigationResultAnimation:null, navigationResultLatLng:null, navigationResultKind:null, navigationResultStoreRow:null, navigationResultStoreColor:null, navigationResultStoreRippleTimer:null,
+    municipalityLabelLayer:null, municipalityLabelIndex:new Map(), municipalityLabels:[], municipalityLabelCellSize:1,
+    circleSelection: null, rectangleSelection: null, censusGeoSelection: null, censusGeoLayer: null, circleDrawMode: false, rectangleDrawMode: false, censusShapeDrawing: null, circleDrawing: null, circleEditHandles: [], rectangleEditHandles: [], markerClickSuppressed: false, csdRequestKey: null, moveTimer:null, selectionUpdateFrame:null, rxCheckSurrounding: {overlay:null},
+    mapReadyForViewport: false, initialNationalView: true,
+    programmaticMoveDepth: 0,
+    programmaticMoveUntil: 0,
+    userMapInteraction: false,
+    daActivationTrigger: null,
+    daRefreshTimer:null, daProvinceCacheKey:null, daProvinceCache:null, daDelayMs:500, navigationDaSuppressed:false, censusShapeHandleDragActive:false, censusShapeHandlePendingReason:null,
+    censusRequestId:0, censusScopeGeneration:0, censusTotalPopulation:null, searchToken:0, headerGeoRequestId:0, headerGeoTimer:null, popupQuartileDraftChanged:false, tickerMetrics:[], tickerPlaying:true, tickerOffset:0, tickerDragStart:null, tickerPointerId:null, tickerLoopWidth:0, tickerAnimationFrame:null, tickerLastTime:null, tickerSpeed:70, tickerConfigDraft:[], tickerConfigDraftSpeed:70,
+    rxSiteAnalysis:{enabled:false,modelReady:false,modelPromise:null,model:null,subject:null,overlay:null,detailMode:'density'} 
+  };
+
+  seedEmbeddedMenuDefaults();
+
+  const el = id => document.getElementById(id);
+  const fmtInt = v => Number.isFinite(v) ? Math.round(v).toLocaleString() : '—';
+  const fmtPct = v => Number.isFinite(v) ? `${(v*100).toFixed(1)}%` : '—';
+  const fmtMoney = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:0}).format(v) : '—';
+  const fmtNum = v => Number.isFinite(v) ? new Intl.NumberFormat('en-CA',{maximumFractionDigits:1}).format(v) : '—';
+  const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const norm = s => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  function normalizeMarkerSize(value,min,max,fallback){
+    const n=Number(value);
+    if(!Number.isFinite(n))return fallback;
+    return Math.max(min,Math.min(max,Math.round(n)));
+  }
+
+  const map = L.map('map', {zoomControl:true, preferCanvas:true, minZoom:2}).setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom);
+  const daSelectionPane = map.createPane('daSelectionPane');
+  daSelectionPane.style.zIndex = '450';
+  daSelectionPane.style.pointerEvents = 'none';
+  const municipalityLabelPane = map.createPane('municipalityLabelPane');
+  municipalityLabelPane.style.zIndex = '420';
+  municipalityLabelPane.style.pointerEvents = 'none';
+  state.municipalityLabelLayer = L.layerGroup().addTo(map);
+  const secondaryMarkerPane = map.createPane('secondaryMarkerPane');
+  const SECONDARY_MARKER_ASSET='Red-Ball-Transparent.png';
+  let SECONDARY_MARKER_ICONS = [
+    {key:'calgary coop',label:'Calgary Coop',asset:'calgary coop.png'},
+    {key:'calgary co-op',label:'Calgary Co-op',asset:'calgary co-op.png'},
+    {key:'freshco',label:'FreshCo',asset:'freshco.png'},
+    {key:'brunet',label:'Brunet',asset:'brunet.png'},
+    {key:'metro',label:'Metro',asset:'metro.png'},
+    {key:'safeway (sobeys)',label:'SAFEWAY (SOBEYS)',asset:'safeway.png'},
+    {key:'sobeys',label:'Sobeys',asset:'sobeys.png'},
+    {key:'pharmacie jean coutu',label:'Pharmacie Jean Coutu',asset:'pharmacie jean coutu.png'},
+    {key:'wal-mart',label:'Wal-Mart',asset:'wal-mart.png'},
+    {key:'sav-on foods',label:'Sav-On Foods',asset:'sav-on foods.png'}
+  ];
+
+  const SECONDARY_MARKER_ICON_MANIFEST='secondary-marker-icons.json';
+  const secondaryMarkerImageCache = new Map();
+
+  async function loadSecondaryMarkerIconManifest(){
+    try{
+      const response=await fetch(SECONDARY_MARKER_ICON_MANIFEST,{cache:'no-store'});
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      const payload=await response.json();
+      if(!Array.isArray(payload))throw new Error('Manifest must be an array.');
+      const next=payload
+        .filter(item=>item&&typeof item.key==='string'&&typeof item.label==='string'&&typeof item.asset==='string')
+        .map(item=>({key:item.key.toLowerCase(),label:item.label,asset:item.asset,defaultSize:normalizeMarkerSize(item.defaultSize,6,48,17)}));
+      if(!next.length)throw new Error('Manifest contains no valid icons.');
+      SECONDARY_MARKER_ICONS=next;
+
+      // Preserve a user's prior Safeway size when migrating the old hard-coded key.
+      const saved=state.markerConfig?.secondaryIconSizes;
+      if(saved&&saved.safeway!==undefined&&saved['safeway (sobeys)']===undefined){
+        saved['safeway (sobeys)']=saved.safeway;
+      }
+      if(state.markerConfig){
+        const existing=state.markerConfig.secondaryIconSizes||{};
+        const nextSizes=Object.fromEntries(SECONDARY_MARKER_ICONS.map(icon=>[
+          icon.key,
+          normalizeMarkerSize(existing[icon.key]??icon.defaultSize??17,6,48,icon.defaultSize??17)
+        ]));
+        state.markerConfig.secondaryIconSizes=nextSizes;
+        saveMarkerConfig();
+      }
+      secondaryMarkerImageCache.clear();
+      if(typeof renderSecondaryIconConfig==='function')renderSecondaryIconConfig();
+      if(typeof refreshMarkerConfigUI==='function')refreshMarkerConfigUI();
+      if(typeof bindMarkerConfigInputs==='function')bindMarkerConfigInputs();
+      state.secondaryCanvasLayer?.redraw();
+    }catch(err){
+      console.warn('Secondary marker icon manifest unavailable; using built-in fallback list.',err);
+    }
+    return SECONDARY_MARKER_ICONS;
+  }
+  function secondaryIconKey(value){ return String(value ?? '').toLowerCase(); }
+  function secondaryIconForRow(row){
+    const col=state.secondaryCompetitorColumn;
+    if(!col)return null;
+    const key=secondaryIconKey(row?.[col]);
+    return SECONDARY_MARKER_ICONS.find(icon=>icon.key===key)||null;
+  }
+  function loadSecondaryMarkerImage(icon){
+    if(!icon)return secondaryMarkerImage;
+    if(secondaryMarkerImageCache.has(icon.asset))return secondaryMarkerImageCache.get(icon.asset);
+    const image=new Image();
+    image.src=icon.asset;
+    image.onload=()=>state.secondaryCanvasLayer?.redraw();
+    secondaryMarkerImageCache.set(icon.asset,image);
+    return image;
+  }
+  function drawSecondaryIconContained(ctx,image,x,y,maxSize){
+    const sourceWidth=Number(image?.naturalWidth||image?.width||0);
+    const sourceHeight=Number(image?.naturalHeight||image?.height||0);
+    if(!(sourceWidth>0&&sourceHeight>0&&maxSize>0))return false;
+    const scale=Math.min(maxSize/sourceWidth,maxSize/sourceHeight);
+    const drawWidth=Math.max(1,sourceWidth*scale);
+    const drawHeight=Math.max(1,sourceHeight*scale);
+    ctx.drawImage(image,x-drawWidth/2,y-drawHeight/2,drawWidth,drawHeight);
+    return true;
+  }
+  const secondaryMarkerImage = new Image();
+  secondaryMarkerImage.src = SECONDARY_MARKER_ASSET;
+  secondaryMarkerImage.onload = ()=>state.secondaryCanvasLayer?.redraw();
+  secondaryMarkerPane.style.zIndex = '580';
+  secondaryMarkerPane.style.pointerEvents = 'none';
+
+  class SecondaryCanvasLayer extends L.Layer {
+    onAdd(mapInstance){
+      this._map=mapInstance;
+      this._canvas=L.DomUtil.create('canvas','secondary-canvas-layer');
+      this._pane=mapInstance.getPane('secondaryMarkerPane');
+      this._pane.appendChild(this._canvas);
+      mapInstance.on('moveend zoomend resize',this._reset,this);
+      this._reset();
+    }
+    onRemove(mapInstance){
+      mapInstance.off('moveend zoomend resize',this._reset,this);
+      if(this._canvas?.parentNode)this._canvas.parentNode.removeChild(this._canvas);
+      this._canvas=null;
+      this._map=null;
+    }
+    _reset(){
+      if(!this._map||!this._canvas)return;
+      const mapSize=this._map.getSize();
+      const topLeft=this._map.containerPointToLayerPoint([0,0]);
+      this._layerOrigin=topLeft;
+      const dpr=Math.max(1,window.devicePixelRatio||1);
+      this._canvas.width=Math.max(1,Math.round(mapSize.x*dpr));
+      this._canvas.height=Math.max(1,Math.round(mapSize.y*dpr));
+      this._canvas.style.width=`${mapSize.x}px`;
+      this._canvas.style.height=`${mapSize.y}px`;
+      L.DomUtil.setPosition(this._canvas,topLeft);
+      this.redraw();
+    }
+    redraw(){
+      if(!this._canvas||!this._map)return;
+      const ctx=this._canvas.getContext('2d');
+      const dpr=Math.max(1,window.devicePixelRatio||1);
+      const size=this._map.getSize();
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,size.x,size.y);
+      if(!state.secondaryVisible||!state.secondarySpatialIndex)return;
+      const b=this._map.getBounds();
+      const q={minX:b.getWest(),minY:b.getSouth(),maxX:b.getEast(),maxY:b.getNorth()};
+      const items=state.secondarySpatialIndex.search(q);
+      const fallbackSize=Math.max(6,Math.min(48,Number(state.markerConfig?.secondarySize)||11));
+      const origin=this._layerOrigin||this._map.containerPointToLayerPoint([0,0]);
+      for(const item of items){
+        const p=this._map.latLngToLayerPoint([item.lat,item.lng]);
+        const x=p.x-origin.x;
+        const y=p.y-origin.y;
+        const icon=secondaryIconForRow(item.row);
+        const configuredSize=icon ? Number(state.markerConfig?.secondaryIconSizes?.[icon.key]) : fallbackSize;
+        const markerSize=Math.max(6,Math.min(48,Number.isFinite(configuredSize)&&configuredSize>0?configuredSize:fallbackSize));
+        const image=icon?loadSecondaryMarkerImage(icon):secondaryMarkerImage;
+        ctx.save();
+        if(icon && image.complete && image.naturalWidth>0){
+          drawSecondaryIconContained(ctx,image,x,y,markerSize);
+        }else if(!icon && image.complete && image.naturalWidth>0){
+          drawSecondaryIconContained(ctx,image,x,y,markerSize);
+        }else{
+          ctx.fillStyle='#c90000';
+          ctx.beginPath();
+          ctx.arc(x,y,markerSize/2,0,Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  }
+  state.secondaryCanvasLayer=new SecondaryCanvasLayer().addTo(map);
+  const hoverTooltip = L.tooltip({direction:'top', opacity:0.95, offset:[0,-8], className:'unified-hover-tooltip'});
+  const secondaryHoverOwner = {secondary:true};
+  let hoverTooltipOwner = null;
+  function showUnifiedHover(owner, latlng, html){
+    if (!html) return;
+    hoverTooltipOwner = owner;
+    hoverTooltip.setContent(html).setLatLng(latlng);
+    if (!map.hasLayer(hoverTooltip)) hoverTooltip.addTo(map);
+  }
+  function hideUnifiedHover(owner=null){
+    if (owner && hoverTooltipOwner !== owner) return;
+    hoverTooltipOwner = null;
+    if (map.hasLayer(hoverTooltip)) map.removeLayer(hoverTooltip);
+  }
+  const selectionCirclePane = map.createPane('selectionCirclePane');
+  selectionCirclePane.style.zIndex = '550';
+  selectionCirclePane.style.pointerEvents = 'auto';
+  const censusCenterPane = map.createPane('censusCenterPane');
+  censusCenterPane.style.zIndex = '590';
+  censusCenterPane.style.pointerEvents = 'none';
+  const censusHandlePane = map.createPane('censusHandlePane');
+  censusHandlePane.style.zIndex = '680';
+  censusHandlePane.style.pointerEvents = 'auto';
+  const CENSUS_DEBUG_ENABLED = new URLSearchParams(location.search).get('debug') === '1';
+  const CENSUS_DEBUG = {
+    events: [],
+    log(event, detail={}) {
+      const row = {time:new Date().toISOString(), event, detail};
+      this.events.push(row);
+      if (this.events.length > 120) this.events.shift();
+      if (CENSUS_DEBUG_ENABLED) {
+        console.debug('[CENSUS STATE]', event, detail);
+        this.render();
+      }
+    },
+    render() {
+      if (!CENSUS_DEBUG_ENABLED) return;
+      let panel = document.getElementById('censusDebugPanel');
+      if (!panel) {
+        panel = document.createElement('pre');
+        panel.id = 'censusDebugPanel';
+        Object.assign(panel.style,{position:'fixed',left:'10px',bottom:'10px',zIndex:99998,background:'rgba(0,0,0,.9)',color:'#fff',padding:'10px',margin:0,font:'11px/1.4 monospace',whiteSpace:'pre-wrap',maxWidth:'520px',maxHeight:'70vh',overflow:'auto'});
+        document.body.appendChild(panel);
+      }
+      const shape=censusShapeType?.()||null;
+      const geo=censusGeoScopeType?.()||null;
+      const scope=censusScopeType();
+      const last=this.events.slice(-12).map(x=>`${new Date(x.time).toLocaleTimeString()} ${x.event} ${JSON.stringify(x.detail)}`).join('\n');
+      panel.textContent=[
+        'CENSUS STATE DEBUG v1.165',
+        `scope: ${scope}`,
+        `shape: ${shape||'none'} | geo: ${geo||'none'}`,
+        `geoCode: ${state.censusGeoSelection?.code||'none'}`,
+        `selectedRows: ${(state.selectedRows||[]).length}`,
+        `DA result: ${state.daSelectionResult?.selectedCount ?? 0}`,
+        `circle handles: ${state.circleEditHandles.length} | box handles: ${state.rectangleEditHandles.length}`,
+        '--- events ---',
+        last || '(none)'
+      ].join('\n');
+    }
+  };
+  CENSUS_DEBUG.log('initialized');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  L.control.scale({position:'bottomleft', metric:true, imperial:false, maxWidth:120}).addTo(map);
+  state.markerCluster = L.layerGroup().addTo(map);
+  state.navigationResultLayer = L.layerGroup().addTo(map);
+  map.on('move zoom resize',()=>{requestStorePopupLayout();requestSecondaryPopupLayout();});
+  map.on('click',e=>{ if(e?.originalEvent?.target===map.getContainer() && state.openPopupMarker) closeStorePopup(); });
+
+  const daStyle = {color:'#298ac2',weight:.7,fillColor:'#45a3d4',fillOpacity:.12,interactive:false};
+
+  async function fetchJson(url, options={}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeout || 120000);
+    try {
+      const r = await fetch(url, {signal:controller.signal, cache:'no-store'});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } finally { clearTimeout(timer); }
+  }
+
+  async function arcgisGeoJSON(layer, params={}) {
+    const q = new URLSearchParams({where:'1=1',outFields:'*',returnGeometry:'true',f:'geojson',outSR:'4326',...params});
+    return fetchJson(`${CONFIG.statcanBase}/${layer}/query?${q.toString()}`, {timeout:120000});
+  }
+
+  function provinceCodeFromFeature(feature) {
+    const p = feature?.properties || {};
+    const raw = [
+      p.code, p.province_code, p.PROV_CODE, p.PROV, p.pruid,
+      p.PRUID, p.PRUID3, p.province, p.Province, p.name, p.NAME,
+      p.PRNAME, p.PRENAME
+    ].map(v => String(v ?? '').trim()).find(Boolean) || '';
+    const v = raw.toUpperCase();
+    const direct = {
+      'AB':'AB','ALBERTA':'AB', 'BC':'BC','BRITISH COLUMBIA':'BC',
+      'MB':'MB','MANITOBA':'MB', 'NB':'NB','NEW BRUNSWICK':'NB',
+      'NL':'NL','NEWFOUNDLAND AND LABRADOR':'NL',
+      'NS':'NS','NOVA SCOTIA':'NS', 'NT':'NT','NORTHWEST TERRITORIES':'NT',
+      'NU':'NU','NUNAVUT':'NU', 'ON':'ON','ONTARIO':'ON',
+      'PE':'PE','PRINCE EDWARD ISLAND':'PE', 'QC':'QC','QUEBEC':'QC',
+      'SK':'SK','SASKATCHEWAN':'SK', 'YT':'YT','YUKON':'YT', 'CA':'CA','CANADA':'CA'
+    };
+    if (direct[v]) return direct[v];
+    if (CONFIG.prCodeByUid[v]) return CONFIG.prCodeByUid[v];
+    const uid = String(p.PRUID || p.PRUID3 || p.province_uid || '').trim();
+    if (CONFIG.prCodeByUid[uid]) return CONFIG.prCodeByUid[uid];
+    if (/^\d{2}$/.test(uid) && CONFIG.prCodeByUid[uid]) return CONFIG.prCodeByUid[uid];
+    return null;
+  }
+
+  function provinceCodeFromCsdFeature(feature) {
+    const p = feature?.properties || {};
+    const abbr = String(p.province || p.Province || '').trim();
+    const map = {
+      'N.L.':'NL','P.E.I.':'PE','N.S.':'NS','N.B.':'NB','Que.':'QC','Ont.':'ON',
+      'Man.':'MB','Sask.':'SK','Alta.':'AB','B.C.':'BC','Y.T.':'YT','N.W.T.':'NT','Nun.':'NU'
+    };
+    if (map[abbr]) return map[abbr];
+    const csduid = String(p.CSDUID || '');
+    return csduid.length >= 2 ? CONFIG.prCodeByUid[csduid.slice(0,2)] || null : null;
+  }
+
+  function provinceCodeFromText(text) {
+    const t = norm(text);
+    if (!t) return null;
+    const map = {
+      AB:['alberta','ab'], BC:['british columbia','bc'], MB:['manitoba','mb'], NB:['new brunswick','nb'],
+      NL:['newfoundland and labrador','newfoundland','labrador','nl'], NS:['nova scotia','ns'], NT:['northwest territories','nt'],
+      NU:['nunavut','nu'], ON:['ontario','on'], PE:['prince edward island','pei','pe'], QC:['quebec','qc'],
+      SK:['saskatchewan','sk'], YT:['yukon','yt']
+    };
+    const escapeRe = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const entries = Object.entries(map).flatMap(([code, vals]) => vals.map(value => ({code, value})))
+      .sort((a,b) => b.value.length - a.value.length);
+    for (const {code, value} of entries) {
+      const re = new RegExp(`(^|\\s)${escapeRe(value)}($|\\s)`, 'i');
+      if (re.test(t)) return code;
+    }
+    return null;
+  }
+
+  function provinceCodeFromAddress(query, candidate) {
+    const attr = candidate?.attributes || {};
+    const byAttr = provinceCodeFromText(`${attr.Region || ''} ${attr.Province || ''} ${attr.Postal || ''}`);
+    if (byAttr) return byAttr;
+    return provinceCodeFromText(`${query} ${candidate?.address || ''}`);
+  }
+
+  async function queryProvinceAt(lat,lng) {
+    try {
+      const geom = JSON.stringify({x:lng,y:lat,spatialReference:{wkid:4326}});
+      const geo = await arcgisGeoJSON(CONFIG.provinceLayer,{geometry:geom,geometryType:'esriGeometryPoint',inSR:'4326',spatialRel:'esriSpatialRelIntersects'});
+      return geo.features?.[0] ? provinceCodeFromFeature(geo.features[0]) : null;
+    } catch { return null; }
+  }
+
+  // ---------- Local CSD header lookup ----------
+  // The header is intentionally self-contained: it does not depend on the visible
+  // CSD/province layers or on updateSelection(). It loads the local CSD lookup once,
+  // builds a lightweight grid index, and resolves the CURRENT map centre locally.
+  const HEADER_CSD_URL = 'csd_lookup_light.geojson';
+  const HEADER_PROVINCE_NAMES = {AB:'AB',BC:'BC',MB:'MB',NB:'NB',NL:'NL',NS:'NS',NT:'NT',NU:'NU',ON:'ON',PE:'PE',QC:'QC',SK:'SK',YT:'YT'};
+
+  function setHeaderGeographyLabel(city, province) {
+    const p = HEADER_PROVINCE_NAMES[String(province || '').toUpperCase()] || String(province || '');
+    const label = city ? `${city}${p ? `, ${p}` : ''}` : (p || 'Canada');
+    const node = el('headerGeography');
+    if (node) node.textContent = label;
+  }
+
+  function headerGridKey(lat, lng) {
+    const size = state.csdLookupCellSize;
+    return `${Math.floor(lat / size)}:${Math.floor(lng / size)}`;
+  }
+
+  function indexCsdLookup(features) {
+    state.csdLookupIndex.clear();
+    const size = state.csdLookupCellSize;
+    for (const feature of features || []) {
+      try {
+        const bb = feature.__headerBBox || (feature.__headerBBox = turf.bbox(feature));
+        const minLat = Math.floor(bb[1] / size), maxLat = Math.floor(bb[3] / size);
+        const minLng = Math.floor(bb[0] / size), maxLng = Math.floor(bb[2] / size);
+        for (let gy = minLat; gy <= maxLat; gy++) {
+          for (let gx = minLng; gx <= maxLng; gx++) {
+            const key = `${gy}:${gx}`;
+            let bucket = state.csdLookupIndex.get(key);
+            if (!bucket) { bucket = []; state.csdLookupIndex.set(key, bucket); }
+            bucket.push(feature);
+          }
+        }
+      } catch (err) {
+        console.warn('[HEADER] Could not index CSD feature:', err);
+      }
+    }
+  }
+
+  function getCsdAtPoint(lat, lng) {
+    if (!state.csdLookupGeo?.features?.length) return null;
+    const point = turf.point([lng, lat]);
+    const bucket = state.csdLookupIndex.get(headerGridKey(lat, lng)) || [];
+    const candidates = bucket.length ? bucket : state.csdLookupGeo.features;
+    for (const feature of candidates) {
+      try {
+        const bb = feature.__headerBBox || (feature.__headerBBox = turf.bbox(feature));
+        if (bb[0] > lng || bb[2] < lng || bb[1] > lat || bb[3] < lat) continue;
+        if (turf.booleanPointInPolygon(point, feature)) return feature;
+      } catch {}
+    }
+    return null;
+  }
+
+  function updateHeaderGeographyAt(lat, lng) {
+    if (!state.headerLookupReady) return;
+    const pointKey = `${lat.toFixed(5)}:${lng.toFixed(5)}`;
+    if (pointKey === state.headerLookupPointKey) return;
+    state.headerLookupPointKey = pointKey;
+    const feature = getCsdAtPoint(lat, lng);
+    if (feature) {
+      const p = feature.properties || {};
+      const city = p.CSDNAME || p.CSDNAMEE || null;
+      const province = p.province || p.Province || null;
+      state.lastHeaderCsdKey = String(p.CSDUID || p.OBJECTID || city || '');
+      setHeaderGeographyLabel(city, province);
+      return;
+    }
+    // If no CSD contains the centre, leave the last city in place rather than
+    // flashing back to Canada while the user is moving through a boundary gap.
+  }
+
+  function updateHeaderGeography() {
+    const center = map.getCenter();
+    updateHeaderGeographyAt(center.lat, center.lng);
+  }
+
+  function buildLocalProvinceBBoxes(features) {
+    state.csdProvinceBBoxes = new Map();
+    for (const feature of features || []) {
+      const code = provinceCodeFromCsdFeature(feature);
+      if (!code) continue;
+      try {
+        const bbox = feature.__headerBBox || (feature.__headerBBox = turf.bbox(feature));
+        if (!Array.isArray(bbox) || bbox.length < 4 || bbox.some(v => !Number.isFinite(v))) continue;
+        const prior = state.csdProvinceBBoxes.get(code);
+        if (!prior) state.csdProvinceBBoxes.set(code, bbox.slice(0,4));
+        else {
+          prior[0] = Math.min(prior[0], bbox[0]);
+          prior[1] = Math.min(prior[1], bbox[1]);
+          prior[2] = Math.max(prior[2], bbox[2]);
+          prior[3] = Math.max(prior[3], bbox[3]);
+        }
+      } catch {}
+    }
+  }
+
+  function municipalityGridKey(lat,lng){
+    const size=state.municipalityLabelCellSize;
+    return `${Math.floor(lat/size)}:${Math.floor(lng/size)}`;
+  }
+
+  function buildMunicipalityLabelIndex(features){
+    state.municipalityLabelIndex.clear();
+    state.municipalityLabels=[];
+    for(const feature of features||[]){
+      try{
+        const p=feature?.properties||{};
+        const name=String(p.CSDNAME||p.CSDNAMEE||p.name||p.NAME||'').trim();
+        if(!name)continue;
+        const point=turf.pointOnFeature(feature);
+        const lat=point.geometry.coordinates[1],lng=point.geometry.coordinates[0];
+        const bbox=feature.__headerBBox || (feature.__headerBBox=turf.bbox(feature));
+        const width=Math.max(0,bbox[2]-bbox[0]),height=Math.max(0,bbox[3]-bbox[1]);
+        const type=String(p.CSDTYPE||p.CSDTYPEE||'').toLowerCase();
+        const priority=(width*height)+(type.includes('city')?5:0);
+        const label={name,lat,lng,priority,key:String(p.CSDUID||p.OBJECTID||name)};
+        state.municipalityLabels.push(label);
+        const key=municipalityGridKey(lat,lng);let bucket=state.municipalityLabelIndex.get(key);
+        if(!bucket){bucket=[];state.municipalityLabelIndex.set(key,bucket);} bucket.push(label);
+      }catch(_){ }
+    }
+  }
+
+  function refreshMunicipalityLabels(){
+    if(!state.municipalityLabelLayer)return;
+    state.municipalityLabelLayer.clearLayers();
+    if(!state.municipalityLabels.length)return;
+    const zoom=map.getZoom(), bounds=map.getBounds(), size=state.municipalityLabelCellSize;
+    const minY=Math.floor(bounds.getSouth()/size)-1,maxY=Math.floor(bounds.getNorth()/size)+1;
+    const minX=Math.floor(bounds.getWest()/size)-1,maxX=Math.floor(bounds.getEast()/size)+1;
+    const seen=new Set(),candidates=[];
+    for(let gy=minY;gy<=maxY;gy++)for(let gx=minX;gx<=maxX;gx++){
+      for(const label of state.municipalityLabelIndex.get(`${gy}:${gx}`)||[]){
+        if(seen.has(label.key))continue;seen.add(label.key);
+        if(!bounds.contains([label.lat,label.lng]))continue;candidates.push(label);
+      }
+    }
+    const maxLabels=zoom<=4?10:(zoom<=6?16:(zoom<=8?26:40));
+    const storeCities=new Set(),c=state.columns||{};
+    for(const row of state.rows||[]){
+      if(!rowPassesFilters(row)||!hasCoords(row))continue;
+      const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
+      if(lat===null||lng===null||!bounds.contains([lat,lng]))continue;
+      const city=String(row[c.city]||'').trim();if(city)storeCities.add(norm(city));
+    }
+    candidates.sort((a,b)=>{
+      const ap=(storeCities.has(norm(a.name))?1000:0)+a.priority;
+      const bp=(storeCities.has(norm(b.name))?1000:0)+b.priority;
+      return bp-ap;
+    });
+    const placed=[];
+    for(const label of candidates){
+      if(placed.length>=maxLabels)break;
+      const p=map.latLngToContainerPoint([label.lat,label.lng]);
+      if(p.x<18||p.y<18||p.x>map.getSize().x-18||p.y>map.getSize().y-18)continue;
+      if(placed.some(prev=>p.distanceTo(prev)<70))continue;
+      const marker=L.marker([label.lat,label.lng],{interactive:false,keyboard:false,pane:'municipalityLabelPane',icon:L.divIcon({className:'municipality-label-wrap',html:`<div class="municipality-label">${esc(label.name)}</div>`,iconSize:[1,1],iconAnchor:[0,0]})});
+      state.municipalityLabelLayer.addLayer(marker);placed.push(p);
+    }
+  }
+
+  async function loadHeaderCsdLookup() {
+    if (state.headerLookupReady) return state.csdLookupGeo;
+    if (state.csdLookupPromise) return state.csdLookupPromise;
+    state.csdLookupLoading = true;
+    state.csdLookupPromise = (async () => {
+      try {
+        console.info('[HEADER] Loading local CSD lookup once:', HEADER_CSD_URL);
+        const response = await fetch(HEADER_CSD_URL, { cache: 'force-cache' });
+        console.info('[HEADER] Local CSD HTTP:', response.status, response.statusText);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const geo = await response.json();
+        console.info('[HEADER] Local CSD parsed features:', geo?.features?.length || 0);
+        if (!geo?.features?.length) throw new Error('CSD lookup contains no features.');
+        state.csdLookupGeo = geo;
+        indexCsdLookup(geo.features);
+        buildLocalProvinceBBoxes(geo.features);
+        buildMunicipalityLabelIndex(geo.features);
+        state.headerLookupReady = true;
+        console.info('[HEADER] Local CSD index ready. Cells:', state.csdLookupIndex.size);
+        // Resolve the CURRENT map centre, not a stale startup coordinate.
+        updateHeaderGeography();
+        setTimeout(refreshMunicipalityLabels,0);
+        return geo;
+      } catch (err) {
+        console.warn('[HEADER] Local CSD lookup failed:', err);
+        return null;
+      } finally {
+        state.csdLookupLoading = false;
+        state.csdLookupPromise = null;
+      }
+    })();
+    return state.csdLookupPromise;
+  }
+
+
+
+
+  function fitMapProgrammatically(bounds, options){
+    state.programmaticMoveDepth += 1;
+    state.programmaticMoveUntil = Date.now() + 3000;
+    state.userMapInteraction = false;
+    map.fitBounds(bounds, options);
+    setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth = 0; }, 3200);
+  }
+
+  async function geocodeAndRadius(query){
+    clearRightPanelHighlights();
+    if(!query.trim())return;
+    const token=++state.searchToken;
+    try{
+      const qs=new URLSearchParams({SingleLine:query,maxLocations:'5',countryCode:'CAN',outFields:'Match_addr,Addr_type,City,Region,Province',f:'json'});
+      const data=await fetchJson(`${CONFIG.geocodeUrl}?${qs.toString()}`,{timeout:30000});
+      if(token!==state.searchToken)return;
+      const c=data.candidates?.[0];if(!c)throw new Error('No Canadian match found.');
+      const lat=c.location.y,lng=c.location.x;
+      let provinceCode=provinceCodeFromAddress(query,c);
+      if(!provinceCode){
+        if(!state.headerLookupReady) await loadHeaderCsdLookup();
+        const csd=getCsdAtPoint(lat,lng);
+        provinceCode=csd ? provinceCodeFromCsdFeature(csd) : null;
+      }
+      if(!provinceCode) throw new Error('Could not determine province for this address.');
+      closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+      state.navigationDaSuppressed=true;
+      state.storeJumpTarget=null;
+      state.selection={type:'viewport',name:`${c.address||query} — map view`,feature:null,provinceCode,radius:null};
+      state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='address search';
+      
+      const km=2.5;
+      const dLat=km/110.5,dLon=km/(111*Math.cos(lat*Math.PI/180));
+      const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
+      let completed=false;
+      const finish=()=>{
+        if(completed || token!==state.searchToken)return;
+        completed=true;
+        updateSelection();
+        showNavigationResult(lat,lng,'address',null,()=>{
+          if(token!==state.searchToken)return;
+          state.navigationDaSuppressed=false;
+          createOrReplaceCircle(L.latLng(lat,lng),1000,'address navigation',c.address||query);
+        });
+      };
+      map.once('moveend',finish);
+      fitMapProgrammatically(targetBounds,{padding:[25,25]});
+      setTimeout(finish,900);
+    }catch(err){el('geoStatus').textContent=`Search failed: ${err.message}`;el('censusNote').textContent='Census not loaded.';}
+  }
+
+  function resetCanada(){
+    closeStorePopup();clearCensusShape();clearDaOverlay();clearNavigationResult();state.censusRequestId++;
+    state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
+    state.mapReadyForViewport=false;state.initialNationalView=true;
+    resetCensusPopulationSummary();el('censusNote').textContent='Census Query is dormant until a circle or rectangle is drawn.';
+    fitMapProgrammatically(CONFIG.canadaBounds,{padding:[8,8]});setDaTestStatus('Census Query is dormant until a circle or rectangle is drawn.');updateSelection();
+  }
+
+  function clearDaOverlay(){if(state.daLayer){map.removeLayer(state.daLayer);state.daLayer=null;}state.currentDaProvince=null;}
+  function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
+  function setMapLoading(on){el('mapLoading').classList.toggle('hidden',!on);}
+
+  // ---------- Workbook ----------
+  async function readFinancialFile(file){
+    if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
+    const ext=file.name.toLowerCase().split('.').pop();
+    if(ext==='csv')return {tabs:[workbookRows(XLSX.read(await file.text(),{type:'string'}),'CSV')]};
+    return workbookTabs(XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}));
+  }
+  function workbookRows(wb, sheetName){
+    const ws=wb.Sheets[sheetName];if(!ws)throw new Error(`Worksheet ${sheetName||'first'} is empty.`);
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});if(!matrix.length)throw new Error(`Worksheet ${sheetName||'first'} is empty.`);
+    const headerIndex=detectHeaderRow(matrix);
+    const rawHeaders=(matrix[headerIndex]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`);
+    const headers=dedupeHeaders(rawHeaders);const rows=[];
+    for(let r=headerIndex+1;r<matrix.length;r++){const arr=matrix[r]||[];if(arr.every(v=>v===null||v===''))continue;const obj={};headers.forEach((h,i)=>obj[h]=arr[i]??null);rows.push(obj);}
+    return {name:sheetName||'Sheet 1',headers,rows,headerIndex,storeProfileHeader:headers.find(h=>norm(h)==='store profile number')||null};
+  }
+  function workbookTabs(wb){
+    const tabs=[];for(const name of wb.SheetNames||[]){const parsed=workbookRows(wb,name);if(parsed.headers.length)tabs.push(parsed);}if(!tabs.length)throw new Error('No worksheets with data were found.');return {tabs};
+  }
+  function detectHeaderRow(matrix){
+    const keyIndex=matrix.slice(0,40).findIndex(row=>(row||[]).some(v=>norm(v)==='store profile number'));
+    if(keyIndex>=0)return keyIndex;
+    const tokens=['province','city','location','store concept','location type','gross area','total sales','store 4 wall profit','ebit','latitude','longitude'];let best={i:0,score:-1};
+    matrix.slice(0,30).forEach((row,i)=>{const cells=(row||[]).map(v=>norm(v));const nonempty=cells.filter(Boolean).length;const hits=tokens.filter(t=>cells.some(c=>c.includes(t))).length;const score=hits*100+nonempty;if(score>best.score)best={i,score};});return best.i;
+  }
+  function dedupeHeaders(headers){const seen={};return headers.map(h=>{seen[h]=(seen[h]||0)+1;return seen[h]===1?h:`${h} (${seen[h]})`;});}
+  function detectColumns(headers,rows){
+    const lookup=headers.map(h=>({h,n:norm(h)}));const findExact=terms=>lookup.find(x=>terms.includes(x.n))?.h||null;const findContains=terms=>lookup.find(x=>terms.some(t=>x.n===t||x.n.includes(t)))?.h||null;
+    const columns={
+      lat:findExact(['latitude','lat'])||findContains(['latitude']),lon:findExact(['longitude','lon','long'])||findContains(['longitude']),
+      province:findContains(['province']),city:findContains(['city']),storeId:findContains(['store profile number','store number','store no','store id']),
+      location:findContains(['location']),concept:findContains(['store concept','concept']),locationType:findContains(['location type']),grossArea:findContains(['gross area sq ft','gross area']),
+      sales:findContains(['total sales']),wages:findContains(['total labour expense','labour expense']),occupancy:findContains(['total occupancy expense','occupancy expense']),
+      ebit:findExact(['store 4 wall profit ebit','store 4 wall profit']) || lookup.find(x=>x.n.includes('store 4 wall profit') && !x.n.includes('debit'))?.h || null
+    };
+    const types={};for(const h of headers){const vals=rows.slice(0,400).map(r=>r[h]).filter(v=>v!==null&&v!==''&&v!==undefined);const nums=vals.filter(v=>toNumber(v)!==null).length;types[h]=(vals.length&&nums/vals.length>.8)?'numeric':'text';}return {columns,types};
+  }
+  function toNumber(v){if(typeof v==='number'&&Number.isFinite(v))return v;if(v===null||v===undefined||v==='')return null;const s=String(v).trim().replace(/[$,%]/g,'').replace(/,/g,'');if(!s||!/^[-+]?\d*\.?\d+(?:e[-+]?\d+)?$/i.test(s))return null;const n=Number(s);return Number.isFinite(n)?n:null;}
+  function isStoreRecord(row){
+    const idCol=state.columns.storeId;if(!idCol)return true;const v=row[idCol];if(v===null||v===undefined||String(v).trim()==='')return false;const s=norm(v);
+    if(['total','average','excludingsdm 940 sdm 1027','excluding sdm 940 sdm 1027'].includes(s))return false;return toNumber(v)!==null;
+  }
+  // ---------- Secondary Locations (isolated, canvas-rendered layer) ----------
+  const SECONDARY_POPUP_STORAGE_KEY='storeExplorer.secondaryPopup.v1';
+  const SECONDARY_HOVER_STORAGE_KEY='storeExplorer.secondaryHover.v1';
+  function secondaryColumnCandidates(headers, terms){
+    const lower=headers.map(h=>({raw:h,key:norm(h)}));
+    for(const term of terms){const hit=lower.find(x=>x.key===norm(term));if(hit)return hit.raw;}
+    for(const term of terms){const t=norm(term);const hit=lower.find(x=>x.key.includes(t));if(hit)return hit.raw;}
+    return '';
+  }
+  function secondaryDefaultPopup(headers){
+    const title=secondaryColumnCandidates(headers,['pharmacy name','name','account name']) || headers[0] || '';
+    const subtitle=secondaryColumnCandidates(headers,['competitor banner','competitor chain','banner','chain','city']) || headers.find(h=>h!==title) || '';
+    const fields=headers.filter(h=>h&&h!==title&&h!==subtitle).slice(0,4);
+    return {title,subtitle,fields};
+  }
+  function loadSecondaryConfigs(){
+    const headers=state.secondaryHeaders||[]; const fallback=secondaryDefaultPopup(headers);
+    try{const raw=localStorage.getItem(SECONDARY_POPUP_STORAGE_KEY);state.secondaryPopupConfig=raw?{...fallback,...JSON.parse(raw)}:fallback;}catch(_){state.secondaryPopupConfig=fallback;}
+    try{const raw=localStorage.getItem(SECONDARY_HOVER_STORAGE_KEY);state.secondaryHoverColumn=raw||secondaryColumnCandidates(headers,['pharmacy name','name','account name'])||headers[0]||'';}catch(_){state.secondaryHoverColumn=secondaryColumnCandidates(headers,['pharmacy name','name','account name'])||headers[0]||'';}
+  }
+  function saveSecondaryConfigs(){try{localStorage.setItem(SECONDARY_POPUP_STORAGE_KEY,JSON.stringify(state.secondaryPopupConfig||{}));localStorage.setItem(SECONDARY_HOVER_STORAGE_KEY,state.secondaryHoverColumn||'');}catch(_){}
+  }
+  function renderSecondaryPopupConfig(){
+    const headers=state.secondaryHeaders||[], cfg=state.secondaryPopupConfig||secondaryDefaultPopup(headers), opts=(selected='',placeholder='Choose field')=>`<option value="">${placeholder}</option>`+headers.map(h=>`<option value="${esc(h)}" ${selected===h?'selected':''}>${esc(h)}</option>`).join('');
+    const title=el('secondaryPopupTitle'),sub=el('secondaryPopupSubtitle'),list=el('secondaryPopupFields'); if(!title||!sub||!list)return;
+    title.innerHTML=opts(cfg.title,'Choose title column'); sub.innerHTML=opts(cfg.subtitle,'Choose subtitle column');
+    list.innerHTML=(cfg.fields||[]).map((h,i)=>`<div class="secondary-popup-field-row"><span class="field-index">${i+1}</span><select data-secondary-popup-field="1">${opts(h,'Choose field')}</select><button type="button" class="secondary" data-secondary-popup-remove="${i}">×</button></div>`).join('');
+  }
+  function openSecondaryPopupConfig(){renderSecondaryPopupConfig();el('secondaryPopupDialog').showModal();}
+  function applySecondaryPopupConfig(){
+    const title=el('secondaryPopupTitle')?.value||'', subtitle=el('secondaryPopupSubtitle')?.value||'';
+    const fields=[...document.querySelectorAll('#secondaryPopupFields select[data-secondary-popup-field]')].map(n=>n.value).filter(Boolean);
+    state.secondaryPopupConfig={title,subtitle,fields:[...new Set(fields.filter(h=>h!==title&&h!==subtitle))]}; saveSecondaryConfigs(); el('secondaryPopupDialog').close();
+  }
+  function resetSecondaryPopupConfig(){state.secondaryPopupConfig=secondaryDefaultPopup(state.secondaryHeaders||[]);renderSecondaryPopupConfig();}
+  function renderSecondaryHoverConfig(){
+    const select=el('secondaryHoverColumn');if(!select)return;
+    select.innerHTML=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}" ${state.secondaryHoverColumn===h?'selected':''}>${esc(h)}</option>`).join('');
+  }
+  function openSecondaryHoverConfig(){renderSecondaryHoverConfig();el('secondaryHoverDialog').showModal();}
+  function applySecondaryHoverConfig(){state.secondaryHoverColumn=el('secondaryHoverColumn')?.value||'';saveSecondaryConfigs();el('secondaryHoverDialog').close();}
+  function resetSecondaryHoverConfig(){state.secondaryHoverColumn=secondaryColumnCandidates(state.secondaryHeaders||[],['pharmacy name','name','account name'])||(state.secondaryHeaders||[])[0]||'';renderSecondaryHoverConfig();}
+  function secondaryPopupHtml(item){
+    const row=item?.row||{};
+    const cfg=state.secondaryPopupConfig||secondaryDefaultPopup(state.secondaryHeaders||[]);
+    const title=cfg.title?String(row[cfg.title]??'').trim():'';
+    const subtitle=cfg.subtitle?String(row[cfg.subtitle]??'').trim():'';
+    const editValues=state.secondaryEdits?.[item.index]||{};
+    const lat=Number.isFinite(item.lat)?item.lat:null,lng=Number.isFinite(item.lng)?item.lng:null;
+    const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
+    const fields=(cfg.fields||[]).filter(h=>h&&h!==cfg.title&&h!==cfg.subtitle).map(h=>{
+      const value=editValues[h]??row[h]??'';
+      return `<label class="secondary-popup-edit-field"><span>${esc(h)}</span><input type="text" data-secondary-edit-field="${esc(h)}" value="${esc(String(value))}"></label>`;
+    }).join('');
+    return `<div class="secondary-location-popup" data-secondary-popup-index="${item.index}"><div class="secondary-popup-head"><div class="secondary-popup-head-main"><div class="secondary-popup-title">${esc(title||'Secondary location')}</div>${subtitle?`<div class="secondary-popup-subtitle">${esc(subtitle)}</div>`:''}</div><div class="secondary-popup-head-actions">${mapsLink}<button type="button" class="secondary-popup-overlay-close" aria-label="Close">×</button></div></div><div class="secondary-popup-body">${fields||`<div class="secondary-popup-empty">No editable fields configured.</div>`}</div></div>`;
+  }
+  function secondaryHoverHtml(row){const col=state.secondaryHoverColumn;if(!col)return '';return esc(String(row[col]??'').trim()||'Secondary location');}
+  function secondarySaveEditsFromPopup(root){
+    const idx=Number(root?.dataset?.secondaryPopupIndex); if(!Number.isInteger(idx))return;
+    const edits={...(state.secondaryEdits?.[idx]||{})};
+    root.querySelectorAll('[data-secondary-edit-field]').forEach(input=>{edits[input.dataset.secondaryEditField]=input.value;});
+    state.secondaryEdits=state.secondaryEdits||{}; state.secondaryEdits[idx]=edits;
+  }
+  function buildSecondarySpatialIndex(){
+    if(typeof RBush==='undefined')throw new Error('Spatial-index library did not load. Refresh the page and try again.');
+    const items=[];
+    for(let i=0;i<state.secondaryLocations.length;i++){
+      const row=state.secondaryLocations[i]; const lat=toNumber(row[state.secondaryLatColumn]),lng=toNumber(row[state.secondaryLonColumn]);
+      if(lat===null||lng===null)continue;
+      items.push({minX:lng,minY:lat,maxX:lng,maxY:lat,lat,lng,index:i,row});
+    }
+    const indexed=new RBush(); indexed.load(items); state.secondarySpatialIndex=indexed; state.secondarySpatialItems=items;
+  }
+  function setSecondaryVisible(visible){
+    state.secondaryVisible=!!visible; const ctl=el('secondaryVisibilityToggle'); if(ctl&&ctl.checked!==state.secondaryVisible)ctl.checked=state.secondaryVisible;
+    state.secondaryCanvasLayer?.redraw(); if(!state.secondaryVisible){hideUnifiedHover();state.secondaryHoverRow=null;}
+  }
+  function secondaryHitTest(latlng,pixelRadius=10){
+    if(!state.secondaryVisible||!state.secondarySpatialIndex)return null;
+    const p=map.latLngToContainerPoint(latlng); const sw=map.containerPointToLatLng(L.point(p.x-pixelRadius,p.y+pixelRadius)); const ne=map.containerPointToLatLng(L.point(p.x+pixelRadius,p.y-pixelRadius));
+    const candidates=state.secondarySpatialIndex.search({minX:sw.lng,maxX:ne.lng,minY:sw.lat,maxY:ne.lat});
+    let best=null,bestPx=Infinity;
+    for(const item of candidates){const cp=map.latLngToContainerPoint([item.lat,item.lng]);const dx=cp.x-p.x,dy=cp.y-p.y;const dist=Math.hypot(dx,dy);if(dist<=pixelRadius&&dist<bestPx){best=item;bestPx=dist;}}
+    return best;
+  }
+  function ensureSecondaryPopupOverlay(){
+    if(state.secondaryPopupLayer&&state.secondaryPopupCard&&state.secondaryPopupSvg)return;
+    const container=map.getContainer();
+    const layer=document.createElement('div');
+    layer.className='store-popup-layer secondary-popup-layer';
+    layer.setAttribute('aria-hidden','true');
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.classList.add('store-popup-leader');
+    svg.setAttribute('aria-hidden','true');
+    const card=document.createElement('div');
+    card.className='secondary-popup-overlay-card';
+    card.setAttribute('role','dialog');
+    card.setAttribute('aria-modal','false');
+    ['click','dblclick','mousedown','mouseup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>card.addEventListener(type,e=>e.stopPropagation(),{passive:false}));
+    card.addEventListener('click',e=>e.stopPropagation());
+    layer.addEventListener('click',e=>{if(e.target===layer)closeSecondaryPopup();});
+    layer.appendChild(svg);
+    layer.appendChild(card);
+    container.appendChild(layer);
+    state.secondaryPopupLayer=layer;state.secondaryPopupSvg=svg;state.secondaryPopupCard=card;
+    if(typeof ResizeObserver==='function'){
+      state.secondaryPopupResizeObserver=new ResizeObserver(()=>requestSecondaryPopupLayout());
+      state.secondaryPopupResizeObserver.observe(card);
+    }
+  }
+  function closeSecondaryPopup(){
+    state.secondaryPopupItem=null;
+    if(state.secondaryPopupLayer)state.secondaryPopupLayer.classList.remove('open');
+    if(state.secondaryPopupLayer)state.secondaryPopupLayer.setAttribute('aria-hidden','true');
+    if(state.secondaryPopupSvg)state.secondaryPopupSvg.replaceChildren();
+    if(state.secondaryPopupCard)state.secondaryPopupCard.innerHTML='';
+  }
+  function requestSecondaryPopupLayout(){
+    if(!state.secondaryPopupItem||!state.secondaryPopupCard||!state.secondaryPopupLayer?.classList.contains('open'))return;
+    requestAnimationFrame(()=>layoutSecondaryPopup(state.secondaryPopupItem));
+  }
+  function layoutSecondaryPopup(item){
+    if(!item||!state.secondaryPopupCard||!state.secondaryPopupSvg)return;
+    const container=map.getContainer();
+    const cssWidth=Number(container?.clientWidth||0),cssHeight=Number(container?.clientHeight||0);
+    const mapSize={x:Math.max(1,Math.round(cssWidth||map.getSize().x)),y:Math.max(1,Math.round(cssHeight||map.getSize().y))};
+    const margin=12;
+    const maxW=Math.max(220,mapSize.x-margin*2),maxH=Math.max(160,mapSize.y-margin*2);
+    state.secondaryPopupCard.style.maxWidth=`${maxW}px`;state.secondaryPopupCard.style.maxHeight=`${maxH}px`;
+    const markerPoint=map.latLngToContainerPoint([item.lat,item.lng]);
+    const secondaryIcon=secondaryIconForRow(item.row);
+    const configuredSecondarySize=secondaryIcon ? Number(state.markerConfig?.secondaryIconSizes?.[secondaryIcon.key]) : Number(state.markerConfig?.secondarySize);
+    const secondaryMarkerSize=Math.max(6,Math.min(48,Number.isFinite(configuredSecondarySize)&&configuredSecondarySize>0?configuredSecondarySize:11));
+    const markerRadius=secondaryMarkerSize/2;
+    const cardRect=state.secondaryPopupCard.getBoundingClientRect();
+    const w=Math.min(cardRect.width||410,maxW),h=Math.min(cardRect.height||220,maxH);
+    let candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
+    if(!candidate){
+      const corners=[{left:margin,top:margin},{left:mapSize.x-margin-w,top:margin},{left:margin,top:mapSize.y-margin-h},{left:mapSize.x-margin-w,top:mapSize.y-margin-h}];
+      corners.sort((a,b)=>{const da=Math.hypot(markerPoint.x-(a.left+w/2),markerPoint.y-(a.top+h/2));const db=Math.hypot(markerPoint.x-(b.left+w/2),markerPoint.y-(b.top+h/2));return db-da;});
+      const chosen=corners[0];candidate={left:clamp(chosen.left,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(chosen.top,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
+    }
+    state.secondaryPopupCard.style.left=`${candidate.left}px`;state.secondaryPopupCard.style.top=`${candidate.top}px`;
+    const leader=leaderGeometry(markerPoint,candidate,markerRadius);
+    state.secondaryPopupSvg.setAttribute('width',String(mapSize.x));state.secondaryPopupSvg.setAttribute('height',String(mapSize.y));state.secondaryPopupSvg.setAttribute('viewBox',`0 0 ${mapSize.x} ${mapSize.y}`);state.secondaryPopupSvg.style.width=`${mapSize.x}px`;state.secondaryPopupSvg.style.height=`${mapSize.y}px`;state.secondaryPopupSvg.replaceChildren();
+    if(leader){const polygon=document.createElementNS('http://www.w3.org/2000/svg','polygon');polygon.setAttribute('points',leader.points);polygon.setAttribute('class','store-popup-leader-arrow secondary-popup-leader-arrow');state.secondaryPopupSvg.appendChild(polygon);}
+  }
+  function showSecondaryPopup(item){
+    if(!item)return;
+    if(state.secondaryPopupLayer?.classList.contains('open') && state.secondaryPopupItem && state.secondaryPopupItem.index===item.index){
+      closeSecondaryPopup();
+      return;
+    }
+    ensureSecondaryPopupOverlay();
+    state.secondaryPopupItem=item;
+    const html=secondaryPopupHtml(item);
+    state.secondaryPopupCard.innerHTML=html;
+    state.secondaryPopupLayer.classList.add('open');state.secondaryPopupLayer.setAttribute('aria-hidden','false');
+    state.secondaryPopupCard.querySelector('.secondary-popup-overlay-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeSecondaryPopup();});
+    requestSecondaryPopupLayout();
+  }
+  function renderSecondaryCanvas(){state.secondaryCanvasLayer?.redraw();}
+  // ---------- RX COUNT SITE ANALYSIS (isolated add-on) ----------
+  const RX_SITE_AMENITY_RADIUS_KM=0.75;
+  const RX_SITE_ANALYSIS_MIN_MATCHES=10;
+  const RX_SITE_RED='#ef4444';
+  const RX_SITE_GREEN='#22a447';
+  const RX_SITE_NEUTRAL='#94a3b8';
+  const RX_SITE_PALE_RED='#fdecec';
+  const RX_SITE_PALE_GREEN='#eaf7ee';
+
+  function rxSiteFormatCentreLabel(centre){
+    if(!centre) return 'None — enter an address or draw a shape.';
+    const label=centre.label ? String(centre.label) : `${centre.lat.toFixed(5)}, ${centre.lng.toFixed(5)}`;
+    return label;
+  }
+
+  function rxSiteUpdateActiveCentreUi(){
+    const centre=state.activeGeographicCentre;
+    const status=el('rxSiteAnalysisStatus');
+    const go=el('rxSiteAnalysisGo');
+    const value=el('rxSiteAnalysisActiveCentre');
+    const source=el('rxSiteAnalysisActiveCentreSource');
+    const ready=!!centre && !!state.rxSiteAnalysis.enabled;
+    if(go) go.disabled=!ready;
+    if(value) value.textContent=rxSiteFormatCentreLabel(centre);
+    if(source) source.textContent=centre ? `Source: ${centre.source}` : 'Source: none';
+    if(status && !state.rxSiteAnalysis.overlay){
+      status.textContent=ready ? 'Ready • press Site Analysis to analyze the active geographic centre.' : state.rxSiteAnalysis.enabled ? 'No active geographic centre — enter an address or draw a shape.' : 'Load both Primary Store Data and Secondary Locations to enable analysis.';
+    }
+  }
+
+  // ---------- CHECK SURROUNDING: GEOMETRY-ONLY MILESTONE ----------
+  function rxCheckSurroundingDestination(center, distanceMeters, bearingDeg){
+    const R=6371000;
+    const brng=bearingDeg*Math.PI/180;
+    const lat1=center.lat*Math.PI/180;
+    const lng1=center.lng*Math.PI/180;
+    const d=distanceMeters/R;
+    const sinLat1=Math.sin(lat1), cosLat1=Math.cos(lat1);
+    const sinD=Math.sin(d), cosD=Math.cos(d);
+    const lat2=Math.asin(sinLat1*cosD+cosLat1*sinD*Math.cos(brng));
+    const lng2=lng1+Math.atan2(Math.sin(brng)*sinD*cosLat1,cosD-sinLat1*Math.sin(lat2));
+    return L.latLng(lat2*180/Math.PI,((lng2*180/Math.PI+540)%360)-180);
+  }
+
+  function rxCheckSurroundingClear(){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(overlay?.layer)map.removeLayer(overlay.layer);
+    state.rxCheckSurrounding={overlay:null};
+  }
+
+  function rxCheckSurroundingRenderGeometry(){
+    rxCheckSurroundingClear();
+    const circle=state.circleSelection?.circle;
+    if(!circle)return false;
+    const center=circle.getLatLng();
+    const innerRadius=Math.max(10,Number(circle.getRadius()));
+    const outerRadius=Math.max(innerRadius*2,innerRadius+100);
+    const layer=L.layerGroup();
+
+    L.circle(center,{radius:outerRadius,color:'#6ccfe2',weight:2,opacity:.9,fillColor:'#4bb6cc',fillOpacity:.035,interactive:false}).addTo(layer);
+    L.circle(center,{radius:innerRadius,color:'#ffffff',weight:2,opacity:.9,fill:false,interactive:false}).addTo(layer);
+
+    for(const bearing of [0,90,180,270]){
+      const end=rxCheckSurroundingDestination(center,outerRadius,bearing);
+      L.polyline([center,end],{color:'#8fe3f0',weight:1.5,opacity:.9,dashArray:'5 4',interactive:false}).addTo(layer);
+    }
+
+    const offsets=[45,135,225,315];
+    const labels=['NE','SE','SW','NW'];
+    offsets.forEach((bearing,i)=>{
+      const point=rxCheckSurroundingDestination(center,outerRadius*.72,bearing);
+      L.marker(point,{icon:L.divIcon({className:'rx-surrounding-label-wrap',html:`<div class="rx-surrounding-label">${labels[i]}</div>`,iconSize:[48,28],iconAnchor:[24,14]}),interactive:false,zIndexOffset:1200}).addTo(layer);
+    });
+
+    const titlePoint=rxCheckSurroundingDestination(center,outerRadius*.22,45);
+    L.marker(titlePoint,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[190,28],iconAnchor:[95,14]}),interactive:false,zIndexOffset:1201}).addTo(layer);
+
+    layer.addTo(map);
+    state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius}};
+    return true;
+  }
+
+  function rxCheckSurroundingUpdateUi(){
+    const button=el('rxCheckSurroundingBtn');
+    const status=el('rxCheckSurroundingStatus');
+    const ready=!!state.circleSelection?.circle;
+    if(button)button.disabled=!ready;
+    if(status)status.textContent=ready?'Ready • draws surrounding quadrants only.':'Draw a Census circle to enable.';
+  }
+
+  function rxCheckSurroundingWire(){
+    const button=el('rxCheckSurroundingBtn');
+    if(button&&!button.dataset.bound){
+      button.dataset.bound='1';
+      button.addEventListener('click',e=>{
+        e.preventDefault();
+        e.stopPropagation();
+        try{
+          const rendered=rxCheckSurroundingRenderGeometry();
+          const status=el('rxCheckSurroundingStatus');
+          if(status)status.textContent=rendered?'Geometry rendered • analysis not yet enabled.':'Draw a Census circle first.';
+        }catch(err){
+          console.error('Check Surrounding geometry failed',err);
+          const status=el('rxCheckSurroundingStatus');
+          if(status)status.textContent=`Geometry failed: ${err.message}`;
+        }
+      });
+    }
+    rxCheckSurroundingUpdateUi();
+  }
+
+  function setActiveGeographicCentre(latlng,{source='Map centre',label=''}={}){
+    const ll=L.latLng(latlng);
+    state.activeGeographicCentre={lat:ll.lat,lng:ll.lng,source,label:String(label||'')};
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  function clearActiveGeographicCentre(){
+    state.activeGeographicCentre=null;
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  function updateActiveGeographicCentreFromShape(){
+    if(state.circleSelection?.circle){
+      setActiveGeographicCentre(state.circleSelection.circle.getLatLng(),{source:'Circle centre',label:state.circleSelection.circle.__activeCentreLabel||''});
+      return;
+    }
+    if(state.rectangleSelection?.rectangle){
+      setActiveGeographicCentre(state.rectangleSelection.rectangle.getBounds().getCenter(),{source:'Box centre'});
+      return;
+    }
+    clearActiveGeographicCentre();
+  }
+
+  function rxSiteStateReady(){
+    const ready=Array.isArray(state.rows)&&state.rows.length>0&&Array.isArray(state.secondaryLocations)&&state.secondaryLocations.length>0;
+    state.rxSiteAnalysis.enabled=ready;
+    const card=el('rxSiteAnalysisCard');
+    if(card)card.classList.toggle('rx-site-analysis-disabled',!ready);
+    rxSiteUpdateActiveCentreUi();
+    return ready;
+  }
+
+  const RX_DIAMOND = Object.freeze({
+    commercial:'#e31b1b',
+    residential:'#10a651',
+    health:'#7a2ea8',
+    competitor:'#1426d8'
+  });
+
+  function rxSitePointAt(lat,lng,bearingDeg,distanceKm){
+    const earthKm=6371.0088;
+    const br=bearingDeg*Math.PI/180;
+    const phi1=lat*Math.PI/180;
+    const lambda1=lng*Math.PI/180;
+    const delta=distanceKm/earthKm;
+    const phi2=Math.asin(Math.sin(phi1)*Math.cos(delta)+Math.cos(phi1)*Math.sin(delta)*Math.cos(br));
+    const lambda2=lambda1+Math.atan2(Math.sin(br)*Math.sin(delta)*Math.cos(phi1),Math.cos(delta)-Math.sin(phi1)*Math.sin(phi2));
+    return {lat:phi2*180/Math.PI,lng:((lambda2*180/Math.PI+540)%360)-180};
+  }
+
+  function rxSiteDiamondPoints(subject){
+    return [
+      {key:'N',label:'NORTH',...rxSitePointAt(subject.lat,subject.lng,0,4)},
+      {key:'E',label:'EAST',...rxSitePointAt(subject.lat,subject.lng,90,4)},
+      {key:'S',label:'SOUTH',...rxSitePointAt(subject.lat,subject.lng,180,4)},
+      {key:'W',label:'WEST',...rxSitePointAt(subject.lat,subject.lng,270,4)}
+    ];
+  }
+
+  class RxSiteAnalysisLayer extends L.Layer {
+    setDiamondData(diamondData){
+      this.diamondData=diamondData||{};
+      this.redraw();
+    }
+    constructor(subject, points, diamondData={}){
+      super();
+      this.subject=subject;
+      this.points=points;
+      this.diamondData=diamondData||{};
+      this._svg=null;
+      this._pane=null;
+    }
+    onAdd(mapInstance){
+      this._map=mapInstance;
+      this._pane=mapInstance.getPane('rxSiteAnalysisPane');
+      if(!this._pane){
+        this._pane=mapInstance.createPane('rxSiteAnalysisPane');
+        this._pane.style.zIndex='650';
+        this._pane.style.pointerEvents='none';
+      }
+      this._svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      this._svg.classList.add('rx-site-map-svg');
+      this._svg.setAttribute('aria-hidden','true');
+      this._svg.style.pointerEvents='none';
+      this._pane.appendChild(this._svg);
+      mapInstance.on('move zoom resize',this.redraw,this);
+      this.redraw();
+    }
+    onRemove(mapInstance){
+      mapInstance.off('move zoom resize',this.redraw,this);
+      if(this._svg?.parentNode)this._svg.parentNode.removeChild(this._svg);
+      this._svg=null;
+      this._pane=null;
+      this._map=null;
+    }
+    redraw(){
+      if(!this._map||!this._svg)return;
+      const w=Math.max(1,this._map.getSize().x);
+      const h=Math.max(1,this._map.getSize().y);
+      const origin=this._map.containerPointToLayerPoint([0,0]);
+      this._svg.setAttribute('width',String(w));
+      this._svg.setAttribute('height',String(h));
+      this._svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+      L.DomUtil.setPosition(this._svg,origin);
+      this._svg.innerHTML=`<rect x="0" y="0" width="${w}" height="${h}" fill="rgba(0,0,0,0.22)" pointer-events="none" />`;
+      for(const pt of this.points){
+        const q=this._map.latLngToLayerPoint([pt.lat,pt.lng]);
+        this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(q.x-origin.x,q.y-origin.y,52,false,this.diamondData?.[pt.key]||null));
+      }
+      const sq=this._map.latLngToLayerPoint([this.subject.lat,this.subject.lng]);
+      this._svg.insertAdjacentHTML('beforeend',rxSiteDiamondSvg(sq.x-origin.x,sq.y-origin.y,72,true,this.diamondData?.subject||null));
+    }
+  }
+
+  function rxSiteRestoreMapState(mapState){
+    if(!mapState)return;
+    const restoreInteraction=(control,enabled)=>{
+      if(!control)return;
+      if(enabled)control.enable(); else control.disable();
+    };
+    restoreInteraction(map.dragging,mapState.dragging);
+    restoreInteraction(map.scrollWheelZoom,mapState.scrollWheelZoom);
+    restoreInteraction(map.doubleClickZoom,mapState.doubleClickZoom);
+    restoreInteraction(map.boxZoom,mapState.boxZoom);
+    restoreInteraction(map.keyboard,mapState.keyboard);
+    restoreInteraction(map.touchZoom,mapState.touchZoom);
+    map.invalidateSize({pan:false,debounceMoveend:true});
+    map.setView([mapState.center.lat,mapState.center.lng],mapState.zoom,{animate:false});
+    requestAnimationFrame(()=>{
+      map.invalidateSize({pan:false,debounceMoveend:true});
+      map.setView([mapState.center.lat,mapState.center.lng],mapState.zoom,{animate:false});
+    });
+  }
+
+  function rxSiteOverlayClear(){
+    const o=state.rxSiteAnalysis.overlay;
+    if(!o || o.closing)return;
+    o.closing=true;
+    if(o.escHandler)document.removeEventListener('keydown',o.escHandler,true);
+    if(o.closeButton?.parentNode)o.closeButton.parentNode.removeChild(o.closeButton);
+    if(o.layer && map.hasLayer(o.layer))map.removeLayer(o.layer);
+    if(o.cleanupMapListeners)o.cleanupMapListeners();
+
+    const m=o.mapState;
+    state.rxSiteAnalysis.overlay=null;
+    state.rxSiteAnalysis.subject=null;
+
+    const searchView=el('rxSiteAnalysisSearchView');
+    const detailView=el('rxSiteAnalysisDetailView');
+    if(searchView)searchView.classList.remove('hidden');
+    if(detailView)detailView.classList.add('hidden');
+    const subjectAddress=el('rxSiteAnalysisSubjectAddress');
+    if(subjectAddress)subjectAddress.textContent='—';
+    const status=el('rxSiteAnalysisStatus');
+    if(status)status.textContent=state.rxSiteAnalysis.enabled?'Ready • enter an address to map the 4 km comparison points.':'Load both Primary Store Data and Secondary Locations to enable analysis.';
+
+    try{
+      rxSiteRestoreMapState(m);
+    }catch(err){
+      console.error('Site Analysis map restore failed',err);
+    }
+  }
+
+  function rxSiteDiamondSvg(cx,cy,r,subject=false,metrics=null){
+    const p={top:[cx,cy-r],right:[cx+r,cy],bottom:[cx,cy+r],left:[cx-r,cy]};
+    const points=`${p.top[0]},${p.top[1]} ${p.right[0]},${p.right[1]} ${p.bottom[0]},${p.bottom[1]} ${p.left[0]},${p.left[1]}`;
+    const valueSize=14;
+    const titleSize=subject?13:11;
+    const valueGap=12;
+    const defs=`<clipPath id="rxClip${Math.round(cx)}_${Math.round(cy)}"><polygon points="${points}"/></clipPath>`;
+    const edgeOffset=subject?11:8;
+    const h=edgeOffset/Math.sqrt(2);
+    const metricValue=(key)=>Number.isFinite(Number(metrics?.[key]?.inner))?Number(metrics[key].inner).toFixed(0):'—';
+    const labels=[
+      {text:'Commercial',color:RX_DIAMOND.commercial,angle:-45,x:cx-r/2-h,y:cy-r/2-h,value:metricValue('commercial')},
+      {text:'Residential',color:RX_DIAMOND.residential,angle:45,x:cx+r/2+h,y:cy-r/2-h,value:metricValue('residential')},
+      {text:'Health / Serv',color:RX_DIAMOND.health,angle:-45,x:cx+r/2+h,y:cy+r/2+h,value:metricValue('health')},
+      {text:'Competitor',color:RX_DIAMOND.competitor,angle:45,x:cx-r/2-h,y:cy+r/2+h,value:metricValue('competition')}
+    ];
+    const titleBgPadX=5,titleBgPadY=3,valueBgPadX=5,valueBgPadY=3;
+    const approxTitleWidth=t=>Math.max(28,t.length*titleSize*0.52);
+    const labelSvg=labels.map(l=>{
+      const valueNormal={x:l.x-cx,y:l.y-cy};
+      const len=Math.hypot(valueNormal.x,valueNormal.y)||1;
+      const valueOffset=valueGap+8;
+      const vx=l.x + (valueNormal.x/len)*valueOffset;
+      const vy=l.y + (valueNormal.y/len)*valueOffset;
+      const tw=approxTitleWidth(l.text),th=titleSize+6;
+      const vw=String(l.value).length*valueSize*0.62+valueBgPadX*2,vh=valueSize+6;
+      const titleRect=`<rect x="${(-tw/2)-titleBgPadX}" y="${(-th/2)-titleBgPadY}" width="${tw+titleBgPadX*2}" height="${th+titleBgPadY*2}" rx="3" class="rx-d-title-bg" transform="translate(${l.x} ${l.y}) rotate(${l.angle})"/>`;
+      const valueRect=`<rect x="${vx-(vw/2)}" y="${vy-(vh/2)}" width="${vw}" height="${vh}" rx="3" class="rx-d-value-bg"/>`;
+      return `${titleRect}<text x="${l.x}" y="${l.y}" class="rx-d-title" fill="${l.color}" font-size="${titleSize}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${l.angle} ${l.x} ${l.y})">${l.text}</text>${valueRect}<text x="${vx}" y="${vy}" class="rx-d-value" fill="${l.color}" font-size="${valueSize}" text-anchor="middle" dominant-baseline="middle">${l.value}</text>`;
+    }).join('');
+    const popLabel='POPULATION';
+    const popValue=Number.isFinite(Number(metrics?.population?.inner))?Number(metrics.population.inner).toFixed(0):'—';
+    const popLabelW=Math.max(54,popLabel.length*(subject?8.2:7.3));
+    const popLabelH=subject?16:14;
+    const popValueW=Math.max(subject?92:78,String(popValue).length*(subject?10.4:9.4));
+    const popValueH=subject?26:22;
+    const popLabelRect=`<rect x="${cx-popLabelW/2}" y="${cy-3-popLabelH/2}" width="${popLabelW}" height="${popLabelH}" rx="4" class="rx-d-pop-bg"/>`;
+    const popValueRect=`<rect x="${cx-popValueW/2}" y="${cy+16-popValueH/2}" width="${popValueW}" height="${popValueH}" rx="4" class="rx-d-pop-value-bg"/>`;
+    return `<g class="rx-diamond ${subject?'rx-diamond-subject':''}"><defs>${defs}</defs><polygon points="${points}" class="rx-d-field"/><polygon points="${points}" class="rx-d-outline"/>${labelSvg}${popLabelRect}<text x="${cx}" y="${cy-3}" class="rx-d-pop-label">${popLabel}</text>${popValueRect}<text x="${cx}" y="${cy+16}" class="rx-d-pop">${popValue}</text></g>`;
+  }
+
+  async function rxSiteBuildAmenityDetail(lat,lng,innerRadiusKm=null,outerRadiusKm=null){
+    const innerRadius=Number.isFinite(Number(innerRadiusKm))&&Number(innerRadiusKm)>0?Number(innerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5);
+    const outerRadius=Number.isFinite(Number(outerRadiusKm))&&Number(outerRadiusKm)>0?Number(outerRadiusKm):Math.max(0.1,Number(el('rxSiteAnalysisOuterRadius')?.value)||2);
+    const [inner,outer]=await Promise.all([
+      calculateAmenityProfile(lat,lng,innerRadius),
+      calculateAmenityProfile(lat,lng,outerRadius)
+    ]);
+    const area=(radius)=>Math.PI*radius*radius;
+    const origin=L.latLng(lat,lng);
+    const countCompetition=(radiusKm)=>{
+      const candidates=secondaryProximityCandidates(lat,lng,radiusKm);
+      const maxMeters=radiusKm*1000;
+      let count=0;
+      for(const item of candidates){
+        if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+        if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)count++;
+      }
+      return count;
+    };
+    const competitionInner=countCompetition(innerRadius);
+    const competitionOuter=countCompetition(outerRadius);
+    const populationDensity=async radiusKm=>{
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:32});
+      const provinceCodes=candidateProvinceCodesFromGeography(boundary);
+      if(!provinceCodes.length)return 0;
+      const provinceModes=classifyCandidateProvinces(provinceCodes,'circle',{lat,lng,radiusMeters:radiusKm*1000});
+      const threshold=Number(el('censusThreshold')?.value??10);
+      const result=await selectCensusBoundary(boundary,provinceCodes,threshold,{
+        provinceModes,
+        boundaryType:'circle',
+        targetCircle:{lat,lng,radiusMeters:radiusKm*1000},
+        shouldRender:false
+      });
+      return Number(result?.aggregate?.totalPopulation)||0;
+    };
+    const [populationInnerTotal,populationOuterTotal]=await Promise.all([populationDensity(innerRadius),populationDensity(outerRadius)]);
+    const densities={
+      commercial:{inner:(Number(inner?.retail||0)+Number(inner?.food||0))/area(innerRadius),outer:(Number(outer?.retail||0)+Number(outer?.food||0))/area(outerRadius),counts:{inner:Number(inner?.retail||0)+Number(inner?.food||0),outer:Number(outer?.retail||0)+Number(outer?.food||0)}},
+      residential:{inner:Number(inner?.community||0)/area(innerRadius),outer:Number(outer?.community||0)/area(outerRadius),counts:{inner:Number(inner?.community||0),outer:Number(outer?.community||0)}},
+      health:{inner:Number(inner?.health||0)/area(innerRadius),outer:Number(outer?.health||0)/area(outerRadius),counts:{inner:Number(inner?.health||0),outer:Number(outer?.health||0)}},
+      competition:{inner:competitionInner/area(innerRadius),outer:competitionOuter/area(outerRadius),counts:{inner:competitionInner,outer:competitionOuter}},
+      population:{inner:populationInnerTotal/area(innerRadius),outer:populationOuterTotal/area(outerRadius),counts:{inner:populationInnerTotal,outer:populationOuterTotal}}
+    };
+    for(const item of Object.values(densities)){
+      item.concentration=item.outer>0?item.inner/item.outer:null;
+    }
+    return densities;
+  }
+
+  async function rxSiteBuildComparableDiamondData(points,innerRadius){
+    const results=await Promise.all(points.map(async point=>({key:point.key,densities:await rxSiteBuildAmenityDetail(point.lat,point.lng,innerRadius,innerRadius)})));
+    return results.reduce((acc,item)=>{acc[item.key]=item.densities;return acc;},{ });
+  }
+
+  function rxSiteRenderAmenityDetail(densities){
+    const grid=el('rxSiteAnalysisDetailGrid');
+    if(!grid||!densities)return;
+    const mode=state.rxSiteAnalysis.detailMode==='count'?'count':'density';
+    const subtitle=el('rxSiteAnalysisDetailSubtitle');
+    if(subtitle)subtitle.textContent=mode==='count'?'(count)':'(per sq km)';
+    const rows={commercial:densities.commercial,residential:densities.residential,health:densities.health,competition:densities.competition,population:densities.population};
+    for(const key of Object.keys(rows)){
+      const row=grid.querySelector(`[data-rx-detail-key="${key}"]`);
+      if(!row)continue;
+      const cells=row.querySelectorAll('span');
+      const d=rows[key];
+      if(cells.length!==3)continue;
+      const values=mode==='count'?(d.counts||{}):d;
+      cells[0].textContent=Number.isFinite(Number(values.inner))?Number(values.inner).toFixed(0):'—';
+      cells[1].textContent=Number.isFinite(Number(values.outer))?Number(values.outer).toFixed(0):'—';
+      cells[2].textContent=Number.isFinite(d.concentration)?`${d.concentration.toFixed(1)}×`:'—';
+    }
+  }
+
+  function rxSiteRender(subject){
+    rxSiteOverlayClear();
+    const oldCenter=map.getCenter();
+    const mapState={center:{lat:oldCenter.lat,lng:oldCenter.lng},zoom:map.getZoom(),dragging:map.dragging.enabled(),scrollWheelZoom:map.scrollWheelZoom.enabled(),doubleClickZoom:map.doubleClickZoom.enabled(),boxZoom:map.boxZoom.enabled(),keyboard:map.keyboard.enabled(),touchZoom:map.touchZoom.enabled()};
+    const points=rxSiteDiamondPoints(subject);
+    const all=[subject,...points];
+    const bounds=L.latLngBounds(all.map(p=>[p.lat,p.lng]));
+    map.fitBounds(bounds,{paddingTopLeft:[150,110],paddingBottomRight:[150,90],maxZoom:12,animate:false});
+
+    const layer=new RxSiteAnalysisLayer(subject,points,subject.diamondData||{subject:subject.amenityDensityDetail}).addTo(map);
+    const container=map.getContainer();
+    const close=document.createElement('button');
+    close.type='button';
+    close.className='rx-site-map-close';
+    close.setAttribute('aria-label','Close Site Analysis');
+    close.innerHTML='<span>Close Site Analysis</span><b>×</b>';
+    close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxSiteOverlayClear();});
+    close.style.pointerEvents='auto';
+    container.appendChild(close);
+
+    map.dragging.disable();map.scrollWheelZoom.disable();map.doubleClickZoom.disable();map.boxZoom.disable();map.keyboard.disable();map.touchZoom.disable();
+    const esc=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();rxSiteOverlayClear();}};
+    document.addEventListener('keydown',esc,true);
+    state.rxSiteAnalysis.overlay={layer,closeButton:close,subject,mapState,escHandler:esc};
+  }
+
+  async function rxSiteAnalyzeCentre(centre){
+    if(!state.rxSiteAnalysis.enabled||!centre)return;
+    const status=el('rxSiteAnalysisStatus');
+    if(status)status.textContent='Calculating Site Analysis…';
+    try{
+      state.rxSiteAnalysis.detailMode='density';
+      const modeToggle=el('rxSiteAnalysisModeToggle');
+      if(modeToggle)modeToggle.checked=false;
+      const densities=await rxSiteBuildAmenityDetail(centre.lat,centre.lng);
+      const address=centre.label||`${centre.lat.toFixed(5)}, ${centre.lng.toFixed(5)}`;
+      const subject={address,lat:centre.lat,lng:centre.lng,amenityDensityDetail:densities};
+      const points=rxSiteDiamondPoints(subject);
+      const innerRadius=Number(el('rxSiteAnalysisInnerRadius')?.value)||0.5;
+      const comparableDiamondData=await rxSiteBuildComparableDiamondData(points,innerRadius);
+      subject.diamondData={subject:densities,...comparableDiamondData};
+      state.rxSiteAnalysis.subject=subject;
+      const searchView=el('rxSiteAnalysisSearchView');
+      const detailView=el('rxSiteAnalysisDetailView');
+      const subjectAddress=el('rxSiteAnalysisSubjectAddress');
+      if(subjectAddress)subjectAddress.textContent=subject.address;
+      if(searchView)searchView.classList.add('hidden');
+      if(detailView)detailView.classList.remove('hidden');
+      rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
+      rxSiteWireRadiusInputs();
+      rxSiteRender(subject);
+      if(status)status.textContent='Site Analysis active • 4 km comparison geometry.';
+    }catch(err){
+      if(status)status.textContent=`Analysis failed: ${err.message}`;
+      throw err;
+    }
+  }
+
+  async function rxSiteRecalculateDetail(){
+    const subject=state.rxSiteAnalysis.subject;
+    if(!subject)return;
+    const innerInput=el('rxSiteAnalysisInnerRadius');
+    const outerInput=el('rxSiteAnalysisOuterRadius');
+    const innerRadius=Number(innerInput?.value);
+    const outerRadius=Number(outerInput?.value);
+    if(!Number.isFinite(innerRadius)||innerRadius<=0||!Number.isFinite(outerRadius)||outerRadius<=0){
+      return;
+    }
+    try{
+      const densities=await rxSiteBuildAmenityDetail(subject.lat,subject.lng,innerRadius,outerRadius);
+      const points=rxSiteDiamondPoints(subject);
+      const comparableDiamondData=await rxSiteBuildComparableDiamondData(points,innerRadius);
+      state.rxSiteAnalysis.subject.amenityDensityDetail=densities;
+      state.rxSiteAnalysis.subject.diamondData={subject:densities,...comparableDiamondData};
+      rxSiteRenderAmenityDetail(densities);
+      const overlay=state.rxSiteAnalysis.overlay;
+      if(overlay?.layer?.setDiamondData)overlay.layer.setDiamondData(state.rxSiteAnalysis.subject.diamondData);
+    }catch(err){
+      console.error('Site Analysis radius recalculation failed',err);
+    }
+  }
+
+  function rxSiteWireRadiusInputs(){
+    const innerInput=el('rxSiteAnalysisInnerRadius');
+    const outerInput=el('rxSiteAnalysisOuterRadius');
+    for(const input of [innerInput,outerInput]){
+      if(!input||input.dataset.bound)continue;
+      input.dataset.bound='1';
+      input.addEventListener('input',()=>{rxSiteRecalculateDetail();});
+      input.addEventListener('change',()=>{rxSiteRecalculateDetail();});
+    }
+    const modeToggle=el('rxSiteAnalysisModeToggle');
+    if(modeToggle&&!modeToggle.dataset.bound){
+      modeToggle.dataset.bound='1';
+      modeToggle.checked=state.rxSiteAnalysis.detailMode==='count';
+      modeToggle.addEventListener('change',()=>{
+        state.rxSiteAnalysis.detailMode=modeToggle.checked?'count':'density';
+        rxSiteRenderAmenityDetail(state.rxSiteAnalysis.subject?.amenityDensityDetail);
+      });
+    }
+  }
+
+  function rxSiteWire(){
+    const g=el('rxSiteAnalysisGo');
+    if(g&&!g.dataset.bound){
+      g.dataset.bound='1';
+      g.addEventListener('click',async e=>{
+        e.preventDefault();
+        if(!state.rxSiteAnalysis.enabled||!state.activeGeographicCentre)return;
+        const centre=state.activeGeographicCentre;
+        g.disabled=true;
+        try{ await rxSiteAnalyzeCentre(centre); }
+        catch(err){ const status=el('rxSiteAnalysisStatus'); if(status)status.textContent=`Analysis failed: ${err.message}`; }
+        finally{ rxSiteUpdateActiveCentreUi(); }
+      });
+    }
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  async function rxSiteMaybeBuild(){ rxSiteStateReady(); rxSiteWire(); }
+
+  async function readSecondaryLocationsFile(file){
+    if(typeof XLSX==='undefined')throw new Error('Excel reader library did not load. Refresh the page and try again.');
+    const ext=file.name.toLowerCase().split('.').pop(); const wb=ext==='csv'?XLSX.read(await file.text(),{type:'string'}):XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]]; if(!ws)throw new Error('The first worksheet is empty.');
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}); if(!matrix.length)throw new Error('The first worksheet is empty.');
+    const headers=dedupeHeaders((matrix[0]||[]).map((v,i)=>String(v??'').trim()||`Unnamed ${i+1}`)); const rows=[];
+    for(let r=1;r<matrix.length;r++){const arr=matrix[r]||[];if(arr.every(v=>v===null||v===''))continue;const obj={};headers.forEach((h,i)=>obj[h]=arr[i]??null);rows.push(obj);}
+    const lat=secondaryColumnCandidates(headers,['geo latitude','latitude','lat','geo lat']); const lon=secondaryColumnCandidates(headers,['geo longitude','longitude','lon','long','geo lon']);
+    if(!lat||!lon)throw new Error('Could not find latitude and longitude columns.');
+    const valid=rows.filter(row=>{const a=toNumber(row[lat]),b=toNumber(row[lon]);return a!==null&&b!==null&&a>=40&&a<=90&&b>=-150&&b<=-40;});
+    return {headers,rows:valid,lat,lon};
+  }
+  function clearSecondaryLocations(){
+    state.secondaryLocations=[]; state.secondaryHeaders=[];state.secondaryLatColumn=null;state.secondaryLonColumn=null;state.secondaryCompetitorColumn=null;state.secondaryFileName=null;state.secondaryPopupConfig=null;state.secondaryHoverColumn=null;state.secondarySpatialIndex=null;state.secondarySpatialItems=[];state.secondaryEdits={};
+    rxSiteOverlayClear();state.rxSiteAnalysis.detailMode='density';state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteStateReady(); setSecondaryVisible(false); if(el('secondaryFileInput'))el('secondaryFileInput').value=''; if(el('secondaryFileStatus'))el('secondaryFileStatus').textContent='No secondary locations loaded.';
+    if(el('secondaryPopupConfigBtn'))el('secondaryPopupConfigBtn').disabled=true; if(el('secondaryHoverConfigBtn'))el('secondaryHoverConfigBtn').disabled=true; if(el('clearSecondaryBtn'))el('clearSecondaryBtn').disabled=true; if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').checked=false;el('secondaryVisibilityToggle').disabled=true;}
+  }
+  function afterSecondaryLoaded(file,parsed){
+    state.secondaryFileName=file.name;state.secondaryHeaders=parsed.headers;state.secondaryLocations=parsed.rows;state.secondaryLatColumn=parsed.lat;state.secondaryLonColumn=parsed.lon;state.secondaryCompetitorColumn=secondaryColumnCandidates(parsed.headers,['competitor banner']);loadSecondaryConfigs();buildSecondarySpatialIndex();
+    el('secondaryFileStatus').textContent=`Loaded • ${file.name} • ${state.secondaryLocations.length.toLocaleString()} locations`;
+    el('secondaryPopupConfigBtn').disabled=false;el('secondaryHoverConfigBtn').disabled=false;el('clearSecondaryBtn').disabled=false;
+    if(el('secondaryVisibilityToggle')){el('secondaryVisibilityToggle').disabled=false;el('secondaryVisibilityToggle').checked=true;state.secondaryVisible=true;}
+    renderSecondaryCanvas();
+    rxSiteMaybeBuild();
+  }
+
+  function afterWorkbookLoaded(file,parsed){
+    
+    state.fileName=file.name;state.primaryTabs=parsed.tabs||[{name:'Sheet 1',headers:parsed.headers,rows:parsed.rows,headerIndex:parsed.headerIndex}];const first=state.primaryTabs[0];state.headers=first.headers;state.rows=first.rows;const d=detectColumns(state.headers,state.rows);state.columns=d.columns;state.types=d.types;state.rows=state.rows.filter(isStoreRecord);first.rows=state.rows;state.filteredRows=[...state.rows];state.viewportSelectedRows=[];
+    const c=state.columns;
+    const hasSavedTickerConfig=(()=>{
+      try{
+        if(localStorage.getItem(TICKER_STORAGE_KEY))return true;
+        return TICKER_OLD_STORAGE_KEYS.some(key=>!!localStorage.getItem(key));
+      }catch(_){return false;}
+    })();
+    const tickerHasAnyConfiguredFormula=(state.tickerMetrics||[]).some(m=>String(m?.formula||'').trim());
+    if(!hasSavedTickerConfig && !tickerHasAnyConfiguredFormula){
+      state.tickerMetrics=tickerDefaultMetrics();
+      saveTickerConfig();
+    }
+    const exactDefaultGroupNames=DEFAULT_GROUP_FIELDS;
+    const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
+    state.groups=[...new Set(exactDefaultGroupNames.map(n=>exactHeaders.get(n)).filter(Boolean))];
+    state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.subjectVirtualCache=new WeakMap();state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=defaultSelectedStoreFields();state.subjectTable=loadSubjectTableForHeaders(state.headers);state.subjects=subjectTableToMetrics(state.subjectTable);state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable);loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);loadPopupConfig();loadPopupTickerConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);loadPopupTabConfigs();
+    el('fileStatus').textContent=`Workbook loaded • ${file.name} • ${state.rows.length.toLocaleString()} stores • header row ${((parsed.tabs?.[0]?.headerIndex??parsed.headerIndex??0)+1)}`;el('clearFileBtn').disabled=false;el('tickerConfigBtn').disabled=false;el('subjectsBtn').disabled=false;el('groupsBtn').disabled=false;el('filterBtn').disabled=false;el('selectedStoresBtn').disabled=false;el('exportSelectedBtn').disabled=false;
+    refreshConfigUI();rebuildFilterPassCache();rebuildMarkerAnimationCache();populateMarkerAnimationControls();rebuildMarkers();state.initialNationalView=true;state.mapReadyForViewport=false;state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};state.userMapInteraction=false;map.setView(CONFIG.canadaView.center, CONFIG.canadaView.zoom,{animate:false});setTimeout(()=>updateSelection(),0);
+    const mapped=state.rows.filter(hasCoords).length;el('geoStatus').textContent=`Workbook loaded. ${mapped.toLocaleString()} of ${state.rows.length.toLocaleString()} stores have valid coordinates and are mapped.`;
+    rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;clearActiveGeographicCentre();rxSiteMaybeBuild();
+  }
+  function clearFinancial(){rxSiteOverlayClear();state.rxSiteAnalysis.model=null;state.rxSiteAnalysis.modelReady=false;state.rxSiteAnalysis.modelPromise=null;state.rxSiteAnalysis.subject=null;rxSiteStateReady();closeStorePopup();closeSubjectDistribution();clearCensusShape();clearNavigationResult();state.rows=[];state.headers=[];state.types={};state.columns={};state.primaryTabs=[];state.popupTabConfigs=[];state.popupTabDrafts=[];state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};state.subjects=[];state.subjectTable=null;state.subjectConfigDraftTable=null;state.groups=[];state.distributionSubject=null;state.distributionBinKey=null;state.distributionSubject2=null;state.distributionBinKey2=null;state.distributionDialogTarget=1;state.selectedStoreColumns=[];state.subjectConfigDraftTable=null;state.popupHeader=null;state.popupHeaderDraft=null;state.popupConfig=[];state.popupConfigDraft=[];state.popupQuartileDraftChanged=false;state.popupTickerMetrics=[];state.popupTickerDraft=[];state.popupTickerPlaying=true;state.popupTickerIndex=0;clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;state.popupQuartileValues={};state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();state.filterCensusCache=new WeakMap();state.popupRenderToken++;state.fileName=null;state.filteredRows=[];state.viewportSelectedRows=[];state.selectedRows=[];state.selectedStoreRow=null;state.markerCluster.clearLayers();state.markers=[];el('fileInput').value='';el('fileStatus').textContent='No financial file selected.';el('clearFileBtn').disabled=true;el('tickerConfigBtn').disabled=true;el('popupTickerConfigBtn').disabled=true;el('subjectsBtn').disabled=true;el('groupsBtn').disabled=true;el('filterBtn').disabled=true;el('selectedStoresBtn').disabled=true;el('exportSelectedBtn').disabled=true; if(el('exportSelectedDABtn'))el('exportSelectedDABtn').disabled=true; refreshConfigUI();updateFilterUI();updateSelection();}
+  function hasCoords(row){const c=state.columns;const lat=toNumber(row[c.lat]),lon=toNumber(row[c.lon]);return lat!==null&&lon!==null&&lat>=40&&lat<=90&&lon>=-150&&lon<=-40;}
+
+  // ---------- Navigation result markers / one-shot basketball animation ----------
+  const NAV_MARKER_COLORS = ['#d34c4c','#4169e1','#7a3db8','#1f2933'];
+  const NAV_BASKETBALL_ASSET = './search-result-basketball.png';
+  const NAV_FLAG_ASSET = './search-result-flag.png';
+
+  function clearNavigationResult(){
+    if(state.navigationResultStoreRippleTimer){
+      clearTimeout(state.navigationResultStoreRippleTimer);
+      state.navigationResultStoreRippleTimer=null;
+    }
+    if(state.navigationResultLayer) state.navigationResultLayer.clearLayers();
+    if(state.navigationResultAnimation){
+      try{ state.navigationResultAnimation.cancel?.(); }catch(_){ }
+      try{ state.navigationResultAnimation.remove?.(); }catch(_){ }
+      state.navigationResultAnimation=null;
+    }
+    state.navigationResultStoreRow=null;
+    state.navigationResultStoreColor=null;
+    state.navigationResultLatLng=null;
+    state.navigationResultKind=null;
+    refreshMarkerStyles();
+  }
+
+  function colorRgb(hex){
+    const m=String(hex||'').match(/^#([0-9a-f]{6})$/i);
+    return m?[parseInt(m[1].slice(0,2),16),parseInt(m[1].slice(2,4),16),parseInt(m[1].slice(4,6),16)]:[0,0,0];
+  }
+  function colorDistance(a,b){
+    const x=colorRgb(a),y=colorRgb(b);
+    return Math.hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2]);
+  }
+  function contrastingNavigationColor(){
+    const visible=[...new Set(state.markers
+      .filter(m=>m.__filterPass!==false && (m.getOpacity?.()??1)>0)
+      .map(m=>String(m.__row===state.navigationResultStoreRow ? (m.__navigationResultColor||state.markerColor) : state.markerColor).toLowerCase()))];
+    return NAV_MARKER_COLORS
+      .map(c=>({c,score:visible.reduce((n,v)=>n+colorDistance(c,v),0)}))
+      .sort((a,b)=>b.score-a.score)[0]?.c || '#4169e1';
+  }
+
+  function addressFlagIcon(){
+    return L.icon({
+      iconUrl:NAV_FLAG_ASSET,
+      iconSize:[34,34],
+      iconAnchor:[10,20],
+      className:'navigation-result-flag'
+    });
+  }
+
+  function findCurrentMarkerForRow(row){
+    return state.markers.find(m=>m.__row===row) || null;
+  }
+
+  function navigationResultMarker(latlng,kind,row=null){
+    clearNavigationResult();
+    state.navigationResultLatLng=L.latLng(latlng);
+    state.navigationResultKind=kind;
+    if(kind==='address'){
+      L.marker(state.navigationResultLatLng,{
+        icon:addressFlagIcon(),
+        interactive:false,
+        zIndexOffset:5000,
+        pane:'markerPane'
+      }).addTo(state.navigationResultLayer);
+      return null;
+    }
+    const marker=findCurrentMarkerForRow(row);
+    if(marker){
+      state.navigationResultStoreRow=row;
+      state.navigationResultStoreColor=null;
+      refreshMarkerStyles();
+      requestAnimationFrame(()=>{
+        if(state.navigationResultStoreRow!==row)return;
+        state.navigationResultStoreColor='__ripple__';
+        refreshMarkerStyles();
+        if(state.navigationResultStoreRippleTimer)clearTimeout(state.navigationResultStoreRippleTimer);
+        state.navigationResultStoreRippleTimer=setTimeout(()=>{
+          if(state.navigationResultStoreRow===row){
+            state.navigationResultStoreColor=null;
+            state.navigationResultStoreRippleTimer=null;
+            refreshMarkerStyles();
+          }
+        },5600);
+      });
+      return marker;
+    }
+    return null;
+  }
+
+  function drawBasketball(ctx,img,x,y,size,rotation=0){
+    const r=size/2;
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(rotation);
+    ctx.beginPath();
+    ctx.arc(0,0,r,0,Math.PI*2);
+    ctx.clip();
+    ctx.drawImage(img,-r,-r,size,size);
+    ctx.restore();
+  }
+
+  function runNavigationResultAnimation(latlng,onComplete=null){
+    if(!latlng)return;
+    if(state.navigationResultAnimation){
+      try{state.navigationResultAnimation.cancel?.();}catch(_){ }
+      try{state.navigationResultAnimation.remove?.();}catch(_){ }
+    }
+    const canvas=document.createElement('canvas');
+    canvas.className='nav-result-animation-canvas';
+    canvas.setAttribute('aria-hidden','true');
+    const container=map.getContainer();
+    container.appendChild(canvas);
+    const ctx=canvas.getContext('2d');
+    const dpr=Math.max(1,window.devicePixelRatio||1);
+    let rect=container.getBoundingClientRect();
+    const ctl={id:0,cancel:()=>cancelAnimationFrame(ctl.id),remove:()=>{if(canvas.parentNode)canvas.parentNode.removeChild(canvas);}};
+    ctl.onComplete=typeof onComplete==='function'?onComplete:null;
+    state.navigationResultAnimation=ctl;
+
+    function size(){
+      rect=container.getBoundingClientRect();
+      canvas.width=Math.max(1,Math.round(rect.width*dpr));
+      canvas.height=Math.max(1,Math.round(rect.height*dpr));
+      canvas.style.width=`${rect.width}px`;
+      canvas.style.height=`${rect.height}px`;
+    }
+    size();
+
+    const img=new Image();
+    img.onload=()=>start();
+    img.onerror=()=>start(true);
+    img.src=NAV_BASKETBALL_ASSET;
+
+    const fromRight=Math.random()<0.5;
+    const startTimeRef={value:0};
+    const duration=1800;
+
+    function start(assetMissing=false){
+      startTimeRef.value=performance.now();
+      function frame(now){
+        size();
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        ctx.clearRect(0,0,rect.width,rect.height);
+        const target=map.latLngToContainerPoint(latlng);
+        const t=Math.min(1,(now-startTimeRef.value)/duration);
+        const sx=fromRight?rect.width+70:-70;
+        const sy=Math.max(45,target.y-115);
+        const u=Math.min(1,t/0.78);
+        const e=1-Math.pow(1-u,3);
+        const arc=Math.sin(u*Math.PI)*90;
+        const x=sx+(target.x-sx)*e;
+        const y=sy+(target.y-sy)*e-arc;
+        const landQ=t<0.78?0:Math.min(1,(t-0.78)/0.22);
+        const landScale=landQ?0.92+0.08*Math.cos(landQ*Math.PI):1;
+        const sizePx=38*landScale;
+        const rot=now/180;
+        if(!assetMissing) drawBasketball(ctx,img,x,y,sizePx,rot);
+        else {
+          ctx.save();
+          ctx.translate(x,y);ctx.rotate(rot);
+          ctx.fillStyle='#e67817';ctx.beginPath();ctx.arc(0,0,sizePx/2,0,Math.PI*2);ctx.fill();
+          ctx.strokeStyle='#111';ctx.lineWidth=2;ctx.stroke();
+          ctx.restore();
+        }
+        if(t>=0.78){
+          const q=Math.min(1,(t-0.78)/0.22);
+          ctx.save();
+          ctx.globalAlpha=(1-q)*0.65;
+          ctx.strokeStyle='#111820';ctx.lineWidth=2;
+          ctx.beginPath();
+          ctx.ellipse(target.x,target.y+10,18+14*q,4+2*q,0,0,Math.PI*2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if(t<1){
+          ctl.id=requestAnimationFrame(frame);
+        }else{
+          ctl.remove();
+          if(state.navigationResultAnimation===ctl)state.navigationResultAnimation=null;
+          if(typeof ctl.onComplete==='function'){
+            const done=ctl.onComplete;
+            ctl.onComplete=null;
+            try{done();}catch(err){console.error('Navigation completion callback failed:',err);}
+          }
+        }
+      }
+      ctl.id=requestAnimationFrame(frame);
+    }
+  }
+
+  function showNavigationResult(lat,lng,kind,row=null,onComplete=null){
+    const ll=L.latLng(lat,lng);
+    navigationResultMarker(ll,kind,row);
+    requestAnimationFrame(()=>runNavigationResultAnimation(ll,onComplete));
+  }
+
+  // ---------- Store markers ----------
+  // Every store is a separate marker.  Overlapping markers are only spread apart
+  // temporarily when the user clicks an overlapping location (spiderfy behavior).
+  function rebuildMarkers(){
+    closeStorePopup();
+    unspiderfyMarkers();
+    state.markerCluster.clearLayers();
+    state.markers=[];
+    if(!state.rows.length||!state.columns.lat||!state.columns.lon)return;
+    let dist1=null,dist2=null;
+    if(state.distributionBinKey!==null && state.distributionSubject){
+      const bins=buildDistributionBins(1);
+      dist1=bins.find(x=>x.key===state.distributionBinKey)||null;
+    }
+    if(state.distributionBinKey2!==null && state.distributionSubject2){
+      const bins=buildDistributionBins(2);
+      dist2=bins.find(x=>x.key===state.distributionBinKey2)||null;
+    }
+    for(const row of state.rows){
+      if(!hasCoords(row))continue;
+      if(!rowPassesFilters(row))continue;
+      const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+      const marker=L.marker([lat,lng],{icon:storeIcon(row,true,false,null,dist1,dist2)});
+      // Store info is rendered by the custom Store Explorer popup overlay.
+      const profile=state.columns.storeId?String(row[state.columns.storeId]??'').trim():'';
+      if(profile){
+        marker.on('mouseover',()=>showUnifiedHover(marker,marker.getLatLng(),profile));
+        marker.on('mouseout',()=>hideUnifiedHover(marker));
+      }
+      marker.__row=row;
+      marker.__trueLatLng=L.latLng(lat,lng);
+      marker.__visualKey='';
+      marker.__navigationResultColor=null;
+      marker.__filterPass=true;
+      marker.__selected=false;
+      marker.on('click',e=>{
+        if(state.circleDrawMode||state.rectangleDrawMode){
+          if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+          const secondaryHit=secondaryHitTest(marker.getLatLng(),11);
+          const center=secondaryHit?L.latLng(secondaryHit.lat,secondaryHit.lng):marker.getLatLng();
+          const mode=state.circleDrawMode?'circle':'rectangle';
+          exitCensusDrawMode();
+          if(mode==='circle') createOrReplaceCircle(center,defaultCircleRadiusMeters(),secondaryHit?'circle centered on secondary location':'circle centered on marker');
+          else createOrReplaceRectangle(defaultBoxBounds(center),secondaryHit?'box centered on secondary location':'box centered on marker');
+          return;
+        }
+        if(e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+        handleMarkerClick(marker);
+      });
+      state.markers.push(marker);
+      state.markerCluster.addLayer(marker);
+    }
+    refreshMarkerStyles();
+  }
+  const PRIMARY_MARKER_ASSET='Shoppers_Drug_Mart_Icon.svg';
+  const USE_PRIMARY_BRAND_MARKER=true;
+  function storeIcon(row,inSelection,animateVisible=false,overrideColor=null,dist1=null,dist2=null,navRipple=false){
+    const focusActive = markerFocusActive(row,dist1,dist2);
+    const cls=focusActive ? 'group-highlight' : (inSelection ? 'default' : 'out');
+    const animating = animateVisible && markerRowAnimationPasses(row);
+    const anim=animating ? ` marker-animation marker-animation-${state.markerAnimation.type}` : '';
+    const duration=2800;
+    const phase=Math.round(performance.now()%duration);
+    const delay=animating ? `--marker-animation-delay:-${phase}ms;` : '';
+    const fadeKey=state.markerAnimation.fadeObject||'smiley';
+    const fadeContent={smiley:'🙂',starburst:'✦',lightning:'⚡'}[fadeKey]||'';
+    const fadeObject = animating && state.markerAnimation.type==='fade' ? `<span class="marker-fade-object marker-fade-${fadeKey}" aria-hidden="true">${fadeContent}</span>` : '';
+    const staticActive = animating && state.markerAnimation.type==='static';
+    const staticObject = staticActive ? `<span class="marker-static-object" aria-hidden="true"><svg class="marker-static-svg" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="15" r="7" fill="#fff" stroke="#c90000" stroke-width="2"/><circle cx="11" cy="15" r="4.3" fill="#c90000" stroke="#fff" stroke-width="1.5"/><circle cx="11" cy="15" r="2" fill="#c90000"/><path d="M24 4 L12.2 15.8" stroke="#111" stroke-width="1.8" stroke-linecap="round"/><path d="M24 4 L20.2 4.7 L21.2 8.2 Z" fill="#111"/></svg></span>` : '';
+    const navActive=!!overrideColor;
+    const markerClass = `store-marker ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const markerColor=overrideColor||state.markerColor;
+    const markerImageClass = `store-marker-image ${cls}${staticActive&&!focusActive?' static-cover-hidden':''}${navActive?' navigation-result-store':''}`;
+    const primarySize=Math.max(8,Math.min(64,Number(state.markerConfig?.primarySize)||20));
+    const markerBody = USE_PRIMARY_BRAND_MARKER && !focusActive
+      ? `<img class="${markerImageClass}" src="${PRIMARY_MARKER_ASSET}" alt="" draggable="false" style="width:${primarySize}px;height:${primarySize}px;">`
+      : `<div class="${markerClass}" style="--store-marker-color:${markerColor};width:${primarySize}px;height:${primarySize}px"></div>`;
+    const sizeVars=`--marker-primary-size:${primarySize}px;--marker-pulse-core:${Math.max(5,Math.round(primarySize*0.38))}px;--marker-pulse-halo:${Math.max(primarySize+8,Math.round(primarySize*1.55))}px;`;
+    return L.divIcon({className:'',html:`<div class="store-marker-wrap${anim}${navRipple?' navigation-result-ripple':''}" style="${sizeVars}${delay}">${markerBody}${staticObject}${fadeObject}</div>`,iconSize:[primarySize,primarySize],iconAnchor:[primarySize/2,primarySize/2]});
+  }
+  function markerFocusActive(row,dist1=null,dist2=null){
+    // Highlights are viewport-driven. The Census shape constrains metrics and
+    // aggregations, but never suppresses a highlight in the current viewport.
+    if(state.selectedGroupKey!==null && rowMatchesSelectedGroup(row))return true;
+    if(state.selectedStoreRow===row)return true;
+    if(dist1 && state.distributionSubject){
+      const h=state.distributionSubject,v=state.types[h]==='numeric'?toNumber(row[h]):String(row[h]??'');
+      if(state.types[h]==='numeric'){if(v!==null && v>=dist1.min && (dist1.last?v<=dist1.max:v<dist1.max))return true;}
+      else if(String(v)===String(dist1.value??''))return true;
+    }
+    if(dist2 && state.distributionSubject2){
+      const h=state.distributionSubject2,v=state.types[h]==='numeric'?toNumber(row[h]):String(row[h]??'');
+      if(state.types[h]==='numeric'){if(v!==null && v>=dist2.min && (dist2.last?v<=dist2.max:v<dist2.max))return true;}
+      else if(String(v)===String(dist2.value??''))return true;
+    }
+    return false;
+  }
+  function markerVisualKey(row,inSelection,dist1=null,dist2=null){
+    const focusActive=markerFocusActive(row,dist1,dist2);
+    return `${focusActive?'focus':'normal'}|${inSelection?'in':'out'}|${markerRowAnimationPasses(row)?state.markerAnimation.type:'none'}|${state.markerAnimation.fadeObject||''}|${state.markerColor}`;
+  }
+  function rowMatchesSelectedGroup(row){
+    if(state.selectedGroupKey===null||!state.groups.length)return false;
+    const parts=state.groups.map(g=>String(row[g]??'(blank)'));
+    return JSON.stringify(parts)===state.selectedGroupKey;
+  }
+  function rowMatchesSelectedDistribution(row){
+    if(!state.distributionSubject||state.distributionBinKey===null)return false;
+    const h=state.distributionSubject;
+    const bins=buildDistributionBins();
+    const b=bins.find(x=>x.key===state.distributionBinKey);
+    if(!b)return false;
+    if(state.types[h]==='numeric'){
+      const v=toNumber(row[h]);
+      return v!==null && v>=b.min && (b.last ? v<=b.max : v<b.max);
+    }
+    return String(row[h]??'')===String(b.value??'');
+  }
+  // ---------- Custom store popup overlay ----------
+  let storePopupLayer = null;
+  let storePopupCard = null;
+  let amenityDetailLayer = null;
+  let storePopupSvg = null;
+  let storePopupFrame = null;
+  let storePopupResizeObserver = null;
+  let storePopupLayoutQueued = false;
+  let storePopupInteraction = {active:false, mapDragWasEnabled:false, pointerId:null};
+
+  function releaseStorePopupPointer(){
+    if(!storePopupInteraction.active)return;
+    const wasEnabled=storePopupInteraction.mapDragWasEnabled;
+    storePopupInteraction.active=false;
+    storePopupInteraction.pointerId=null;
+    if(wasEnabled && map?.dragging && !map.dragging.enabled()) map.dragging.enable();
+  }
+  function beginStorePopupPointer(e){
+    if(!storePopupCard || (e?.pointerType==='mouse' && e?.button!==0))return;
+    storePopupInteraction.active=true;
+    storePopupInteraction.mapDragWasEnabled=!!(map?.dragging?.enabled?.() ?? false);
+    storePopupInteraction.pointerId=Number.isFinite(e?.pointerId)?e.pointerId:null;
+    if(storePopupInteraction.mapDragWasEnabled && map?.dragging?.enabled?.()) map.dragging.disable();
+    e.stopPropagation();
+  }
+  function handleStorePopupPointerRelease(e){
+    if(storePopupInteraction.pointerId!==null && Number.isFinite(e?.pointerId) && e.pointerId!==storePopupInteraction.pointerId)return;
+    releaseStorePopupPointer();
+  }
+  function ensureStorePopupOverlay(){
+    if(storePopupLayer && storePopupCard && storePopupSvg) return;
+    const container=map.getContainer();
+    storePopupLayer=document.createElement('div');
+    storePopupLayer.className='store-popup-layer';
+    storePopupLayer.setAttribute('aria-hidden','true');
+    storePopupSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    storePopupSvg.classList.add('store-popup-leader');
+    storePopupSvg.setAttribute('aria-hidden','true');
+    storePopupCard=document.createElement('div');
+    storePopupCard.className='store-popup-card';
+    storePopupCard.setAttribute('role','dialog');
+    storePopupCard.setAttribute('aria-modal','false');
+    const stopPopupMapInteraction=e=>{e.stopPropagation();};
+    ['click','dblclick','mousedown','mouseup','pointermove','touchstart','touchmove','contextmenu','wheel'].forEach(type=>storePopupCard.addEventListener(type,stopPopupMapInteraction,{passive:false}));
+    storePopupCard.addEventListener('pointerdown',beginStorePopupPointer,{passive:false});
+    storePopupCard.addEventListener('pointerup',handleStorePopupPointerRelease,{passive:false});
+    storePopupCard.addEventListener('pointercancel',handleStorePopupPointerRelease,{passive:false});
+    storePopupCard.addEventListener('lostpointercapture',handleStorePopupPointerRelease,{passive:false});
+    storePopupCard.addEventListener('click',e=>e.stopPropagation());
+    window.addEventListener('pointerup',handleStorePopupPointerRelease,{passive:true});
+    window.addEventListener('pointercancel',handleStorePopupPointerRelease,{passive:true});
+    window.addEventListener('blur',releaseStorePopupPointer,{passive:true});
+    storePopupLayer.addEventListener('click',e=>{ if(e.target===storePopupLayer) closeStorePopup(); });
+    storePopupLayer.appendChild(storePopupSvg);
+    storePopupLayer.appendChild(storePopupCard);
+    container.appendChild(storePopupLayer);
+    if(typeof ResizeObserver==='function'){
+      storePopupResizeObserver=new ResizeObserver(()=>requestStorePopupLayout());
+      storePopupResizeObserver.observe(storePopupCard);
+    }
+  }
+
+  const POPUP_HEADER_STORAGE_KEY='cse_popup_header_config_v176';
+  const POPUP_HEADER_WEIGHT_OPTIONS=[600,400];
+  const POPUP_HEADER_DEFAULT_SIZES={titleA:14,titleB:14,subtitle:11};
+  function popupHeaderDefaultConfig(){
+    return {
+      titleA: state.columns.location || state.headers.find(h=>norm(h)==='location') || '',
+      titleB: state.columns.storeId || state.headers.find(h=>['store profile number','store number','store no','store id'].includes(norm(h))) || '',
+      subtitle: '__CITY_PROVINCE__',
+      titleASize:14, titleBSize:14, subtitleSize:11, titleAWeight:600, titleBWeight:600, subtitleWeight:600
+    };
+  }
+  function normalizePopupHeader(h){
+    const fallback=popupHeaderDefaultConfig();
+    const validColumn=v=>state.headers.includes(String(v||''))?String(v):'';
+    const validSize=v=>{const n=Number(v);return [10,11,12,13,14,15,16,18,20].includes(n)?n:null;};
+    const validWeight=v=>{const n=Number(v);return [400,600].includes(n)?n:null;};
+    return {
+      titleA: validColumn(h?.titleA) || fallback.titleA,
+      titleB: validColumn(h?.titleB) || fallback.titleB,
+      subtitle: (h?.subtitle==='__CITY_PROVINCE__' || validColumn(h?.subtitle)) ? String(h.subtitle) : fallback.subtitle,
+      titleASize: validSize(h?.titleASize) || POPUP_HEADER_DEFAULT_SIZES.titleA,
+      titleBSize: validSize(h?.titleBSize) || POPUP_HEADER_DEFAULT_SIZES.titleB,
+      subtitleSize: validSize(h?.subtitleSize) || POPUP_HEADER_DEFAULT_SIZES.subtitle,
+      titleAWeight: validWeight(h?.titleAWeight) || fallback.titleAWeight,
+      titleBWeight: validWeight(h?.titleBWeight) || fallback.titleBWeight,
+      subtitleWeight: validWeight(h?.subtitleWeight) || fallback.subtitleWeight
+    };
+  }
+  function loadPopupHeaderConfig(){
+    const fallback=popupHeaderDefaultConfig();
+    try{
+      const raw=localStorage.getItem(POPUP_HEADER_STORAGE_KEY);
+      if(!raw){state.popupHeader=fallback;return;}
+      state.popupHeader=normalizePopupHeader(JSON.parse(raw));
+    }catch(_){state.popupHeader=fallback;}
+  }
+  function savePopupHeaderConfig(){try{localStorage.setItem(POPUP_HEADER_STORAGE_KEY,JSON.stringify(state.popupHeader));}catch(_){}}
+  function popupHeaderOptions(){
+    const cols=state.headers.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');
+    return `${cols}<option value="__CITY_PROVINCE__">City, Province</option>`;
+  }
+  function popupHeaderSizeOptions(selected){
+    return [10,11,12,13,14,15,16,18,20].map(n=>`<option value="${n}" ${Number(selected)===n?'selected':''}>${n} px</option>`).join('');
+  }
+  function popupHeaderWeightOptions(selected){
+    return POPUP_HEADER_WEIGHT_OPTIONS.map(n=>`<option value="${n}" ${Number(selected)===n?'selected':''}>${n===600?'Bold':'Not bold'}</option>`).join('');
+  }
+  function renderPopupHeaderConfig(){
+    const header=state.popupHeaderDraft=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader||popupHeaderDefaultConfig());
+    const a=el('popupHeaderTitleA'),b=el('popupHeaderTitleB'),sub=el('popupHeaderSubtitle'),as=el('popupHeaderTitleASize'),bs=el('popupHeaderTitleBSize'),ss=el('popupHeaderSubtitleSize'),aw=el('popupHeaderTitleAWeight'),bw=el('popupHeaderTitleBWeight'),sw=el('popupHeaderSubtitleWeight');
+    if(!a||!b||!sub||!as||!bs||!ss||!aw||!bw||!sw)return;
+    const opts=popupHeaderOptions();
+    a.innerHTML=opts;b.innerHTML=opts;sub.innerHTML=opts;
+    a.value=header.titleA;b.value=header.titleB;sub.value=header.subtitle;
+    as.innerHTML=popupHeaderSizeOptions(header.titleASize);bs.innerHTML=popupHeaderSizeOptions(header.titleBSize);ss.innerHTML=popupHeaderSizeOptions(header.subtitleSize);
+    as.value=String(header.titleASize);bs.value=String(header.titleBSize);ss.value=String(header.subtitleSize);
+    aw.innerHTML=popupHeaderWeightOptions(header.titleAWeight);bw.innerHTML=popupHeaderWeightOptions(header.titleBWeight);sw.innerHTML=popupHeaderWeightOptions(header.subtitleWeight);
+    aw.value=String(header.titleAWeight);bw.value=String(header.titleBWeight);sw.value=String(header.subtitleWeight);
+  }
+  function bindPopupHeaderConfig(){
+    const bind=(id,key,coerce=false)=>{const node=el(id);if(!node)return;node.onchange=e=>{if(!state.popupHeaderDraft)state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);state.popupHeaderDraft[key]=coerce?Number(e.target.value):e.target.value;};};
+    bind('popupHeaderTitleA','titleA');bind('popupHeaderTitleB','titleB');bind('popupHeaderSubtitle','subtitle');
+    bind('popupHeaderTitleASize','titleASize',true);bind('popupHeaderTitleBSize','titleBSize',true);bind('popupHeaderSubtitleSize','subtitleSize',true);
+    bind('popupHeaderTitleAWeight','titleAWeight',true);bind('popupHeaderTitleBWeight','titleBWeight',true);bind('popupHeaderSubtitleWeight','subtitleWeight',true);
+  }
+  function popupHeaderValue(row,key){
+    const h=state.popupHeader||popupHeaderDefaultConfig();
+    if(key==='subtitle' && h.subtitle==='__CITY_PROVINCE__'){
+      const city=String(row[state.columns.city]??'').trim();const prov=String(row[state.columns.province]??'').trim();return [city,prov].filter(Boolean).join(', ');
+    }
+    const col=h[key];return col?String(row[col]??'').trim():'';
+  }
+
+  const POPUP_VIRTUAL_FIELDS = {
+    'Population 1 km': {radiusKm:1,metric:'population'},
+    'Population 2 km': {radiusKm:2,metric:'population'},
+    'Population 65+ 1 km': {radiusKm:1,metric:'population65Plus'},
+    'Population 65+ 2 km': {radiusKm:2,metric:'population65Plus'}
+  };
+  function popupVirtualNames(){return Object.keys(POPUP_VIRTUAL_FIELDS);}
+  function isPopupVirtualOperand(name){return Object.prototype.hasOwnProperty.call(POPUP_VIRTUAL_FIELDS,String(name||''));}
+  function exactPopupOperandAt(expr,index){
+    const text=String(expr??'');
+    const rest=text.slice(index);
+    const candidates=[...state.headers,...popupVirtualNames()].filter(Boolean).sort((a,b)=>b.length-a.length);
+    let best=null;
+    for(const h of candidates){
+      if(!rest.startsWith(h))continue;
+      const before=index>0?text[index-1]:'';
+      const after=index+h.length<text.length?text[index+h.length]:'';
+      const beforeOk=!before||/[\s()+\-*/×÷]/.test(before);
+      const afterOk=!after||/[\s()+\-*/×÷]/.test(after);
+      if(beforeOk&&afterOk){best=h;break;}
+    }
+    return best;
+  }
+  function tokenizePopup(expr){
+    const tokens=[];let i=0;
+    while(i<String(expr??'').length){
+      while(i<expr.length&&/\s/.test(expr[i]))i++;
+      if(i>=expr.length)break;
+      const ch=expr[i];
+      if(/[()+*/×÷]/.test(ch)){tokens.push({type:'op',value:ch==='×'?'*':ch==='÷'?'/':ch});i++;continue;}
+      if(ch==='-'){tokens.push({type:'op',value:'-'});i++;continue;}
+      const operand=exactPopupOperandAt(expr,i);
+      if(operand){tokens.push({type:'operand',value:operand});i+=operand.length;continue;}
+      const num=expr.slice(i).match(/^(?:\d+(?:\.\d+)?|\.\d+)/);
+      if(num){tokens.push({type:'operand',value:num[0]});i+=num[0].length;continue;}
+      return null;
+    }
+    return tokens;
+  }
+  function popupFormulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    if(state.headers.includes(text)||isPopupVirtualOperand(text))return '';
+    const tokens=tokenizePopup(text);
+    if(!tokens||!tokens.length)return 'Invalid formula';
+    const operands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const textOnly=operands.filter(t=>state.types[t.value]!=='numeric'&&!isPopupVirtualOperand(t.value));
+    if(textOnly.length){
+      return operands.length===1&&state.headers.includes(textOnly[0].value)
+        ? 'Invalid formula'
+        : 'Invalid formula: non-numeric columns cannot be combined with numeric fields.';
+    }
+    let depth=0,expectOperand=true,seen=false;
+    for(const t of tokens){
+      if(t.type==='operand'){if(!expectOperand)return 'Invalid formula';expectOperand=false;seen=true;continue;}
+      if(t.value==='('){if(!expectOperand)return 'Invalid formula';depth++;continue;}
+      if(t.value===')'){if(expectOperand||depth===0)return 'Invalid formula';depth--;expectOperand=false;continue;}
+      if(expectOperand&&t.value!=='-')return 'Invalid formula';
+      expectOperand=true;
+    }
+    return seen&&depth===0&&!expectOperand?'':'Invalid formula';
+  }
+  function popupVirtualOptions(selected){
+    return popupVirtualNames().map(name=>`<option value="${esc(name)}" ${selected===name?'selected':''}>${esc(name)}</option>`).join('');
+  }
+
+  async function selectCensusBoundary(boundary, provinceCodes, threshold, options={}){
+    const codes=[...new Set((provinceCodes||[]).filter(Boolean))].sort();
+    if(!codes.length)return null;
+    const boundaryType=options.boundaryType || 'viewport';
+    const hasCircle=boundaryType==='circle';
+    const provinceModes=options.provinceModes || classifyCandidateProvinces(codes, hasCircle);
+    return DA_ENGINE.select(boundary, provinceModes, threshold, {
+      shouldRender: !!options.shouldRender,
+      indexedCandidatesByProvince: options.indexedCandidatesByProvince || {},
+      boundaryType,
+      targetCircle: options.targetCircle || null
+    });
+  }
+
+  async function calculatePopupCensusForStore(row, formulaFields=popupItems()){
+    const required=new Set();
+    for(const field of formulaFields){
+      const tokens=tokenizePopup(field.formula)||[];
+      for(const t of tokens){
+        if(t.type==='operand'&&isPopupVirtualOperand(t.value))required.add(t.value);
+      }
+    }
+    if(!required.size)return {};
+    const threshold=Number(el('censusThreshold')?.value??10);
+    const lat=toNumber(row[state.columns.lat]),lng=toNumber(row[state.columns.lon]);
+    if(lat===null||lng===null)return {};
+    const storeId=state.columns.storeId?String(row[state.columns.storeId]??''):'';
+    const cacheBase=`${storeId}|${lat.toFixed(6)}|${lng.toFixed(6)}|${threshold}`;
+    const neededRadii=[...new Set([...required].map(n=>POPUP_VIRTUAL_FIELDS[n].radiusKm))].sort((a,b)=>a-b);
+    const out={};
+    const provinceCode=provinceCodeFromText(row[state.columns.province] || '');
+    if(!provinceCode)return {};
+    for(const radiusKm of neededRadii){
+      const cacheKey=`${cacheBase}|${radiusKm}`;
+      if(state.popupCensusCache.has(cacheKey)){Object.assign(out,state.popupCensusCache.get(cacheKey));continue;}
+      const boundary=turf.circle([lng,lat],radiusKm,{units:'kilometers',steps:360});
+      const result=await selectCensusBoundary(boundary,[provinceCode],threshold,{boundaryType:'circle',targetCircle:{lat,lng,radiusMeters:radiusKm*1000},shouldRender:false,provinceModes:[{provinceCode,mode:'partial'}]});
+      const aggregate=result?.aggregate || {totalPopulation:0,population65Plus:0};
+      const radiusValues={[`Population ${radiusKm} km`]:aggregate.totalPopulation,[`Population 65+ ${radiusKm} km`]:aggregate.population65Plus};
+      state.popupCensusCache.set(cacheKey,radiusValues);
+      Object.assign(out,radiusValues);
+    }
+    return out;
+  }
+
+  function normalizePopupField(f){
+    const numberFormat=['auto','number','currency','percentage'].includes(f?.numberFormat)?f.numberFormat:'auto';
+    const rawDecimals=Number(f?.decimalPlaces);
+    const decimalPlaces=Number.isInteger(rawDecimals)&&rawDecimals>=0&&rawDecimals<=4?rawDecimals:defaultTickerDecimals(numberFormat);
+    let formula=f?.formula===null?'':String(f?.formula??'').trim();
+    let column=state.headers.includes(String(f?.column??''))?String(f.column):'';
+    if(!formula&&column) formula=column;
+    if(formula&&state.headers.includes(formula)) column=formula;
+    const type=state.headers.includes(formula)?'column':(isPopupVirtualOperand(formula)?'virtual':'formula');
+    const title=String(f?.title??'').trim() || (type!=='formula'?formula:firstTickerOperand(formula));
+    const quartile=!!f?.quartile;
+    return {type,column:type==='column'?formula:'',formula,title,numberFormat,decimalPlaces,quartile};
+  }
+  function popupDirectColumn(field){
+    const formula=String(field?.formula??'').trim();
+    return state.headers.includes(formula)?formula:'';
+  }
+  function popupDefaultFieldsFromSubjects(){
+    const totalSales=state.headers.includes('Total Sales')?'Total Sales':(state.headers.find(h=>norm(h)==='total sales')||'');
+    if(!totalSales) return [];
+    return [{type:'column',column:totalSales,formula:totalSales,title:totalSales,numberFormat:'auto',decimalPlaces:0}];
+  }
+  function loadPopupConfig(){
+    const fallback=popupDefaultFieldsFromSubjects();
+    try{
+      const raw=localStorage.getItem(POPUP_STORAGE_KEY);
+      if(!raw){state.popupConfig=fallback.map(normalizePopupField);return;}
+      const parsed=JSON.parse(raw);
+      state.popupConfig=Array.isArray(parsed)&&parsed.length?parsed.map(normalizePopupField):fallback.map(normalizePopupField);
+    }catch(_){state.popupConfig=fallback.map(normalizePopupField);}
+  }
+  function savePopupConfig(){
+    try{localStorage.setItem(POPUP_STORAGE_KEY,JSON.stringify(state.popupConfig));}catch(_){}
+  }
+  function popupItems(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula);}
+  function evaluatePopupFormula(formula,row,censusValues){
+    const tokens=tokenizePopup(formula);if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      if(operandValues.has(t.value))continue;
+      if(isPopupVirtualOperand(t.value)){operandValues.set(t.value,Number(censusValues?.[t.value]));continue;}
+      operandValues.set(t.value,toNumber(row[t.value]));
+    }
+    return evaluateTickerExpressionWithTokens(tokens,operandValues);
+  }
+  function evaluateTickerExpressionWithTokens(tokens,operandValues){
+    const values=[],ops=[];
+    const prec=o=>(o==='+'||o==='-')?1:2;
+    const apply=()=>{const op=ops.pop(),b=values.pop(),a=values.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){values.push(NaN);return;}if(op==='+')values.push(a+b);else if(op==='-')values.push(a-b);else if(op==='*')values.push(a*b);else if(op==='/')values.push(b===0?NaN:a/b);};
+    try{for(const t of tokens){if(t.type==='operand'){if(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))values.push(Number(t.value));else values.push(operandValues.has(t.value)?operandValues.get(t.value):NaN);continue;}if(t.value==='-'&&(values.length===0||ops.at(-1)==='('||['+','-','*','/'].includes(ops.at(-1)))){values.push(0);ops.push('-');continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)!=='(')return NaN;ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length){if(ops.at(-1)==='(')return NaN;apply();}return values.length===1?values[0]:NaN;}catch(_){return NaN;}
+  }
+  function popupFieldValue(field,row,censusValues){
+    const direct=popupDirectColumn(field);
+    if(direct){
+      const raw=row[direct];
+      const n=toNumber(raw);
+      return n===null?String(raw??''):formatTickerValue(n,field.numberFormat,direct,field.decimalPlaces);
+    }
+    const value=isPopupVirtualOperand(field.formula)?Number(censusValues?.[field.formula]):evaluatePopupFormula(field.formula,row,censusValues);
+    return formatTickerValue(value,field.numberFormat,field.formula,field.decimalPlaces);
+  }
+  const AMENITY_BIN_URL='aportee_amenities_v1.bin';
+  const AMENITY_MANIFEST_URL='aportee_amenities_v1_manifest.json';
+  const AMENITY_RADIUS_KM=1;
+  const AMENITY_GRID_DEG=0.01;
+  const AMENITY_RECORD_BYTES=12;
+  const AMENITY_CATEGORY_MASKS={retail:1,food:2,health:4,community:8};
+  const AMENITY_CATEGORY_LABELS={retail:'Retail',food:'Food & Leisure',health:'Health & Services',community:'Community & Recreation'};
+  const AMENITY_TYPE_NAMES=['bakery','bike_shop','bookstore','convenience_store','grocery','hardware','pharmacy','restaurant','cafe','bar','bank','clinic','dentist','hospital','nursing_home','laundromat','post_office','school','elementary_school','secondary_school','post_secondary','library','park','park_large','park_neighbourhood','park_pocket','playground','childcare','community_centre','dog_park','place_of_worship','pool','ice_rink','sports_field'];
+  const AMENITY_HELP={retail:'grocery, pharmacy, bakery, bookstore, hardware, convenience store and bike shop.',food:'restaurants, cafes and bars.',health:'banks, clinics, dentists, hospitals, nursing homes, laundromats and post offices.',community:'schools, post-secondary, libraries, parks, childcare, community centres, dog parks, places of worship, pools, ice rinks and sports fields.'};
+  function amenityMeta(){ const m=state.amenityAssetState.meta||{}; return {recordCount:Number(m.final_unique_points||m.recordCount||0),recordOffset:24}; }
+  function amenityReadRecord(i,view){ const m=amenityMeta(); const off=m.recordOffset+i*AMENITY_RECORD_BYTES; return {lat:view.getInt32(off,true)/1e6,lon:view.getInt32(off+4,true)/1e6,mask:view.getUint32(off+8,true)}; }
+  function amenityBuildGridIndex(){
+    const a=state.amenityAssetState; if(a.gridIndex)return a.gridIndex;
+    const view=new DataView(a.buffer), meta=amenityMeta(), count=meta.recordCount; const grid=new Map();
+    for(let i=0;i<count;i++){ const r=amenityReadRecord(i,view); const key=`${Math.floor(r.lat/AMENITY_GRID_DEG)},${Math.floor(r.lon/AMENITY_GRID_DEG)}`; const ranges=grid.get(key); if(!ranges)grid.set(key,[[i,i+1]]); else {const last=ranges[ranges.length-1]; if(last[1]===i)last[1]=i+1; else ranges.push([i,i+1]);} }
+    a.gridIndex=grid; return grid;
+  }
+  async function loadAmenityAsset(){
+    const a=state.amenityAssetState; if(a.status==='ready')return a; if(a.promise)return a.promise; a.status='loading';
+    a.promise=(async()=>{ const manifest=await fetch(AMENITY_MANIFEST_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity manifest unavailable');return r.json();}); const bin=await fetch(AMENITY_BIN_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('Amenity asset unavailable');return r.arrayBuffer();}); const view=new DataView(bin); if(view.getUint8(0)!==0x41||view.getUint8(1)!==0x50||view.getUint8(2)!==0x52||view.getUint8(3)!==0x54)throw new Error('Invalid amenity asset'); a.buffer=bin; a.meta={...manifest,recordCount:Number(manifest.final_unique_points||view.getUint32(8,true))}; a.status='ready'; return a; })().catch(err=>{a.status='error';a.promise=null;a.error=err;throw err;}); return a.promise;
+  }
+  function amenityDistanceKm(lat1,lon1,lat2,lon2){const p=Math.PI/180,dLat=(lat2-lat1)*p,dLon=(lon2-lon1)*p,a=Math.sin(dLat/2)**2+Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin(dLon/2)**2;return 6371*2*Math.asin(Math.min(1,Math.sqrt(a)));}
+  function amenityIndicesWithinRadius(lat,lon,radiusKm){
+    const asset=state.amenityAssetState,view=new DataView(asset.buffer),grid=amenityBuildGridIndex(),latPad=radiusKm/111.32,lonPad=radiusKm/(111.32*Math.max(0.2,Math.cos(lat*Math.PI/180))); const minLat=Math.floor((lat-latPad)/AMENITY_GRID_DEG),maxLat=Math.floor((lat+latPad)/AMENITY_GRID_DEG),minLon=Math.floor((lon-lonPad)/AMENITY_GRID_DEG),maxLon=Math.floor((lon+lonPad)/AMENITY_GRID_DEG); const ids=[];
+    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;for(const [start,end] of ranges)for(let i=start;i<end;i++){const r=amenityReadRecord(i,view);if(amenityDistanceKm(lat,lon,r.lat,r.lon)<=radiusKm)ids.push(i);}}
+    return ids;
+  }
+  async function calculateAmenityProfile(lat,lon,radiusKm=AMENITY_RADIUS_KM){const key=`${lat.toFixed(5)},${lon.toFixed(5)},${radiusKm}`;if(state.amenityPopupCache.has(key))return state.amenityPopupCache.get(key);const asset=await loadAmenityAsset(),view=new DataView(asset.buffer),ids=amenityIndicesWithinRadius(lat,lon,radiusKm);let total=0,retail=0,food=0,health=0,community=0;for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}const result={total,retail,food,health,community,indices:ids};state.amenityPopupCache.set(key,result);return result;}
+  const AMENITY_SUBCATEGORIES={
+    retail:['Grocery','Pharmacy','Bakery','Bookstore','Hardware store','Convenience store','Bike shop'],
+    food:['Restaurant','Cafe','Bar / pub'],
+    health:['Bank','Clinic','Dentist','Hospital','Nursing home','Laundromat','Post office'],
+    community:['School','Elementary school','Secondary school','College or university','Library','Park','Large park','Neighbourhood park','Pocket park','Playground','Childcare','Community centre','Dog park','Place of worship','Pool','Ice rink','Sports field or court']
+  };
+  function popupTabTokenize(formula,headers){
+    const tokens=[];let i=0,text=String(formula??'');const candidates=[...(headers||[])].filter(Boolean).sort((a,b)=>b.length-a.length);
+    while(i<text.length){while(i<text.length&&/\s/.test(text[i]))i++;if(i>=text.length)break;const ch=text[i];if(/[()+*/-]/.test(ch)){tokens.push({type:'op',value:ch});i++;continue;}const rest=text.slice(i);const h=candidates.find(x=>rest.startsWith(x)&&(!text[i-1]||/[\s()+*/-]/.test(text[i-1]))&&(!text[i+x.length]||/[\s()+*/-]/.test(text[i+x.length])));if(h){tokens.push({type:'operand',value:h});i+=h.length;continue;}const n=rest.match(/^(?:\d+(?:\.\d+)?|\.\d+)/);if(n){tokens.push({type:'operand',value:n[0]});i+=n[0].length;continue;}return null;}return tokens;
+  }
+  function popupTabEvaluateFormula(formula,values,headers){const tokens=popupTabTokenize(formula,headers);if(!tokens)return NaN;const ops=[],vals=[],prec=o=>(o==='+'||o==='-')?1:2;const apply=()=>{const op=ops.pop(),b=vals.pop(),a=vals.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){vals.push(NaN);return;}vals.push(op==='+'?a+b:op==='-'?a-b:op==='*'?a*b:b===0?NaN:a/b);};for(const t of tokens){if(t.type==='operand'){vals.push(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)?Number(t.value):Number(values[t.value]));continue;}if(t.value==='('){ops.push(t.value);continue;}if(t.value===')'){while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)==='(')ops.pop();continue;}while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();ops.push(t.value);}while(ops.length)apply();return vals.length===1?vals[0]:NaN;}
+  function popupTabAggregateRaw(rows,cell,headers){const f=String(cell.content||'').trim();if(!f)return null;if(headers.includes(f)){if(cell.aggregation==='count')return rows.length;const nums=rows.map(r=>toNumber(r[f])).filter(v=>Number.isFinite(v));if(!nums.length)return null;return cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);}const values={};for(const h of headers){const nums=rows.map(r=>toNumber(r[h])).filter(v=>Number.isFinite(v));if(nums.length)values[h]=cell.aggregation==='average'?avg(nums):cell.aggregation==='median'?median(nums):nums.reduce((a,b)=>a+b,0);}const v=popupTabEvaluateFormula(f,values,headers);return Number.isFinite(v)?v:null;}
+  function popupTabAggregate(rows,cell,headers){const raw=popupTabAggregateRaw(rows,cell,headers);return raw===null?'—':formatTickerValue(raw,cell.numberFormat,cell.content,cell.decimalPlaces);}
+  function popupColLetters(cols){const out=[];for(let c=0;c<cols;c++){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}out.push(s);}return out;}
+  function popupColRowRefToIndex(ref,grid){const m=String(ref||'').trim().toUpperCase().match(/^([A-Z]+)([1-9]\d*)$/);if(!m)return null;let col=0;for(const ch of m[1])col=col*26+(ch.charCodeAt(0)-64);col-=1;const row=Number(m[2])-1;if(row<0||row>=grid.rows||col<0||col>=grid.cols)return null;return {r:row,c:col};}
+  function popupColRowTokenize(formula,grid){const tokens=[];let i=0,text=String(formula||'');while(i<text.length){while(i<text.length&&/\s/.test(text[i]))i++;if(i>=text.length)break;const ch=text[i];if(/[()+*/-]/.test(ch)){tokens.push({type:'op',value:ch});i++;continue;}const rest=text.slice(i);const ref=rest.match(/^[A-Za-z]+[1-9]\d*/);if(ref){const idx=popupColRowRefToIndex(ref[0],grid);if(!idx)return null;tokens.push({type:'ref',value:ref[0].toUpperCase(),index:idx});i+=ref[0].length;continue;}const n=rest.match(/^(?:\d+(?:\.\d+)?|\.\d+)/);if(n){tokens.push({type:'operand',value:n[0]});i+=n[0].length;continue;}return null;}return tokens;}
+  function popupColRowEvaluate(formula,grid,getValue){const tokens=popupColRowTokenize(formula,grid);if(!tokens||!tokens.length)return {value:NaN,error:'Invalid formula'};const ops=[],vals=[],prec=o=>(o==='+'||o==='-')?1:2;const apply=()=>{const op=ops.pop(),b=vals.pop(),a=vals.pop();if(!Number.isFinite(a)||!Number.isFinite(b)){vals.push(NaN);return;}vals.push(op==='+'?a+b:op==='-'?a-b:op==='*'?a*b:b===0?NaN:a/b);};let expect=true;for(const t of tokens){if(t.type==='ref'||t.type==='operand'){if(!expect)return {value:NaN,error:'Invalid formula'};const v=t.type==='operand'?Number(t.value):getValue(t.index);vals.push(v);expect=false;continue;}if(t.value==='('){if(!expect&&ops.at(-1)!=='(')return {value:NaN,error:'Invalid formula'};ops.push(t.value);continue;}if(t.value===')'){if(expect)return {value:NaN,error:'Invalid formula'};while(ops.length&&ops.at(-1)!=='(')apply();if(ops.at(-1)!=='(')return {value:NaN,error:'Invalid formula'};ops.pop();expect=false;continue;}if(expect&&t.value!=='-')return {value:NaN,error:'Invalid formula'};ops.push(t.value);expect=true;}while(ops.length){if(ops.at(-1)==='(')return {value:NaN,error:'Invalid formula'};apply();}return (!expect&&vals.length===1)?{value:vals[0],error:null}:{value:NaN,error:'Invalid formula'};}
+  function popupGridCellRaw(grid,cfg,ctx,r,c,memo,visiting){const key=`${r}:${c}`,cell=normalizePopupGridCell(grid.cells[r][c]);if(memo.has(key))return memo.get(key);if(visiting.has(key))return {value:NaN,error:'Circular reference'};visiting.add(key);let result={value:null,error:null};const f=String(cell.content||'').trim();if(cell.type==='text'){result={value:f,error:null};}else if(cell.type==='colrow'){const calc=popupColRowEvaluate(f,grid,idx=>{const q=popupGridCellRaw(grid,cfg,ctx,idx.r,idx.c,memo,visiting);if(q.error)return NaN;const n=toNumber(q.value);return n===null?NaN:n;});result=calc;}else if(ctx.tabIndex===0){if(cell.type==='value'){if(isPopupVirtualOperand(f)){const n=Number(ctx.censusValues?.[f]);result={value:Number.isFinite(n)?n:null,error:null};}else{const raw=ctx.row?.[f];const n=toNumber(raw);result={value:n===null?(raw??null):n,error:null};}}else{const n=evaluatePopupFormula(f,ctx.row,ctx.censusValues||{});result={value:Number.isFinite(n)?n:null,error:null};}}else{const rowsForThisGridRow=ctx.baseRowsByGridRow?.[r]||ctx.baseRows||[];const n=popupTabAggregateRaw(rowsForThisGridRow,cell,ctx.headers);result={value:n,error:null};}visiting.delete(key);memo.set(key,result);return result;}
+  function popupGridEvaluate(grid,cfg,ctx){const memo=new Map(),rows=[];for(let r=0;r<grid.rows;r++){const vals=[];for(let c=0;c<grid.cols;c++){const res=popupGridCellRaw(grid,cfg,ctx,r,c,memo,new Set());vals.push(res);}rows.push(vals);}return rows;}
+  function popupGridDisplay(grid,cfg,ctx){const evaluated=popupGridEvaluate(grid,cfg,ctx);return evaluated.map((row,r)=>row.map((res,c)=>{const cell=normalizePopupGridCell(grid.cells[r][c]);if(res.error==='Circular reference')return '#CIRC!';if(res.error)return '#ERR!';if(cell.type==='text')return String(res.value??'');if(res.value===null||res.value===undefined||!Number.isFinite(Number(res.value)))return '—';return formatTickerValue(Number(res.value),cell.numberFormat,cell.content,cell.decimalPlaces);}));}
+  function popupConfiguredGridHtml(cfg,index,ctx){const grid=normalizePopupGrid(cfg?.grid);const rendered=popupGridDisplay(grid,cfg,ctx);const colTemplate=popupConfiguredGridColumnTemplate(rendered,grid.cols);const gridHtml=rendered.map(values=>`<div class="popup-configured-tab-grid-row">${values.map(value=>`<div class="popup-configured-tab-grid-cell">${esc(value)}</div>`).join('')}</div>`).join('');return `<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-grid" style="--popup-output-cols:${grid.cols};--popup-output-template:${colTemplate}">${gridHtml}</div></div>`;}
+  function popupGridHasColRow(grid){return !!grid?.cells?.some(row=>row.some(c=>normalizePopupGridCell(c).type==='colrow'));}
+  function popupGridCircularIssues(grid){const issues=[];const seen=new Map();const visit=(r,c,stack=[])=>{const key=`${r}:${c}`;if(seen.get(key)==='done')return null;if(seen.get(key)==='visiting')return [...stack,key];seen.set(key,'visiting');const cell=normalizePopupGridCell(grid.cells[r][c]);if(cell.type==='colrow'){const toks=popupColRowTokenize(cell.content,grid);if(!toks)issues.push(`${popupCellLabel(r,c)}: invalid cell reference or formula`);else for(const t of toks)if(t.type==='ref'){const cycle=visit(t.index.r,t.index.c,[...stack,key]);if(cycle){issues.push(`Circular reference: ${cycle.map(k=>{const [rr,cc]=k.split(':').map(Number);return popupCellLabel(rr,cc);}).join(' → ')}`);break;}}}seen.set(key,'done');return null;};for(let r=0;r<grid.rows;r++)for(let c=0;c<grid.cols;c++)if(normalizePopupGridCell(grid.cells[r][c]).type==='colrow')visit(r,c);return [...new Set(issues)];}
+
+  function popupFilterMatches(row, filter){
+    if(!filter || !filter.column)return true;
+    const operator=String(filter.operator||'=');
+    const actual=row?.[filter.column];
+    const target=filter.value;
+    if(operator==='=')return norm(actual)===norm(target);
+    const aNum=toNumber(actual),tNum=toNumber(target);
+    if(Number.isFinite(aNum)&&Number.isFinite(tNum)){
+      if(operator==='<')return aNum<tNum;
+      if(operator==='<=' )return aNum<=tNum;
+      if(operator==='>')return aNum>tNum;
+      if(operator==='>=')return aNum>=tNum;
+      return false;
+    }
+    const a=String(actual??'').trim(),b=String(target??'').trim();
+    if(operator==='<')return a<b;
+    if(operator==='<=' )return a<=b;
+    if(operator==='>')return a>b;
+    if(operator==='>=')return a>=b;
+    return false;
+  }
+  function popupConfiguredGridColumnTemplate(rows, cells){
+    const widths=Array.from({length:Math.max(1, cells)},()=>72);
+    for(const row of rows){
+      for(let c=0;c<cells;c++){
+        const text=String(row?.[c]??'');
+        const estimate=Math.max(72,Math.min(300,Math.round(text.length*7.1+28)));
+        if(estimate>widths[c])widths[c]=estimate;
+      }
+    }
+    return widths.map(w=>`${w}px`).join(' ');
+  }
+  async function popupConfiguredExtraTabsHtml(row){
+    const configs=state.popupTabConfigs||[];
+    if(configs.length<2)return '';
+    const profileCol=state.columns.storeId,profileValue=profileCol?String(row[profileCol]??'').trim():'';
+    let html='';
+    for(let i=1;i<configs.length;i++){
+      const cfg=configs[i],tab=state.primaryTabs?.[i];
+      if(!cfg||!tab||!cfg.grid||!cfg.grid.cells.some(r=>r.some(c=>String(c?.content||'').trim())))continue;
+      const grid=normalizePopupGrid(cfg.grid);
+      let baseRows=tab.rows||[];
+      const key=tab.storeProfileHeader||tab.headers.find(h=>norm(h)==='store profile number');
+      if(cfg.filterOnProfile&&key)baseRows=baseRows.filter(r=>String(r[key]??'').trim()===profileValue);
+      const activeFilters=Array.isArray(cfg.filters)?cfg.filters.filter(f=>f&&f.column):[];
+      const baseRowsByGridRow=[];const allOutputRows=[];
+      for(let r=0;r<grid.rows;r++){
+        const rowCells=grid.cells[r]||[];
+        if(!rowCells.some(raw=>String(raw?.content??'').trim()!=='')){baseRowsByGridRow.push([]);continue;}
+        const rowId=grid.rowIds?.[r];
+        const scoped=activeFilters.filter(f=>!f.scope||f.scope==='all'||(f.scope==='row'&&f.rowId===rowId));
+        const rowsForOutput=baseRows.filter(sourceRow=>scoped.every(f=>popupFilterMatches(sourceRow,f)));
+        baseRowsByGridRow.push(rowsForOutput); allOutputRows.push(rowsForOutput.length);
+      }
+      const rendered=popupGridDisplay(grid,cfg,{tabIndex:i,row,censusValues:{},headers:tab.headers,baseRowsByGridRow});
+      const colTemplate=popupConfiguredGridColumnTemplate(rendered,grid.cols);
+      const maxMatches=allOutputRows.length?Math.max(...allOutputRows):0;
+      const gridHtml=rendered.map(values=>`<div class="popup-configured-tab-grid-row">${values.map(value=>`<div class="popup-configured-tab-grid-cell">${esc(value)}</div>`).join('')}</div>`).join('');
+      html+=`<div class="popup-configured-tab-grid-wrap"><div class="popup-configured-tab-title">${esc(cfg.name)}</div><div class="popup-configured-tab-grid" style="--popup-output-cols:${grid.cols};--popup-output-template:${colTemplate}">${gridHtml}</div><div class="popup-configured-tab-note">${maxMatches.toLocaleString('en-CA')} matching rows</div></div>`;
+    }
+    return html;
+  }
+  async function popupCardContent(row,censusValues={},amenityProfile=null){
+    const c=state.columns;
+    const popupFields=popupItems();
+    const needsCensus=popupFields.some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    const values=needsCensus&&!Object.keys(censusValues).length?await calculatePopupCensusForStore(row):censusValues;
+    const header=normalizePopupHeader(state.popupHeader||popupHeaderDefaultConfig());
+    const titleA=popupHeaderValue(row,'titleA') || 'Location';
+    const titleB=popupHeaderValue(row,'titleB') || '—';
+    const subtitle=popupHeaderValue(row,'subtitle');
+    const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
+    const mapsLink=(lat!==null&&lng!==null)?`<a class="store-popup-map-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps" aria-label="Open in Google Maps">G</a>`:'';
+    const quartileFields=popupFields.filter(f=>f.quartile);
+    const tickerItems=state.popupTickerMetrics||[];
+    const tickerSegments=tickerItems.map(m=>{const value=popupTickerValue(m,row,values);return `<span class="store-popup-ticker-segment"><b>${esc(popupTickerTitle(m))}</b><strong>${esc(value)}</strong></span>`;}).join('');
+    const tickerHtml=tickerItems.length?`<div class="store-popup-ticker" data-popup-ticker title="Click to pause or resume"><div class="store-popup-ticker-viewport"><div class="store-popup-ticker-track">${tickerSegments}<span class="store-popup-ticker-separator" aria-hidden="true">•</span>${tickerSegments}</div></div></div>`:'';
+    const quartileHtml=renderPopupQuartileBar(row,quartileFields);
+    const mainGridCfg=state.popupTabConfigs?.[0];
+    const mainGridHasColRow=popupGridHasColRow(mainGridCfg?.grid);
+    let html=`<div class="store-popup-head"><div class="store-popup-head-main"><div class="store-popup-head-row"><h3 style="font-size:${header.titleASize}px;font-weight:${header.titleAWeight}">${esc(titleA)}</h3><span class="store-popup-store-id" style="font-size:${header.titleBSize}px;font-weight:${header.titleBWeight}">${esc(titleB)}</span></div>${subtitle?`<div class="store-popup-subtitle" style="font-size:${header.subtitleSize}px;font-weight:${header.subtitleWeight}">${esc(subtitle)}</div>`:''}</div><div class="store-popup-head-actions">${mapsLink}<button type="button" class="store-popup-close" aria-label="Close store information">×</button></div></div><div class="store-popup-body"><div class="store-popup-main-column"><div class="store-popup-metrics-scroll">`;
+    if(mainGridHasColRow){html+=popupConfiguredGridHtml(mainGridCfg,0,{tabIndex:0,row,censusValues:values,headers:state.primaryTabs?.[0]?.headers||state.headers,baseRows:[row]});}
+    else{html+='<table>';for(const field of popupFields){html+=`<tr><td>${esc(tickerMetricTitle(field))}</td><td>${esc(popupFieldValue(field,row,values))}</td></tr>`;}html+='</table>';}
+    const extraTabs=await popupConfiguredExtraTabsHtml(row);
+    html+=`${extraTabs}</div></div>${quartileHtml}</div>${tickerHtml}</div>`;
+    return html;
+  }
+
+  const POPUP_TICKER_STORAGE_KEY='cse_popup_ticker_config_v102';
+  function popupTickerDefaultHeaders(){
+    const headers=state.headers||[];
+    const findFirst=(patterns)=>headers.find(h=>{const n=norm(h);return patterns.some(p=>n===p||n.includes(p));});
+    const gross=findFirst(['gross square footage','gross sq ft','gross area sq ft','gross area','gross sqft','gross square feet','square footage']);
+    const location=findFirst(['location type']);
+    return [gross,location].filter(Boolean);
+  }
+  function loadPopupTickerConfig(){
+    const fallback=popupTickerDefaultHeaders().map(h=>({formula:h,title:h}));
+    try{
+      const raw=localStorage.getItem(POPUP_TICKER_STORAGE_KEY);
+      const parsed=raw?JSON.parse(raw):null;
+      state.popupTickerMetrics=Array.isArray(parsed)?parsed.filter(x=>String(x?.formula||'').trim()).map(x=>({formula:String(x.formula).trim(),title:String(x.title||x.formula).trim()})):fallback;
+      if(!state.popupTickerMetrics.length)state.popupTickerMetrics=fallback;
+    }catch(_){state.popupTickerMetrics=fallback;}
+    state.popupTickerDraft=state.popupTickerMetrics.map(x=>({...x}));
+  }
+  function savePopupTickerConfig(){try{localStorage.setItem(POPUP_TICKER_STORAGE_KEY,JSON.stringify(state.popupTickerMetrics));}catch(_){}
+  }
+  function popupTickerTitle(m){return String(m?.title||m?.formula||'').trim()||'Metric';}
+  function popupTickerValue(m,row,censusValues){
+    const formula=String(m?.formula||'').trim();
+    if(!formula)return '—';
+    if(state.headers.includes(formula)){
+      const raw=row[formula];
+      if(raw===null||raw===undefined||raw==='')return '—';
+      const n=toNumber(raw);
+      return n===null?String(raw):formatTickerValue(n,'auto',formula,0);
+    }
+    if(isPopupVirtualOperand(formula))return formatTickerValue(Number(censusValues?.[formula]),'auto',formula,0);
+    return formatTickerValue(evaluatePopupFormula(formula,row,censusValues),'auto',formula,0);
+  }
+  function popupQuartileConfigFields(){return (state.popupConfig||[]).map(normalizePopupField).filter(f=>f.formula&&f.quartile);}
+  function popupQuartileRank(values,value){
+    const n=values.length;if(!n||!Number.isFinite(value))return null;
+    let lo=0,hi=values.length;
+    while(lo<hi){const mid=(lo+hi)>>1;if(values[mid]<value)lo=mid+1;else hi=mid;}
+    let a=lo,b=lo;while(a>0&&values[a-1]===value)a--;while(b<n&&values[b]===value)b++;
+    if(n===1)return .5;
+    const midRank=(a+b-1)/2;
+    return Math.max(0,Math.min(1,midRank/(n-1)));
+  }
+  function popupQuartileCacheKey(field){
+    const threshold=Number(el('censusThreshold')?.value??10);
+    return `${threshold}|${String(field?.formula||'').trim()}`;
+  }
+  async function ensurePopulationCalcStatusPainted(){
+    if(state.populationCalcStatusFrame) cancelAnimationFrame(state.populationCalcStatusFrame);
+    return new Promise(resolve=>{
+      state.populationCalcStatusFrame=requestAnimationFrame(()=>{
+        state.populationCalcStatusFrame=0;
+        requestAnimationFrame(resolve);
+      });
+    });
+  }
+  async function showPopulationCalcStatus(){
+    state.populationCalcStatusDepth++;
+    if(state.populationCalcStatusDepth!==1)return;
+    const node=el('populationCalcStatus');
+    if(node){node.classList.remove('hidden');}
+    await ensurePopulationCalcStatusPainted();
+  }
+  function hidePopulationCalcStatus(){
+    state.populationCalcStatusDepth=Math.max(0,state.populationCalcStatusDepth-1);
+    if(state.populationCalcStatusDepth!==0)return;
+    const node=el('populationCalcStatus');
+    if(node)node.classList.add('hidden');
+  }
+  async function computePopupQuartiles(selectedRow){
+    const fields=popupQuartileConfigFields();
+    const result={};
+    if(!fields.length||!state.rows.length){state.popupQuartileValues=result;return result;}
+    const selectedCensus=hasPopupVirtualFields()?await calculatePopupCensusForStore(selectedRow,fields):{};
+    for(const field of fields){
+      const cacheKey=popupQuartileCacheKey(field);
+      let vals=state.popupQuartileDistributionCache.get(cacheKey);
+      if(!vals){
+        const virtualNeeded=!!(tokenizePopup(field.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value));
+        const computed=[];
+        const chunk=20;
+        for(let start=0;start<state.rows.length;start+=chunk){
+          const end=Math.min(state.rows.length,start+chunk);
+          for(let i=start;i<end;i++){
+            const row=state.rows[i];
+            const census=virtualNeeded?await calculatePopupCensusForStore(row,[field]):{};
+            const value=popupFieldNumericValue(field,row,census);
+            if(Number.isFinite(value))computed.push(value);
+          }
+          if(end<state.rows.length)await new Promise(r=>setTimeout(r,0));
+        }
+        vals=computed.sort((a,b)=>a-b);
+        state.popupQuartileDistributionCache.set(cacheKey,vals);
+      }
+      const selectedValue=popupFieldNumericValue(field,selectedRow,selectedCensus);
+      result[field.formula]=Number.isFinite(selectedValue)?popupQuartileRank(vals,selectedValue):null;
+    }
+    state.popupQuartileValues=result;return result;
+  }
+  function popupFieldNumericValue(field,row,censusValues){
+    if(isPopupVirtualOperand(field.formula))return Number(censusValues?.[field.formula]);
+    if(state.headers.includes(field.formula))return toNumber(row[field.formula]);
+    return evaluatePopupFormula(field.formula,row,censusValues);
+  }
+  function renderPopupQuartileBar(row,fields){
+    const items=(fields||[]).map((f,i)=>{
+      const pct=state.popupQuartileValues?.[f.formula];
+      return {field:f,index:i,pct:Number.isFinite(pct)?pct:null,actualY:Number.isFinite(pct)?(1-pct)*123:null};
+    }).filter(x=>x.pct!==null);
+    const minGap=16, minY=8, maxY=130;
+    const sorted=[...items].sort((a,b)=>a.actualY-b.actualY);
+    let prev=-Infinity;
+    for(const item of sorted){
+      item.labelY=Math.max(item.actualY,prev+minGap,minY);
+      prev=item.labelY;
+    }
+    if(sorted.length && sorted[sorted.length-1].labelY>maxY){
+      sorted[sorted.length-1].labelY=maxY;
+      for(let i=sorted.length-2;i>=0;i--) sorted[i].labelY=Math.min(sorted[i].labelY,sorted[i+1].labelY-minGap);
+      if(sorted[0].labelY<minY){
+        const shift=minY-sorted[0].labelY;
+        sorted.forEach(x=>x.labelY+=shift);
+      }
+    }
+    const byIndex=new Map(sorted.map(x=>[x.index,x]));
+    const dots=(items.map(item=>{
+      const x=byIndex.get(item.index);
+      const label=tickerMetricTitle(item.field);
+      const dx=54-24;
+      const dy=x.labelY-x.actualY;
+      const width=Math.sqrt(dx*dx+dy*dy);
+      const angle=Math.atan2(dy,dx)*180/Math.PI;
+      const labelOffset=x.labelY-x.actualY;
+      return `<span class="popup-quartile-item" style="top:${item.actualY.toFixed(3)}px;--label-offset:${labelOffset.toFixed(2)}px;--leader-width:${width.toFixed(2)}px;--leader-angle:${angle.toFixed(2)}deg"><span class="popup-quartile-dot qdot-${item.index%6}" title="${esc(label)}"></span><span class="popup-quartile-leader" aria-hidden="true"></span><span class="popup-quartile-label">${esc(label)}</span></span>`;
+    }).join(''));
+    return `<aside class="store-popup-quartile" aria-label="Store quartile position"><span class="popup-quartile-heading">Quartile</span><div class="popup-quartile-scale"><span class="qline q100"><b>100%</b></span><span class="qline q75"></span><span class="qline q50"></span><span class="qline q25"></span><span class="qline q0"></span>${dots}</div></aside>`;
+  }
+  function startPopupTicker(){
+    clearInterval(state.popupTickerTimer);state.popupTickerTimer=null;
+    const track=storePopupCard?.querySelector?.('.store-popup-ticker-track');
+    if(!track)return;
+    const duration=Math.max(5,15-Math.min(120,Number(state.tickerSpeed)||70)*0.075);
+    track.style.animationDuration=`${duration.toFixed(2)}s`;
+    track.classList.toggle('paused',!state.popupTickerPlaying);
+  }
+  async function refreshOpenPopupCard(){
+    const marker=state.openPopupMarker;if(!marker)return;
+    const row=marker.__row;
+    const token=++state.popupRenderToken;
+    storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
+    const hasPopulationWork=hasPopupVirtualFields()||popupQuartileConfigFields().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));
+    if(hasPopulationWork)await showPopulationCalcStatus();
+    try{
+      const valuesPromise=hasPopupVirtualFields()?calculatePopupCensusForStore(row):Promise.resolve({});
+      const values=await valuesPromise;
+      if(token!==state.popupRenderToken||state.openPopupMarker!==marker)return;
+      await computePopupQuartiles(row);
+      storePopupCard.innerHTML=await popupCardContent(row,values);
+      wirePopupCardActions(marker);
+    requestStorePopupLayout();
+    requestAnimationFrame(()=>{
+      requestStorePopupLayout();
+      requestAnimationFrame(()=>{
+        requestStorePopupLayout();
+        if(state.openPopupMarker===marker) storePopupCard.style.visibility='visible';
+      });
+    });
+    setTimeout(()=>{ if(state.openPopupMarker===marker){ requestStorePopupLayout(); storePopupCard.style.visibility='visible'; } },120);
+      startPopupTicker();
+    } finally {
+      if(hasPopulationWork)hidePopulationCalcStatus();
+    }
+  }
+  function wirePopupCardActions(marker){
+    const closeBtn=storePopupCard.querySelector('.store-popup-close');
+    closeBtn?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeStorePopup();});
+    const ticker=storePopupCard.querySelector('[data-popup-ticker]');
+    if(ticker){
+      ticker.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.popupTickerPlaying=!state.popupTickerPlaying;ticker.classList.toggle('paused',!state.popupTickerPlaying);startPopupTicker();});
+      const scroll=storePopupCard.querySelector('.store-popup-metrics-scroll');
+      if(scroll && window.L?.DomEvent?.disableScrollPropagation)L.DomEvent.disableScrollPropagation(scroll);
+      scroll?.addEventListener('wheel',e=>e.stopPropagation(),{passive:true});
+    }
+  }
+  function hasPopupVirtualFields(){return popupItems().some(f=>(tokenizePopup(f.formula)||[]).some(t=>t.type==='operand'&&isPopupVirtualOperand(t.value)));}
+
+  function closeStorePopup(){
+    releaseStorePopupPointer();
+    state.popupRenderToken++;
+    if(!storePopupLayer)return;
+    if(storePopupFrame)cancelAnimationFrame(storePopupFrame);
+    storePopupFrame=null;
+    storePopupLayoutQueued=false;
+    state.openPopupMarker=null;
+    if(storePopupCard)storePopupCard.style.visibility='hidden';
+    storePopupLayer.classList.remove('open');
+    storePopupLayer.setAttribute('aria-hidden','true');
+    if(storePopupSvg)storePopupSvg.replaceChildren();
+    if(storePopupCard)storePopupCard.innerHTML='';
+    closeAmenityDetail();
+  }
+
+  function requestStorePopupLayout(){
+    if(!state.openPopupMarker || !storePopupLayer?.classList.contains('open'))return;
+    if(storePopupLayoutQueued)return;
+    storePopupLayoutQueued=true;
+    storePopupFrame=requestAnimationFrame(()=>{
+      storePopupFrame=null;
+      storePopupLayoutQueued=false;
+      layoutStorePopup(state.openPopupMarker);
+    });
+  }
+
+  function ensureAmenityDetailLayer(){
+    if(amenityDetailLayer)return amenityDetailLayer;
+    const container=map.getContainer();
+    amenityDetailLayer=document.createElement('div');
+    amenityDetailLayer.className='amenity-detail-layer';
+    amenityDetailLayer.setAttribute('aria-hidden','true');
+    amenityDetailLayer.style.display='none';
+    ['click','mousedown','mouseup','pointerdown','pointerup','pointermove','wheel','touchstart','touchmove','contextmenu'].forEach(type=>amenityDetailLayer.addEventListener(type,e=>{e.stopPropagation();},{passive:false}));
+    container.appendChild(amenityDetailLayer);
+    return amenityDetailLayer;
+  }
+  function closeAmenityDetail(){
+    if(!amenityDetailLayer)return;
+    amenityDetailLayer.style.display='none';
+    amenityDetailLayer.setAttribute('aria-hidden','true');
+    amenityDetailLayer.innerHTML='';
+  }
+  function positionAmenityDetail(){
+    if(!amenityDetailLayer || amenityDetailLayer.style.display==='none')return;
+    const mapSize=map.getSize();
+    const margin=12;
+    const detailW=Math.min(205,Math.max(200,mapSize.x-margin*2));
+    const detailH=Math.min(245,Math.max(170,mapSize.y-margin*2));
+    const rightGap=20; const left=Math.max(margin, Math.floor(mapSize.x-detailW-rightGap));
+    const top=Math.max(80, Math.floor((mapSize.y-detailH)/2));
+    const clampedTop=clamp(top,margin,Math.max(margin,mapSize.y-margin-detailH));
+    amenityDetailLayer.style.width=`${detailW}px`;
+    amenityDetailLayer.style.height=`${detailH}px`;
+    amenityDetailLayer.style.left=`${left}px`;
+    amenityDetailLayer.style.top=`${clampedTop}px`;
+  }
+  function showAmenityCategoryDetail(category){
+    const layer=ensureAmenityDetailLayer();
+    const title=AMENITY_CATEGORY_LABELS[category]||category;
+    const items=AMENITY_SUBCATEGORIES[category]||[];
+    const list=items.map(x=>`<div class="amenity-detail-subcategory">${esc(x)}</div>`).join('');
+    layer.innerHTML=`<div class="amenity-detail-panel"><div class="amenity-detail-head"><strong>${esc(title)}</strong><button type="button" class="amenity-detail-close" aria-label="Close amenity details">×</button></div><div class="amenity-detail-list">${list}</div><div class="amenity-detail-help">Source: à portée, data version 8 October 2026. These are the source subcategories included in this headline category. Counts use unique amenity locations within the active scope.</div></div>`;
+    layer.style.display='block';
+    layer.setAttribute('aria-hidden','false');
+    layer.querySelector('.amenity-detail-close')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();closeAmenityDetail();});
+    positionAmenityDetail();
+  }
+
+  function wireCensusAmenityCategoryButtons(){
+    const grid=el('censusAmenityGrid');
+    if(!grid || grid.dataset.wired==='1')return;
+    grid.dataset.wired='1';
+    grid.addEventListener('click',e=>{
+      const btn=e.target.closest('.census-amenity-category');
+      if(!btn || !grid.contains(btn))return;
+      e.preventDefault();
+      e.stopPropagation();
+      showAmenityCategoryDetail(btn.dataset.amenityCategory);
+    });
+  }
+
+  function rectOverlapsMarker(left,top,w,h,px,py,radius,extra=0){
+    const nearestX=clamp(px,left,left+w);
+    const nearestY=clamp(py,top,top+h);
+    const d=Math.hypot(px-nearestX,py-nearestY);
+    return d < radius+extra;
+  }
+
+  function candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius){
+    const margin=12;
+    const popupClearance=12;
+    const baseGap=markerRadius+popupClearance;
+    const maxRadius=Math.hypot(mapSize.x,mapSize.y)+Math.max(w,h);
+    let best=null;
+    // Search radially for the closest valid rectangle. Each direction uses the
+    // exact support distance of the popup rectangle so it starts just outside
+    // the marker, then expands only when viewport clearance requires it.
+    for(let i=0;i<360;i++){
+      const angle=(Math.PI*2*i)/360;
+      const ux=Math.cos(angle),uy=Math.sin(angle);
+      const halfW=w/2,halfH=h/2;
+      const support=Math.abs(ux)*halfW+Math.abs(uy)*halfH;
+      let centerDistance=baseGap+support;
+      let accepted=null;
+      while(centerDistance<=maxRadius){
+        const cx=markerPoint.x+ux*centerDistance;
+        const cy=markerPoint.y+uy*centerDistance;
+        const left=cx-halfW,top=cy-halfH;
+        const right=left+w,bottom=top+h;
+        const inside=left>=margin&&top>=margin&&right<=mapSize.x-margin&&bottom<=mapSize.y-margin;
+        if(inside&&!rectOverlapsMarker(left,top,w,h,markerPoint.x,markerPoint.y,markerRadius,0)){
+          const edgeX=clamp(markerPoint.x,left,right);
+          const edgeY=clamp(markerPoint.y,top,bottom);
+          const edgeDistance=Math.hypot(markerPoint.x-edgeX,markerPoint.y-edgeY);
+          accepted={left,top,w,h,edgeDistance,centerDistance,angle};
+          break;
+        }
+        centerDistance+=4;
+      }
+      if(accepted){
+        if(!best || accepted.edgeDistance<best.edgeDistance || (Math.abs(accepted.edgeDistance-best.edgeDistance)<0.01&&accepted.centerDistance<best.centerDistance)){
+          best=accepted;
+        }
+      }
+    }
+    return best;
+  }
+
+  function leaderGeometry(markerPoint,popupRect,markerRadius){
+    const {left,top,w,h}=popupRect;
+    const px=clamp(markerPoint.x,left,left+w);
+    const py=clamp(markerPoint.y,top,top+h);
+    const dx=markerPoint.x-px,dy=markerPoint.y-py;
+    const len=Math.hypot(dx,dy);
+    if(!Number.isFinite(len)||len<0.5)return null;
+    const ux=dx/len,uy=dy/len;
+    const tipGap=Math.max(2,Math.min(4,3));
+    const tipDistance=Math.max(0,len-(markerRadius+tipGap));
+    if(tipDistance<0.5)return null;
+    const tipX=markerPoint.x-ux*(markerRadius+tipGap);
+    const tipY=markerPoint.y-uy*(markerRadius+tipGap);
+    const halfBase=5;
+    const bx=px,by=py;
+    const nx=-uy,ny=ux;
+    return {
+      points:`${bx-halfBase*nx},${by-halfBase*ny} ${bx+halfBase*nx},${by+halfBase*ny} ${tipX},${tipY}`
+    };
+  }
+
+  function layoutStorePopup(marker){
+    if(!marker||!storePopupLayer||!storePopupCard||!storePopupSvg)return;
+    if(marker!==state.openPopupMarker)return;
+    const container=map.getContainer();
+    const containerRect=container?.getBoundingClientRect?.();
+    const cssWidth=Number(container?.clientWidth||0);
+    const cssHeight=Number(container?.clientHeight||0);
+    const mapSize={
+      x:Math.max(1,Math.round(cssWidth || containerRect?.width || map.getSize().x)),
+      y:Math.max(1,Math.round(cssHeight || containerRect?.height || map.getSize().y))
+    };
+    const margin=12;
+    // Constrain the card before choosing a position. This guarantees that a
+    // valid placement can exist whenever the popup can physically fit in the
+    // visible map container. The metrics pane is the scrollable portion.
+    const maxW=Math.max(220,mapSize.x-margin*2);
+    const maxH=Math.max(160,mapSize.y-margin*2);
+    storePopupCard.style.maxWidth=`${maxW}px`;
+    storePopupCard.style.maxHeight=`${maxH}px`;
+    const markerPoint=map.latLngToContainerPoint(marker.getLatLng());
+    const markerEl=marker.getElement?.()?.querySelector('.store-marker');
+    const markerRect=markerEl?.getBoundingClientRect();
+    const markerRadius=Math.max(7,(markerRect?.width||14)/2,(markerRect?.height||14)/2);
+    const cardRect=storePopupCard.getBoundingClientRect();
+    const w=Math.min(cardRect.width||350,maxW);
+    const h=Math.min(cardRect.height||180,maxH);
+    const candidate=candidatePopupPosition(markerPoint,w,h,mapSize,markerRadius);
+    if(!candidate){
+      // If the marker is so close to an edge that no non-overlapping placement
+      // exists, choose the closest in-bounds corner while preserving the
+      // marker exclusion as much as the available geometry permits. This is
+      // a last-resort case after the card has been size-constrained.
+      const corners=[
+        {left:margin,top:margin},
+        {left:mapSize.x-margin-w,top:margin},
+        {left:margin,top:mapSize.y-margin-h},
+        {left:mapSize.x-margin-w,top:mapSize.y-margin-h}
+      ];
+      corners.sort((a,b)=>{
+        const da=Math.hypot(markerPoint.x-(a.left+w/2),markerPoint.y-(a.top+h/2));
+        const db=Math.hypot(markerPoint.x-(b.left+w/2),markerPoint.y-(b.top+h/2));
+        return db-da;
+      });
+      const chosen=corners[0];
+      candidate={left:clamp(chosen.left,margin,Math.max(margin,mapSize.x-margin-w)),top:clamp(chosen.top,margin,Math.max(margin,mapSize.y-margin-h)),w,h};
+    }
+    storePopupCard.style.left=`${candidate.left}px`;
+    storePopupCard.style.top=`${candidate.top}px`;
+    const leader=leaderGeometry(markerPoint,candidate,markerRadius);
+    storePopupSvg.setAttribute('width',String(mapSize.x));
+    storePopupSvg.setAttribute('height',String(mapSize.y));
+    storePopupSvg.setAttribute('viewBox',`0 0 ${mapSize.x} ${mapSize.y}`);
+    storePopupSvg.style.width=`${mapSize.x}px`;
+    storePopupSvg.style.height=`${mapSize.y}px`;
+    storePopupSvg.replaceChildren();
+    if(leader){
+      const polygon=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      polygon.setAttribute('points',leader.points);
+      polygon.setAttribute('class','store-popup-leader-arrow');
+      storePopupSvg.appendChild(polygon);
+    }
+    positionAmenityDetail();
+  }
+
+  async function openStorePopup(marker){
+    ensureStorePopupOverlay();
+    if(state.openPopupMarker===marker && storePopupLayer.classList.contains('open')){ closeStorePopup(); return; }
+    ++state.popupRenderToken;
+    state.openPopupMarker=marker;
+    state.popupTickerIndex=0;
+    state.popupQuartileValues={};
+    storePopupCard.style.visibility='hidden';
+    storePopupCard.innerHTML='<div class="store-popup-loading">Calculating…</div>';
+    storePopupLayer.classList.add('open');
+    storePopupLayer.setAttribute('aria-hidden','false');
+    requestStorePopupLayout();
+    await refreshOpenPopupCard();
+  }
+
+  function positionStorePopup(marker){
+    // Compatibility wrapper for older call sites; all positioning is custom now.
+    if(state.openPopupMarker===marker) requestStorePopupLayout();
+  }
+
+  async function storePopup(row){
+    return `<div class="store-popup">${await popupCardContent(row)}</div>`;
+  }
+
+  function handleMarkerClick(marker){
+    if(state.markerClickSuppressed)return;
+    const nearby=getNearbyMarkers(marker,18);
+    if(nearby.length>1){
+      if(state.spiderfyGroup && state.spiderfyGroup.includes(marker)){
+        unspiderfyMarkers();
+        openStorePopup(marker);
+        return;
+      }
+      unspiderfyMarkers();
+      spiderfyMarkers(nearby);
+      return;
+    }
+    openStorePopup(marker);
+  }
+  function getNearbyMarkers(centerMarker,thresholdPx){
+    const center=map.latLngToLayerPoint(centerMarker.getLatLng());
+    return state.markers.filter(m=>{
+      if(!filterRowPasses(m.__row)) return false;
+      const p=map.latLngToLayerPoint(m.getLatLng());
+      return p.distanceTo(center)<=thresholdPx;
+    });
+  }
+  function spiderfyMarkers(markers){
+    if(markers.length<=1)return;
+    state.spiderfyGroup=[...markers];
+    state.spiderfyOriginalPositions.clear();
+    const center=map.latLngToLayerPoint(markers[0].getLatLng());
+    const radius=Math.max(24,Math.min(48,18+markers.length*3));
+    const n=markers.length;
+    markers.forEach((m,i)=>{
+      state.spiderfyOriginalPositions.set(m,m.getLatLng());
+      const angle=(-Math.PI/2)+(i*(2*Math.PI/n));
+      const p=L.point(center.x+Math.cos(angle)*radius,center.y+Math.sin(angle)*radius);
+      m.setLatLng(map.layerPointToLatLng(p));
+      m.setZIndexOffset(1000+i);
+    });
+    setTimeout(()=>{
+      const first=state.spiderfyGroup?.[0];
+      if(first && state.openPopupMarker!==first) openStorePopup(first);
+    },0);
+  }
+  function unspiderfyMarkers(){
+    if(!state.spiderfyGroup || !state.spiderfyGroup.length)return;
+    for(const m of state.spiderfyGroup){
+      const original=state.spiderfyOriginalPositions.get(m);
+      if(original)m.setLatLng(original);
+      m.setZIndexOffset(0);
+    }
+    state.spiderfyGroup=null;
+    state.spiderfyOriginalPositions.clear();
+  }
+  // ---------- Store marker animation ----------
+  const MARKER_ANIMATION_STORAGE_KEY='cse_marker_animation_v102';
+  function normalizeMarkerAnimation(config){
+    let type=['ripple','fade','static'].includes(config?.type)?config.type:'ripple';
+    if(config?.type==='rotation' || config?.type==='squish' || config?.type==='pulse') type='ripple';
+    const typeMode=config?.typeMode==='text'?'text':'numeric';
+    const fadeObject=['smiley','starburst','lightning'].includes(config?.fadeObject)?config.fadeObject:'smiley';
+    const operator=['<=','=','>=','<','>'].includes(config?.operator)?config.operator:'=';
+    return {
+      enabled:!!config?.enabled, type, fadeObject, column:String(config?.column??''), formula:String(config?.formula??''),
+      operator, value:String(config?.value??''), values:Array.isArray(config?.values)?config.values.map(String):[], typeMode
+    };
+  }
+  function loadMarkerAnimationConfig(){
+    try{
+      const raw=localStorage.getItem(MARKER_ANIMATION_STORAGE_KEY);
+      state.markerAnimation=normalizeMarkerAnimation(raw?JSON.parse(raw):null);
+    }catch(_){state.markerAnimation=normalizeMarkerAnimation(null);}
+  }
+  function saveMarkerAnimationConfig(){
+    try{localStorage.setItem(MARKER_ANIMATION_STORAGE_KEY,JSON.stringify(state.markerAnimation));}catch(_){}
+  }
+  function markerAnimationFormulaIsValid(){
+    const f=String(state.markerAnimation.formula||'').trim();
+    if(!f)return false;
+    const tokens=exactFormulaTokens(f);
+    if(!tokens)return false;
+    const headers=tokens.filter(t=>t.type==='header').map(t=>t.value);
+    if(!headers.length)return false;
+    return headers.every(h=>state.types[h]==='numeric');
+  }
+  function markerRowMatchesAnimation(row){
+    const a=state.markerAnimation;
+    if(!a.enabled)return false;
+    const formula=String(a.formula||'').trim();
+    if(!formula)return false;
+    if(a.typeMode==='text'){
+      if(!a.column||!Array.isArray(a.values)||!a.values.length)return false;
+      const actual=String(row[a.column]??'');
+      return a.values.some(v=>String(v)===actual);
+    }
+    const calc=evaluateRowFormula(formula,row);
+    const target=Number(a.value);
+    if(!Number.isFinite(calc)||!Number.isFinite(target))return false;
+    if(a.operator==='<=')return calc<=target;
+    if(a.operator==='=')return calc===target;
+    if(a.operator==='>=')return calc>=target;
+    if(a.operator==='<')return calc<target;
+    if(a.operator==='>')return calc>target;
+    return false;
+  }
+  function rebuildMarkerAnimationCache(){
+    state.markerAnimationPassCache=new WeakMap();
+    if(!state.markerAnimation.enabled||!state.rows.length)return;
+    for(const row of state.rows) state.markerAnimationPassCache.set(row,markerRowMatchesAnimation(row));
+  }
+  function markerRowAnimationPasses(row){
+    if(!state.markerAnimation.enabled)return false;
+    return !!state.markerAnimationPassCache.get(row);
+  }
+  function markerAnimationConditionSummary(){
+    const a=state.markerAnimation;
+    if(!a.formula)return 'Choose one condition to animate matching stores.';
+    if(a.typeMode==='text')return a.values.length?`${a.formula} = ${a.values.join(', ')}`:'Choose one or more values.';
+    return `${a.formula} ${a.operator} ${a.value||'Value'}`;
+  }
+  function markerAnimationPassCount(){return state.rows.reduce((n,row)=>n+(markerRowAnimationPasses(row)?1:0),0);}
+  function refreshMarkerStyles(dist1=null,dist2=null){
+    if(!state.markers.length)return;
+    const selectedSet=new Set(state.selectedRows);
+    // Animation scope is the current viewport-selected dataset only.
+    // Census shapes affect metric/subject scope, but never animation eligibility.
+    const viewportSet=new Set(state.viewportSelectedRows||[]);
+    if(dist1===null && state.distributionBinKey!==null && state.distributionSubject){
+      const bins=buildDistributionBins();
+      dist1=bins.find(x=>x.key===state.distributionBinKey)||null;
+    }
+    if(dist2===null && state.distributionBinKey2!==null && state.distributionSubject2){
+      const bins2=buildDistributionBins(2);
+      dist2=bins2.find(x=>x.key===state.distributionBinKey2)||null;
+    }
+    state.markers.forEach(m=>{
+      const passes=filterRowPasses(m.__row);
+      const inSelection=selectedSet.has(m.__row)||state.selection.type==='national';
+      const animateVisible=passes && viewportSet.has(m.__row);
+      if(m.__filterPass!==passes){m.__filterPass=passes;m.setOpacity(passes?1:0);}
+      const z=passes?(inSelection?10:0):-1000;
+      if(m.__zIndex!==z){m.__zIndex=z;m.setZIndexOffset(z);}
+      const navActive=(state.navigationResultKind==='store' && m.__row===state.navigationResultStoreRow && state.navigationResultStoreColor==='__ripple__'); const navColor=null; const key=markerVisualKey(m.__row,inSelection,dist1,dist2)+`|${animateVisible?'visible':'off'}|${navActive?'ripple':''}`;
+      if(m.__visualKey!==key){m.__visualKey=key;m.setIcon(storeIcon(m.__row,inSelection,animateVisible,navColor,dist1,dist2,navActive));}
+    });
+  }
+
+
+  // ---------- Store selection follows the map viewport only ----------
+  // The radius is navigation/visual-reference only. It never constrains analysis.
+  function rowPassesFiltersWithFilters(row,filters){
+    const list=filters||[];
+    if(!list.length)return true;
+    let result=rowMatchesFilter(list[0],row);
+    for(let i=1;i<list.length;i++){
+      const current=rowMatchesFilter(list[i],row);
+      result=(list[i].connector||'AND')==='OR' ? (result||current) : (result&&current);
+    }
+    return result;
+  }
+  function rebuildFilterPassCache(filters=state.filters||[], prebuiltCache=null){
+    const cache=prebuiltCache||new WeakMap();
+    let count=0;
+    if(prebuiltCache){
+      for(const row of state.rows){ if(cache.get(row)===true) count++; }
+    } else {
+      for(const row of state.rows){
+        const pass=filters.length?rowPassesFiltersWithFilters(row,filters):true;
+        cache.set(row,pass);
+        if(pass)count++;
+      }
+    }
+    state.filterPassCache=cache;
+    state.filteredRows = state.rows.filter(row=>cache.get(row)===true);
+    return count;
+  }
+  function filterRowPasses(row){
+    if(!state.rows.length)return false;
+    const cached=state.filterPassCache.get(row);
+    return cached===undefined ? (!state.filters.length) : cached;
+  }
+  function rowPassesFilters(row){
+    return filterRowPasses(row);
+  }
+
+  function rowInsideActiveCensusShape(row){
+    if(!hasCoords(row))return false;
+    const c=state.columns;
+    const ll=L.latLng(toNumber(row[c.lat]),toNumber(row[c.lon]));
+    if(state.circleSelection?.circle){
+      const circle=state.circleSelection.circle;
+      return map.distance(circle.getLatLng(),ll)<=circle.getRadius()+0.0001;
+    }
+    if(state.rectangleSelection?.rectangle){
+      return state.rectangleSelection.rectangle.getBounds().contains(ll);
+    }
+    return true;
+  }
+  function getCensusShapeRows(){
+    const rows=state.filteredRows||[];
+    if(!rows.length)return[];
+    if(!state.columns.lat||!state.columns.lon) return [...rows];
+    if(!censusShapeType()) return [...rows];
+    return rows.filter(rowInsideActiveCensusShape);
+  }
+  function getSelectedRows(){
+    const rows=state.filteredRows||[];
+    if(!rows.length)return [];
+    const scope=metricSelectionScope();
+    if(scope==='canada') return [...rows];
+    if(scope==='province'){
+      const c=state.columns;
+      const target=state.censusScope?.code || state.censusGeoSelection?.code || null;
+      if(!target || !c.province) return [];
+      return rows.filter(row=>provinceCodeFromText(row[c.province])===target);
+    }
+    if(scope==='circle'||scope==='box') return getCensusShapeRows();
+    return state.viewportSelectedRows||[];
+  }
+  function getViewportSelectedRows(){
+    const rows=state.filteredRows||[];
+    if(!rows.length)return [];
+    const c=state.columns;
+    if(!c.lat||!c.lon)return [...rows];
+    const bounds=map.getBounds();
+    return rows.filter(r=>{
+      if(!hasCoords(r))return false;
+      const ll=L.latLng(toNumber(r[c.lat]),toNumber(r[c.lon]));
+      return bounds.contains(ll);
+    });
+  }
+  function getFilteredRows(){return [...(state.filteredRows||[])];}
+  /* Deprecated: highlights are viewport-governed and are never cleared merely by panning. */
+  function clearHighlightsOutsideVisibleShapeArea(){
+    if(!censusShapeType())return false;
+    const bounds=map.getBounds();
+    const visibleRows=(state.selectedRows||[]).filter(row=>{
+      const c=state.columns;
+      if(!c.lat||!c.lon||!hasCoords(row))return false;
+      return bounds.contains(L.latLng(toNumber(row[c.lat]),toNumber(row[c.lon])));
+    });
+    const hasGroup=state.selectedGroupKey!==null;
+    const hasDist1=state.distributionBinKey!==null&&!!state.distributionSubject;
+    const hasDist2=state.distributionBinKey2!==null&&!!state.distributionSubject2;
+    const hasStore=state.selectedStoreRow!==null;
+    let changed=false;
+    const distributionMatches=(row,slot)=>{
+      const subject=slot===2?state.distributionSubject2:state.distributionSubject;
+      const key=slot===2?state.distributionBinKey2:state.distributionBinKey;
+      if(!subject||key===null)return false;
+      const bins=buildDistributionBins(slot);
+      const b=bins.find(x=>x.key===key);
+      if(!b)return false;
+      if(state.types[subject]==='numeric'){
+        const v=toNumber(row[subject]);
+        return v!==null&&v>=b.min&&(b.last?v<=b.max:v<b.max);
+      }
+      return String(row[subject]??'')===String(b.value??'');
+    };
+    if(hasGroup&&!visibleRows.some(rowMatchesSelectedGroup)){state.selectedGroupKey=null;changed=true;}
+    if(hasDist1&&!visibleRows.some(r=>distributionMatches(r,1))){state.distributionBinKey=null;changed=true;}
+    if(hasDist2&&!visibleRows.some(r=>distributionMatches(r,2))){state.distributionBinKey2=null;changed=true;}
+    if(hasStore&&!visibleRows.includes(state.selectedStoreRow)){state.selectedStoreRow=null;changed=true;}
+    if(changed){
+      updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();
+    }
+    return changed;
+  }
+
+  function updateSelectionState(){
+    state.selectedRows=getSelectedRows();
+    if(state.selectedStoreRow!==null && !state.selectedRows.includes(state.selectedStoreRow)) state.selectedStoreRow=null;
+    const filtered=getFilteredRows();
+    const filterNote=state.filters.length?` • ${filtered.length.toLocaleString()} pass active filter${filtered.length===1?'':'s'}`:'';
+    const circleVisible=!!(state.circleSelection?.circle&&state.circleSelection.circle.getBounds().intersects(map.getBounds()));
+    const rectangleVisible=!!(state.rectangleSelection?.rectangle&&state.rectangleSelection.rectangle.getBounds().intersects(map.getBounds()));
+    const metricScope=metricSelectionScope();
+    const selectionLabel=metricScope==='canada'
+      ? 'Canada'
+      : metricScope==='province'
+        ? 'selected province'
+        : metricScope==='circle'
+          ? (circleVisible?'current Census circle':'current Census circle')
+          : metricScope==='box'
+            ? (rectangleVisible?'current Census box':'current Census box')
+            : 'current map view';
+    el('geoStatus').textContent=state.rows.length?`${state.selectedRows.length.toLocaleString()} of ${state.rows.length.toLocaleString()} stores in ${selectionLabel}${filterNote}.`:'Load a workbook to calculate store results.';
+    el('filterCount').textContent=state.filters.length;
+    el('filterStatus').textContent=state.filters.length?state.filters.map((f,i)=>describeFilter(f,i)).join(' • '):'No filters applied.';
+  }
+  function getRefreshDistributionBins(){
+    let bins1=null,bins2=null,dist1=null,dist2=null;
+    if(state.distributionSubject){bins1=buildDistributionBins(1);if(state.distributionBinKey!==null)dist1=bins1.find(x=>x.key===state.distributionBinKey)||null;}
+    if(state.distributionSubject2){bins2=buildDistributionBins(2);if(state.distributionBinKey2!==null)dist2=bins2.find(x=>x.key===state.distributionBinKey2)||null;}
+    return {bins1,bins2,dist1,dist2};
+  }
+  function updateSelectionPanels(){
+    const {bins1,bins2,dist1,dist2}=getRefreshDistributionBins();
+    updateKpis();updateSubjects();updateGroups();updateDistribution(bins1,bins2);updateSelectedStoresList();refreshMarkerStyles(dist1,dist2);renderTicker();
+  }
+  function updateSelection(){
+    state.viewportSelectedRows=getViewportSelectedRows();
+    updateSelectionState();
+    CENSUS_DEBUG.log('selection:update',{scope:censusScopeType(),selectedRows:state.selectedRows.length,filters:state.filters.length});
+    updateSelectionPanels();
+  }
+  function scheduleSelectionUpdate(){
+    if(state.selectionUpdateFrame!==null)return;
+    state.selectionUpdateFrame=requestAnimationFrame(()=>{state.selectionUpdateFrame=null;updateSelection();});
+  }
+  function fmtThousands(v){return Number.isFinite(v)?Math.round(v/1000).toLocaleString('en-CA'):'—';}
+  function updateKpiScopeLabel(){
+    const type=metricSelectionScope();
+    const scopeLabel=type==='circle' ? 'Circle'
+      : type==='box' ? 'Box'
+      : type==='canada' ? 'Canada'
+      : type==='province' ? String(state.censusScope?.name || state.censusGeoSelection?.name || 'Province')
+      : 'viewport';
+    const scopeEl=el('kpiScopeLabel');
+    if(scopeEl) scopeEl.textContent=scopeLabel;
+  }
+  function updateKpis(){
+    updateKpiScopeLabel();
+    const rows=state.selectedRows,c=state.columns,e=c.ebit,s=c.sales;
+    el('kpiStores').textContent=rows.length.toLocaleString();
+    const salesVals=s?rows.map(r=>toNumber(r[s])).filter(v=>v!==null):[];
+    const ebitVals=e?rows.map(r=>toNumber(r[e])).filter(v=>v!==null):[];
+    const totalSales=salesVals.length?salesVals.reduce((a,b)=>a+b,0):NaN;
+    const totalEbit=ebitVals.length?ebitVals.reduce((a,b)=>a+b,0):NaN;
+    el('kpiTotalSales').textContent=fmtThousands(totalSales);
+    el('kpiTotalEbit').textContent=fmtThousands(totalEbit);
+    el('kpiTotalEbitMargin').textContent=Number.isFinite(totalEbit)&&Number.isFinite(totalSales)&&totalSales!==0?`${(totalEbit/totalSales*100).toFixed(1)}%`:'—';
+    if(!e){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';}
+    else if(!ebitVals.length){el('kpiSuccess').textContent='—';el('kpiAvgEbit').textContent='—';}
+    else {
+      el('kpiSuccess').textContent=fmtPct(ebitVals.filter(v=>v>0).length/ebitVals.length);
+      el('kpiAvgEbit').textContent=fmtMoney(avg(ebitVals));
+    }
+    const censusTotal = state.censusTotalPopulation;
+    el('kpiSalesPerPopulation').textContent = Number.isFinite(totalSales) && Number.isFinite(censusTotal) && censusTotal > 0
+      ? `$${fmtInt(Math.round(totalSales / censusTotal))}`
+      : '—';
+  }
+  function avg(vals){return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;}
+  function median(vals){if(!vals.length)return NaN;const a=[...vals].sort((x,y)=>x-y),m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
+
+  // ---------- Subjects / Groups ----------
+  function normalizeSubjectMetric(m){
+    const base=normalizeTickerMetric(m||{});
+    return {title:base.title,formula:base.formula,aggregation:['sum','average','median'].includes(base.aggregation)?base.aggregation:'average',numberFormat:base.numberFormat,decimalPlaces:base.decimalPlaces};
+  }
+  function ensureSubjectDistributionPopup(){
+    if(state.subjectDistributionPopup)return state.subjectDistributionPopup;
+    const layer=document.createElement('div');
+    layer.className='subject-distribution-layer';
+    layer.setAttribute('aria-hidden','true');
+    const card=document.createElement('div');
+    card.className='subject-distribution-popup';
+    layer.appendChild(card);
+    document.body.appendChild(layer);
+    layer.addEventListener('click',e=>{if(e.target===layer)closeSubjectDistribution();});
+    state.subjectDistributionPopup={layer,card};
+    return state.subjectDistributionPopup;
+  }
+  function positionSubjectDistributionPopup(card){
+    const popup=state.subjectDistributionPopup;if(!popup||!card)return;
+    const layer=popup.layer;
+    layer.classList.add('open');
+    layer.setAttribute('aria-hidden','false');
+    const subjectBox=document.querySelector('.right-panel .subject-box');
+    const rightPanel=document.querySelector('.right-panel');
+    const boxRect=subjectBox?.getBoundingClientRect();
+    const panelRect=rightPanel?.getBoundingClientRect();
+    const cardW=Math.min(390,Math.max(300,window.innerWidth-40));
+    card.style.width=`${cardW}px`;
+    const rect=card.getBoundingClientRect();
+    const panelLeft=Number.isFinite(panelRect?.left)?panelRect.left:(boxRect?.left??window.innerWidth);
+    const subjectTop=Number.isFinite(boxRect?.top)?boxRect.top:90;
+    let left=panelLeft-rect.width-20;
+    if(left<10)left=Math.max(10,(boxRect?.left??panelLeft)-rect.width-20);
+    left=Math.max(10,Math.min(left,window.innerWidth-rect.width-10));
+    let top=subjectTop;
+    if(top+rect.height>window.innerHeight-10)top=Math.max(10,window.innerHeight-rect.height-10);
+    if(top<10)top=10;
+    card.style.left=`${Math.round(left)}px`;
+    card.style.top=`${Math.round(top)}px`;
+  }
+  const SUBJECT_TABLE_ROWS_DEFAULT=11;
+  const SUBJECT_TABLE_COLS_DEFAULT=3;
+  function blankSubjectCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'average'};}
+  function subjectVirtualNames(){return popupVirtualNames();}
+  function isSubjectVirtualOperand(name){return isPopupVirtualOperand(name);}
+  function subjectFormulaTokens(formula){return tokenizePopup(String(formula??'').trim());}
+  function subjectFormulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    if(state.headers.includes(text)||isSubjectVirtualOperand(text))return '';
+    const tokens=subjectFormulaTokens(text);
+    if(!tokens||!tokens.length)return 'Invalid formula';
+    const operands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const invalid=operands.filter(t=>!state.headers.includes(t.value)&&!isSubjectVirtualOperand(t.value));
+    if(invalid.length)return 'Invalid formula';
+    const nonNumeric=operands.filter(t=>state.headers.includes(t.value)&&state.types[t.value]!=='numeric');
+    if(nonNumeric.length)return 'Invalid formula: choose numeric columns for calculations.';
+    let depth=0,expect=true,seen=false;
+    for(const t of tokens){
+      if(t.type==='operand'){if(!expect)return 'Invalid formula';expect=false;seen=true;continue;}
+      if(t.value==='('){if(!expect)return 'Invalid formula';depth++;continue;}
+      if(t.value===')'){if(expect||depth===0)return 'Invalid formula';depth--;expect=false;continue;}
+      if(expect&&t.value!=='-')return 'Invalid formula';
+      expect=true;
+    }
+    return seen&&depth===0&&!expect?'':'Invalid formula';
+  }
+  function subjectFormulaVirtualOperands(formula){return [...new Set((subjectFormulaTokens(formula)||[]).filter(t=>t.type==='operand'&&isSubjectVirtualOperand(t.value)).map(t=>t.value))];}
+  async function ensureSubjectVirtualValues(rows,formulas){
+    const needed=[...new Set((formulas||[]).flatMap(subjectFormulaVirtualOperands))];
+    if(!needed.length||!rows?.length)return;
+    const fields=needed.map(name=>({formula:name,type:'virtual'}));
+    for(const row of rows){
+      const cached=state.subjectVirtualCache.get(row)||{};
+      const missing=needed.filter(name=>!Object.prototype.hasOwnProperty.call(cached,name));
+      if(!missing.length)continue;
+      const values=await calculatePopupCensusForStore(row,fields);
+      state.subjectVirtualCache.set(row,{...cached,...values});
+    }
+  }
+  function firstSubjectOperand(formula){const tokens=subjectFormulaTokens(formula)||[];const t=tokens.find(x=>x.type==='operand'&&String(x.value||'').trim());return t?String(t.value).trim():'';}
+
+  function normalizeSubjectCell(cell){
+    const type=['text','value','formula'].includes(cell?.type)?cell.type:'text';
+    const content=String(cell?.content??cell?.formula??'');
+    const numberFormat=['auto','number','currency','percentage'].includes(cell?.numberFormat)?cell.numberFormat:'auto';
+    const d=Number(cell?.decimalPlaces);const decimalPlaces=Number.isInteger(d)&&d>=0&&d<=4?d:0;
+    const aggregation=['sum','average','median'].includes(cell?.aggregation)?cell.aggregation:'average';
+    return {type,content,numberFormat,decimalPlaces,aggregation};
+  }
+  function blankSubjectTable(rows=SUBJECT_TABLE_ROWS_DEFAULT,cols=SUBJECT_TABLE_COLS_DEFAULT){return {rows,cols,cells:Array.from({length:rows},()=>Array.from({length:cols},()=>blankSubjectCell()))};}
+  function canonicalSubjectDefaultTable(){
+    const names=['total sales','gross profit','total labour expense','total occupancy expense','store 4 wall profit ebit'];
+    const table=blankSubjectTable();const exactHeaders=new Map(state.headers.map(h=>[norm(h),h]));
+    table.cells[0][0]=normalizeSubjectCell({type:'text',content:'Metric'});table.cells[0][1]=normalizeSubjectCell({type:'text',content:'Average'});
+    names.forEach((name,i)=>{const h=exactHeaders.get(norm(name));if(!h)return;table.cells[i+1][0]=normalizeSubjectCell({type:'text',content:h});table.cells[i+1][1]=normalizeSubjectCell({type:'value',content:h,numberFormat:'auto',decimalPlaces:0,aggregation:'average'});});
+    return table;
+  }
+  function normalizeSubjectTable(table){
+    const rows=Math.max(1,Math.min(200,Number(table?.rows)||SUBJECT_TABLE_ROWS_DEFAULT));const cols=Math.max(1,Math.min(50,Number(table?.cols)||SUBJECT_TABLE_COLS_DEFAULT));
+    const cells=Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizeSubjectCell(table?.cells?.[r]?.[c])));return {rows,cols,cells};
+  }
+  function subjectTableToMetrics(table){
+    const t=normalizeSubjectTable(table);const metrics=[];
+    for(let r=1;r<t.rows;r++){const label=t.cells[r]?.[0],src=t.cells[r]?.[1];const title=String(label?.content||'').trim(),formula=String(src?.content||'').trim();if(title&&formula&&(src.type==='value'||src.type==='formula'))metrics.push(normalizeSubjectMetric({title,formula,aggregation:src.aggregation,numberFormat:src.numberFormat,decimalPlaces:src.decimalPlaces}));}
+    return metrics;
+  }
+  function evaluateSubjectFormula(expr,rows,aggregation='sum'){
+    const tokens=subjectFormulaTokens(expr);if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      const vals=[];
+      for(const row of rows||[]){
+        const raw=isSubjectVirtualOperand(t.value) ? (state.subjectVirtualCache.get(row)||{})[t.value] : row[t.value];
+        const n=toNumber(raw);if(Number.isFinite(n))vals.push(n);
+      }
+      if(!vals.length)return NaN;
+      const v=aggregation==='average'?avg(vals):aggregation==='median'?median(vals):vals.reduce((a,b)=>a+b,0);
+      operandValues.set(t.value,v);
+    }
+    return evaluateTickerExpressionWithTokens(tokens,operandValues);
+  }
+  function subjectTableCellDisplay(cell,rows){
+    const c=normalizeSubjectCell(cell),text=String(c.content||'').trim();if(!text)return '';
+    if(c.type==='text')return text;
+    const metric=normalizeSubjectMetric({title:'',formula:text,aggregation:c.aggregation,numberFormat:c.numberFormat,decimalPlaces:c.decimalPlaces});
+    const value=evaluateSubjectFormula(metric.formula,rows,c.aggregation);
+    return Number.isFinite(value)?formatTickerValue(value,metric.numberFormat,metric.formula,metric.decimalPlaces):(subjectFormulaVirtualOperands(metric.formula).length?'Calculating…':'—');
+  }
+  function sanitizeSubjectTableForHeaders(table,headers){
+    const t=normalizeSubjectTable(table);const exact=new Set(headers||[]);
+    for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){
+      const cell=t.cells[r][c];if(cell.type==='text')continue;
+      const formula=String(cell.content||'').trim();if(!formula)continue;
+      if(cell.type==='formula'&&(exact.has(formula)||isSubjectVirtualOperand(formula))){cell.type='value';continue;}
+      const tokens=subjectFormulaTokens(formula)||[];const valid=tokens.length>0 && tokens.filter(tok=>tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)).every(tok=>exact.has(tok.value)||isSubjectVirtualOperand(tok.value));
+      if(!valid)t.cells[r][c]=blankSubjectCell();
+    }
+    return t;
+  }
+  function loadSubjectTableForHeaders(headers){
+    const fallback=canonicalSubjectDefaultTable();
+    try{
+      const raw=localStorage.getItem(SUBJECT_STORAGE_KEY);if(!raw)return fallback;const parsed=JSON.parse(raw);
+      if(parsed?.version>=2&&parsed.table)return sanitizeSubjectTableForHeaders(parsed.table,headers);
+      if(Array.isArray(parsed?.metrics)&&parsed.metrics.length){const t=blankSubjectTable();t.cells[0][0]=normalizeSubjectCell({type:'text',content:'Metric'});t.cells[0][1]=normalizeSubjectCell({type:'text',content:'Average'});parsed.metrics.slice(0,t.rows-1).forEach((rawMetric,i)=>{const m=normalizeSubjectMetric(rawMetric);t.cells[i+1][0]=normalizeSubjectCell({type:'text',content:m.title});t.cells[i+1][1]=normalizeSubjectCell({type:m.formula===m.title?'value':'formula',content:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});});return sanitizeSubjectTableForHeaders(t,headers);}
+      return fallback;
+    }catch(_){return fallback;}
+  }
+  function ensureSubjectTableState(){if(!state.subjectTable)state.subjectTable=loadSubjectTableForHeaders(state.headers||[]);return state.subjectTable;}
+  function saveSubjectConfig(){try{localStorage.setItem(SUBJECT_STORAGE_KEY,JSON.stringify({version:2,table:normalizeSubjectTable(state.subjectTable||canonicalSubjectDefaultTable())}));}catch(_){} }
+  function subjectItems(){return subjectTableToMetrics(state.subjectTable||ensureSubjectTableState());}
+  function getSubjectRowForDistribution(rowIndex){
+    const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());
+    const r=Number(rowIndex);
+    if(!Number.isInteger(r)||r<1||r>=t.rows)return null;
+    const labelCell=t.cells[r]?.[0]||blankSubjectCell();
+    const sourceCell=t.cells[r]?.[1]||blankSubjectCell();
+    const title=String(labelCell.content||'').trim() || `Row ${r+1}`;
+    const formula=String(sourceCell.content||'').trim();
+    if(!formula || (sourceCell.type!=='value'&&sourceCell.type!=='formula'))return null;
+    return normalizeSubjectMetric({title,formula,aggregation:sourceCell.aggregation,numberFormat:sourceCell.numberFormat,decimalPlaces:sourceCell.decimalPlaces});
+  }
+  function subjectDistributionRows(metric){const scopeRows=Array.isArray(state.selectedRows)?state.selectedRows:[];if(!scopeRows.length||!metric?.formula)return [];return scopeRows.map(row=>({row,value:subjectFormulaRowValue(metric,row)})).filter(x=>x.value!==null&&Number.isFinite(x.value));}
+  function subjectFormulaRowValue(metric,row){const formula=String(metric?.formula||'').trim();if(!formula)return NaN;const tokens=subjectFormulaTokens(formula);if(!tokens)return NaN;const operandValues=new Map();const virtuals=state.subjectVirtualCache.get(row)||{};for(const t of tokens){if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;const raw=isSubjectVirtualOperand(t.value)?virtuals[t.value]:row[t.value];const value=toNumber(raw);if(value===null)return NaN;operandValues.set(t.value,value);}return evaluateTickerExpressionWithTokens(tokens,operandValues);}
+  function buildSubjectDistribution(metric){const points=subjectDistributionRows(metric).map(x=>x.value);if(points.length<2)return {points,bins:[]};const min=Math.min(...points),max=Math.max(...points);if(min===max)return {points,bins:[{min,max,count:points.length,label:formatTickerValue(min,'auto',metric.formula,metric.decimalPlaces)}]};const bucketCount=Math.max(4,Math.min(20,Number(state.subjectDistributionBuckets)||6));const width=(max-min)/bucketCount;const bins=Array.from({length:bucketCount},(_,i)=>({min:min+i*width,max:i===bucketCount-1?max:min+(i+1)*width,count:0,label:''}));for(const v of points){let idx=Math.floor((v-min)/width);if(idx<0)idx=0;if(idx>=bucketCount)idx=bucketCount-1;bins[idx].count++;}bins.forEach(b=>{b.label=`${formatTickerValue(b.min,'auto',metric.formula,metric.decimalPlaces)} – ${formatTickerValue(b.max,'auto',metric.formula,metric.decimalPlaces)}`;});return {points,bins};}
+  function openSubjectDistribution(rowIndex){state.subjectDistributionIndex=rowIndex;const metric=getSubjectRowForDistribution(rowIndex);if(!metric)return;const data=buildSubjectDistribution(metric);const popup=ensureSubjectDistributionPopup();const title=esc(tickerMetricTitle(metric));const scopeCount=(state.selectedRows||[]).length;const tools=`<button type="button" class="subject-dist-bucket-btn" data-bucket-delta="-1" aria-label="Decrease buckets">−</button><span class="subject-dist-bucket-count">${state.subjectDistributionBuckets}</span><button type="button" class="subject-dist-bucket-btn" data-bucket-delta="1" aria-label="Increase buckets">+</button><button type="button" class="subject-dist-popup-close" aria-label="Close">×</button>`;if(!data.points.length)popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${state.subjectDistributionBuckets} buckets</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-popup-empty">No numeric values available in the Subjects scope.</div>`;else{const maxCount=Math.max(...data.bins.map(b=>b.count),1);const bars=data.bins.map(b=>{const pct=Math.max(2,(b.count/maxCount)*100);return `<div class="subject-dist-bar-row"><span class="subject-dist-label">${esc(b.label)}</span><span class="subject-dist-track"><span class="subject-dist-fill" style="width:${pct}%"></span></span><strong>${b.count}</strong></div>`;}).join('');popup.card.innerHTML=`<div class="subject-dist-popup-head"><div><strong>${title}</strong><span>Distribution · ${scopeCount.toLocaleString()} stores</span></div><div class="subject-dist-popup-tools">${tools}</div></div><div class="subject-dist-chart" aria-label="Distribution histogram for ${title}">${bars}</div><div class="subject-dist-popup-foot">${data.points.length.toLocaleString()} numeric observations · ${state.subjectDistributionBuckets} buckets</div>`;}popup.card.querySelectorAll('.subject-dist-bucket-btn').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionBuckets=Math.max(4,Math.min(20,state.subjectDistributionBuckets+(Number(btn.dataset.bucketDelta)||0)));openSubjectDistribution(state.subjectDistributionIndex);}));popup.card.querySelector('.subject-dist-popup-close')?.addEventListener('click',closeSubjectDistribution);positionSubjectDistributionPopup(popup.card);popup.layer.classList.add('open');popup.layer.setAttribute('aria-hidden','false');requestAnimationFrame(()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);});}
+  function subjectCellFormulaFragment(cell){const text=String(cell?.content||'').trim();if(!text)return '';return cell.type==='formula'?(text.length>22?`${text.slice(0,21)}…`:text):subjectTableCellDisplay(cell,state.selectedRows||[]);}
+  function closeSubjectDistribution(){
+    const popup=state.subjectDistributionPopup;if(!popup)return;
+    popup.layer.classList.remove('open');
+    popup.layer.setAttribute('aria-hidden','true');
+    state.subjectDistributionAnchor=null;state.subjectDistributionIndex=null;
+  }
+  function renderSubjectTableOutput(){const box=el('subjectsSummary');if(!box)return;const t=normalizeSubjectTable(state.subjectTable||ensureSubjectTableState());if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Subjects.</div>';return;}if(!t.cells.some(row=>row.some(c=>String(c.content||'').trim()))){box.innerHTML='<div class="empty-message">No Subjects configured.</div>';return;}let html='<table class="subject-table"><tbody>';for(let r=0;r<t.rows;r++){html+='<tr>';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);let display=subjectTableCellDisplay(cell,state.selectedRows||[]);if(c===0&&r>0&&String(cell.content||'').trim())html+=`<td><button type="button" class="subject-name subject-name-button" data-subject-row="${r}">${esc(display)}</button></td>`;else html+=`<td>${esc(display)}</td>`;}html+='</tr>';}html+='</tbody></table>';box.innerHTML=html;box.querySelectorAll('.subject-name-button').forEach(btn=>btn.addEventListener('click',()=>{state.subjectDistributionAnchor=btn;openSubjectDistribution(Number(btn.dataset.subjectRow));}));}
+  async function updateSubjects(){renderSubjectTableOutput();const formulas=subjectTableToMetrics(state.subjectTable||ensureSubjectTableState()).map(m=>m.formula);const rows=Array.isArray(state.selectedRows)?state.selectedRows:[];if(subjectVirtualNames().some(n=>formulas.some(f=>subjectFormulaVirtualOperands(f).includes(n)))&&rows.length){await ensureSubjectVirtualValues(rows,formulas);if(rows===state.selectedRows)renderSubjectTableOutput();}}
+
+  const DEFAULT_GROUP_FIELDS=['location type'];
+  function defaultSelectedStoreFields(){
+    return [state.columns?.storeId,state.columns?.location].filter(Boolean);
+  }
+  function mode(vals){const m=new Map();for(const v of vals){const s=String(v);m.set(s,(m.get(s)||0)+1);}return [...m.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;}
+  function updateSelectedStoresList(){
+    const box=el('selectedStoresList');if(!box)return;
+    const c=state.columns;
+    const selected=state.selectedStoreColumns.filter(h=>h&&state.headers.includes(h));
+    const visibleCols=selected;
+    if(!state.selectedRows.length){box.innerHTML='<div class="empty-message">No stores in current map view.</div>';return;}
+    if(!visibleCols.length){box.innerHTML='<div class="empty-message">No store columns selected.</div>';return;}
+    const th=visibleCols.map(h=>`<th>${esc(shortHeader(h))}</th>`).join('');
+    let html='<div class="selected-store-count small muted">'+state.selectedRows.length.toLocaleString()+' selected store'+(state.selectedRows.length===1?'':'s')+'</div><div class="selected-stores-scroll"><table class="group-table"><thead><tr>'+th+'</tr></thead><tbody>';
+    for(const row of state.selectedRows){
+      const active=state.selectedStoreRow===row;
+      html+='<tr class="selected-store-select-row'+(active?' active-store-selection':'')+'">'+visibleCols.map(h=>{
+        let val='—';
+        if(h===c.storeId) val=String(row[c.storeId]??'')||'—';
+        else if(h===c.location) val=String(row[c.location]??'')||[c.city,c.province].filter(Boolean).map(x=>String(row[x]??'').trim()).filter(Boolean).join(', ')||'—';
+        else val=formatValue(h,row[h]);
+        return `<td>${esc(val)}</td>`;
+      }).join('')+'</tr>';
+    }
+    box.innerHTML=html+'</tbody></table></div>';
+    box.querySelectorAll('.selected-store-select-row').forEach((rowEl,idx)=>rowEl.addEventListener('click',()=>{
+      const row=state.selectedRows[idx];
+      state.selectedStoreRow=state.selectedStoreRow===row?null:row;
+      if(state.selectedStoreRow!==null){state.selectedGroupKey=null;state.distributionBinKey=null;state.distributionBinKey2=null;}
+      updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();
+    }));
+  }
+  function renderSelectedStoresConfig(filter=''){
+    const cont=el('selectedStoresListConfig');if(!cont)return;
+    const f=norm(filter);cont.innerHTML='';
+    const fixed=defaultSelectedStoreFields();
+    const fixedSet=new Set(fixed);
+    const ordered=[...fixed,...state.headers.filter(h=>!fixedSet.has(h))];
+    ordered.filter(h=>!f||norm(h).includes(f)).forEach((h,i)=>{
+      const id=`selected-store-${i}-${Math.random().toString(36).slice(2,6)}`;
+      const isFixed=fixedSet.has(h);
+      const row=document.createElement('label');row.className='check-row';
+      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${state.selectedStoreColumns.includes(h)?'checked':''}><span>${esc(h)}</span><small>${isFixed?'Default':(state.types[h]||'')}</small>`;
+      cont.appendChild(row);
+    });
+  }
+  function selectedStoreCheckedValues(){return [...el('selectedStoresListConfig').querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value);}
+  async function exportSelectedStores(){
+    if(!state.selectedRows.length){alert('No stores are currently selected.');return;}
+    if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
+    const c=state.columns;
+    const selected=state.selectedStoreColumns.filter(h=>h&&state.headers.includes(h));
+    const exportHeaders=selected.filter((v,i,a)=>v&&a.indexOf(v)===i);
+    const data=state.selectedRows.map(row=>{
+      const out={};
+      for(const h of exportHeaders){
+        if(h==='Store Profile Number'&&!c.storeId) out[h]='';
+        else if(h==='Location'&&!c.location) out[h]=[c.city,c.province].filter(Boolean).map(x=>String(row[x]??'').trim()).filter(Boolean).join(', ');
+        else {
+          const src=(h===c.storeId?c.storeId:h===c.location?c.location:h);out[h]=row[src]??'';
+        }
+      }
+      return out;
+    });
+    const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,'Selected Stores');
+    const filename='selected_stores.xls';
+    if(typeof window.showSaveFilePicker==='function'){
+      try{
+        const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Excel 97-2003 workbook',accept:{'application/vnd.ms-excel':['.xls']}}]});
+        const bytes=XLSX.write(wb,{bookType:'biff8',type:'array'});
+        const writable=await handle.createWritable();await writable.write(bytes);await writable.close();return;
+      }catch(err){if(err?.name==='AbortError')return;}
+    }
+    XLSX.writeFile(wb,filename,{bookType:'biff8'});
+  }
+  async function exportSelectedDAs(){
+    const selected=state.daSelectionResult?.selected||[];
+    if(!selected.length){alert('No Census DAs are currently selected.');return;}
+    if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
+    const data=selected.map(item=>{
+      const a=censusAttributes(item.feature);
+      return {
+        'DA ID':DA_ENGINE.getId(item.feature)||'',
+        'Population':a.totalPopulation,
+        '65+':a.population65Plus,
+        '40+':a.population40Plus,
+        'Overlap':`${Number(item.overlapPct||0).toFixed(1)}%`
+      };
+    });
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb,ws,'Selected Census DAs');
+    const filename='selected_census_DAs.xls';
+    if(typeof window.showSaveFilePicker==='function'){
+      try{
+        const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Excel 97-2003 workbook',accept:{'application/vnd.ms-excel':['.xls']}}]});
+        const bytes=XLSX.write(wb,{bookType:'biff8',type:'array'});
+        const writable=await handle.createWritable();await writable.write(bytes);await writable.close();return;
+      }catch(err){if(err?.name==='AbortError')return;}
+    }
+    XLSX.writeFile(wb,filename,{bookType:'biff8'});
+  }
+  function updateGroups(){
+    const box=el('groupsSummary');
+    if(!state.rows.length||!state.groups.length){box.innerHTML='<div class="empty-message">Choose one or more Groups to compare store segments.</div>';return;}
+    const viewportSelectedRows=state.viewportSelectedRows||[];
+    const groups=new Map();
+    for(const row of viewportSelectedRows){
+      const parts=state.groups.map(g=>String(row[g]??'(blank)'));
+      const key=JSON.stringify(parts);
+      if(!groups.has(key))groups.set(key,{parts,rows:[]});
+      groups.get(key).rows.push(row);
+    }
+    const list=[...groups.entries()].sort((a,b)=>b[1].rows.length-a[1].rows.length).slice(0,100);
+    const e=state.columns.ebit;
+    const groupedSubjectMetrics=subjectItems();
+    let html='<div class="group-wrap"><table class="group-table"><thead><tr><th>Group</th><th>n</th>'+(e?'<th>EBIT +%</th>':'')+groupedSubjectMetrics.map(m=>`<th>${esc(tickerMetricTitle(m))}</th>`).join('')+'</tr></thead><tbody>';
+    for(const [key,g] of list){
+      let success='';
+      if(e){const ev=g.rows.map(r=>toNumber(r[e])).filter(v=>v!==null);success=`<td>${ev.length?fmtPct(ev.filter(v=>v>0).length/ev.length):'—'}</td>`;}
+      const metricRows=g.rows;
+      const subj=groupedSubjectMetrics.map(m=>{const v=metricRows.length?evaluateTickerFormula(m.formula,metricRows,m.aggregation||'average'):NaN;return `<td>${metricRows.length?esc(formatTickerValue(v,m.numberFormat,m.formula,m.decimalPlaces)):'—'}</td>`;}).join('');
+      const active=state.selectedGroupKey===key;
+      html+=`<tr class="group-select-row${active?' active-group':''}" data-group-key="${esc(key)}"><td><strong>${g.parts.map(esc).join(' / ')}</strong></td><td>${g.rows.length}</td>${success}${subj}</tr>`;
+    }
+    box.innerHTML=html+'</tbody></table></div><div class="small muted group-hint">Click a group row to highlight its stores on the map.</div>';
+    box.querySelectorAll('.group-select-row').forEach(row=>row.addEventListener('click',()=>{
+      const key=row.dataset.groupKey;
+      state.selectedGroupKey=state.selectedGroupKey===key?null:key;
+      if(state.selectedGroupKey!==null){state.distributionBinKey=null;state.distributionBinKey2=null;state.selectedStoreRow=null;}
+      updateGroups();updateDistribution();updateSelectedStoresList();
+      refreshMarkerStyles();
+    }));
+  }
+  function niceStep(range,target=7){
+    const raw=range/Math.max(target,1);if(!Number.isFinite(raw)||raw<=0)return 1;
+    const p=Math.pow(10,Math.floor(Math.log10(raw)));const n=raw/p;const m=n<=1?1:n<=2?2:n<=5?5:10;return m*p;
+  }
+  function formatBinValue(v,h){
+    if(h&&norm(h).includes('pct')) return `${v.toFixed(0)}%`;
+    if(Math.abs(v)>=100000) return fmtMoney(v);
+    if(Math.abs(v)>=1000) return `${(v/1000).toFixed(v%1000===0?0:1)}K`;
+    return v.toLocaleString('en-CA',{maximumFractionDigits:0});
+  }
+  function getDistributionSubject(slot){return slot===2?state.distributionSubject2:state.distributionSubject;}
+  function getDistributionBinKey(slot){return slot===2?state.distributionBinKey2:state.distributionBinKey;}
+  function setDistributionBinKey(slot,key){if(slot===2)state.distributionBinKey2=key;else state.distributionBinKey=key;}
+  function buildDistributionBins(slot=1){
+    const h=getDistributionSubject(slot);
+    const scopeRows=getViewportSelectedRows({respectFilters:true});
+    if(!h||!scopeRows.length)return [];
+    if(state.types[h]==='numeric'){
+      const vals=scopeRows.map(r=>toNumber(r[h])).filter(v=>v!==null);
+      if(!vals.length)return [];
+      const min=Math.min(...vals),max=Math.max(...vals);
+      if(min===max)return [{key:'0',min,max:min+1,count:vals.length,label:formatBinValue(min,h),last:true}];
+      const step=niceStep(max-min,7),start=Math.floor(min/step)*step,end=Math.ceil(max/step)*step,bins=[];
+      for(let a=start,i=0;a<end-1e-9&&i<30;i++,a+=step){const b=Math.min(a+step,end);bins.push({key:String(i),min:a,max:b,count:0,label:`${formatBinValue(a,h)} – ${formatBinValue(b,h)}`,last:b>=end-1e-9});}
+      vals.forEach(v=>{const i=Math.min(bins.length-1,Math.max(0,Math.floor((v-start)/step)));if(bins[i])bins[i].count++;});
+      return bins;
+    }
+    const counts=new Map();
+    for(const row of scopeRows){const value=String(row[h]??'');counts.set(value,(counts.get(value)||0)+1);}
+    return [...counts.entries()]
+      .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],undefined,{numeric:true,sensitivity:'base'}))
+      .slice(0,40)
+      .map(([value,count],i)=>({key:String(i),value,count,label:value||'(blank)'}));
+  }
+  function rowMatchesSelectedDistribution(row,slot=1){
+    const h=getDistributionSubject(slot), key=getDistributionBinKey(slot);
+    if(!h||key===null)return false;
+    const bins=buildDistributionBins(slot), b=bins.find(x=>x.key===key);
+    if(!b)return false;
+    if(state.types[h]==='numeric'){
+      const v=toNumber(row[h]);
+      return v!==null && v>=b.min && (b.last ? v<=b.max : v<b.max);
+    }
+    return String(row[h]??'')===String(b.value??'');
+  }
+  function updateDistributionSlot(slot,boxId,binsOverride=null){
+    const box=el(boxId);if(!box)return;
+    const h=getDistributionSubject(slot);
+    if(!state.rows.length){box.innerHTML='<div class="empty-message">Select a workbook, then configure Distribution.</div>';return;}
+    if(!h){box.innerHTML='';return;}
+    const bins=binsOverride||buildDistributionBins(slot);if(!bins.length){box.innerHTML='<div class="empty-message">No values in the current map view.</div>';return;}
+    const currentKey=getDistributionBinKey(slot);
+    if(currentKey!==null&&!bins.some(b=>b.key===currentKey))setDistributionBinKey(slot,null);
+    const activeKey=getDistributionBinKey(slot), maxCount=Math.max(...bins.map(b=>b.count),1);
+    const label=slot===2?'Distribution 2':'Distribution';
+    const viewportCount=getViewportSelectedRows({respectFilters:true}).length;
+    let html=`<div class="distribution-title">${esc(h)} <span class="small muted">${viewportCount.toLocaleString()} visible stores</span></div><div class="distribution-chart" role="list" aria-label="${label} of visible column">`;
+    for(const b of bins){const active=activeKey===b.key;const width=Math.max(2,(b.count/maxCount)*100);html+=`<button type="button" class="distribution-bar${active?' active-distribution':''}" data-bin-key="${esc(b.key)}" title="${esc(b.label)}: ${b.count} stores"><span class="distribution-label">${esc(b.label)}</span><span class="distribution-track"><span class="distribution-fill" style="width:${width}%"></span></span><strong>${b.count}</strong></button>`;}
+    html+='</div><div class="small muted distribution-hint">Click a bar to highlight those stores on the map. Selecting a bar in either distribution clears Group highlighting and the other distribution highlight.</div>';box.innerHTML=html;
+    box.querySelectorAll('.distribution-bar').forEach(btn=>btn.addEventListener('click',()=>{const key=btn.dataset.binKey;setDistributionBinKey(slot,getDistributionBinKey(slot)===key?null:key);if(getDistributionBinKey(slot)!==null){state.selectedGroupKey=null;state.selectedStoreRow=null;if(slot===1)state.distributionBinKey2=null;else state.distributionBinKey=null;}updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}));
+  }
+  function updateDistribution(bins1=null,bins2=null){
+    updateDistributionSlot(1,'distributionSummary',bins1);
+    updateDistributionSlot(2,'distributionSummary2',bins2);
+  }
+
+  function shortHeader(h){return h.length>18?h.slice(0,17)+'…':h;}
+  function formatValue(header,v){if(v===null||v===undefined||v===''||Number.isNaN(v))return '—';const n=toNumber(v),hn=norm(header);if(n!==null){if(hn.includes('sales')||hn.includes('wage')||hn.includes('expense')||hn.includes('margin $')||hn.includes('profit')||hn.includes('ebit')||hn.includes('income')||hn.includes('cogs')||hn.includes('sga'))return fmtMoney(n);if(hn.includes('sq ft')||hn.includes('area'))return `${fmtInt(n)} sq.ft.`;if(hn.includes('pct')||hn.includes('percent')||hn.endsWith('%'))return `${n.toFixed(1)}%`;return fmtNum(n);}return String(v);}
+  function refreshConfigUI(){
+    ensureSubjectTableState();
+    if(!Array.isArray(state.popupConfigDraft)) state.popupConfigDraft=(state.popupConfig||[]).map(normalizePopupField);
+    el('subjectCount').textContent=subjectTableToMetrics(state.subjectTable||ensureSubjectTableState()).length;if(el('exportSubjectsBtn'))el('exportSubjectsBtn').disabled=!state.headers.length;
+    el('popupCount').textContent=(state.popupConfig||[]).length;
+    el('popupConfigBtn').disabled=!state.headers.length;el('popupTickerConfigBtn').disabled=!state.headers.length;
+    el('groupCount').textContent=state.groups.length;
+    if(el('distributionCount'))el('distributionCount').textContent=state.distributionSubject?1:0;
+    if(el('distributionCount2'))el('distributionCount2').textContent=state.distributionSubject2?1:0; el('selectedStoresCount').textContent=state.selectedStoreColumns.length;
+    renderChecklist('groupsList',state.groups,'group');
+    renderSubjectCanvas();
+    renderDistributionList(el('distributionSearch')?.value||''); renderSelectedStoresConfig(el('selectedStoresSearch')?.value||'');
+  }
+  function renderChecklist(containerId,selected,kind,filter=''){
+    const cont=el(containerId);const f=norm(filter);cont.innerHTML='';
+    state.headers.filter(h=>!f||norm(h).includes(f)).forEach((h,i)=>{
+      const id=`${kind}-${i}-${Math.random().toString(36).slice(2,6)}`;
+      const row=document.createElement('label');row.className='check-row';
+      row.innerHTML=`<input type="checkbox" id="${id}" value="${esc(h)}" ${selected.includes(h)?'checked':''}><span>${esc(h)}</span><small>${state.types[h]||''}</small>`;
+      cont.appendChild(row);
+    });
+  }
+  function renderDistributionList(filter=''){
+    const cont=el('distributionList');const f=norm(filter);if(!cont)return;cont.innerHTML='';
+    state.headers.filter(h=>!f||norm(h).includes(f)).forEach((h,i)=>{
+      const id=`dist-${i}-${Math.random().toString(36).slice(2,6)}`;
+      const row=document.createElement('label');row.className='check-row distribution-select-row';
+      row.innerHTML=`<input type="radio" name="distributionColumn" id="${id}" value="${esc(h)}" ${(state.distributionDialogTarget===2?state.distributionSubject2:state.distributionSubject)===h?'checked':''}><span>${esc(h)}</span><small>${state.types[h]||''}</small>`;
+      cont.appendChild(row);
+    });
+  }
+  function checkedValues(containerId){return [...el(containerId).querySelectorAll('input[type=checkbox]:checked:not(.distribution-check)')].map(x=>x.value);}
+
+  // ---------- Filters ----------
+  const FILTER_OPERATORS=['<=','=','>=','<','>'];
+  const FILTER_CONNECTORS=['AND','OR'];
+
+  function wildcardRegex(pattern){
+    const escaped=String(pattern??'').replace(/[.+^${}()|[\\]/g,'\\$&').replace(/\\*/g,'.*').replace(/\\?/g,'.');
+    return new RegExp(`^${escaped}$`,'i');
+  }
+  function wildcardMatch(value,pattern){
+    if(!pattern)return true;
+    try{return wildcardRegex(pattern).test(String(value??''));}catch{return false;}
+  }
+  function describeFilter(f,index=0){
+    const prefix=index>0?`${f.connector||'AND'} `:'';
+    if(f.type==='proximity'){
+      const distance=Number(f.distanceKm);
+      const distanceLabel=Number.isFinite(distance)?`${distance.toFixed(2).replace(/\.00$/,'')} km`:`${String(f.distanceKm??'').trim()} km`;
+      const secondaryLabel=f.secondaryColumn||'secondary';
+      const secondaryValue=String(f.secondaryValue??'').trim();
+      return `${prefix}within ${distanceLabel} of ${secondaryLabel}${secondaryValue?` = ${secondaryValue}`:''}`;
+    }
+    if(f.type==='numeric')return `${prefix}${f.formula||f.column} ${f.operator} ${String(f.value??'')}`;
+    if(Array.isArray(f.values)&&f.values.length)return `${prefix}${f.formula||f.column} = ${f.values.join(', ')}`;
+    if(f.wildcard)return `${prefix}${f.formula||f.column} matches ${f.wildcard}`;
+    return `${prefix}${f.formula||f.column||''}`;
+  }
+  function uniqueColumnValues(column){
+    const scope=getViewportSelectedRows({respectFilters:false});
+    return [...new Set(scope.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  }
+  function uniqueSecondaryColumnValues(column){
+    if(!column||!state.secondaryLocations?.length)return [];
+    return [...new Set(state.secondaryLocations.map(r=>String(r[column]??'')).filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  }
+  function secondaryProximityCandidates(lat,lng,distanceKm){
+    if(!state.secondarySpatialIndex||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(distanceKm)||distanceKm<0)return [];
+    const latRad=lat*Math.PI/180;
+    const dLat=distanceKm/110.574;
+    const cos=Math.max(0.15,Math.cos(latRad));
+    const dLng=distanceKm/(111.320*cos);
+    const q={minX:lng-dLng,maxX:lng+dLng,minY:lat-dLat,maxY:lat+dLat};
+    return state.secondarySpatialIndex.search(q);
+  }
+  function primaryRowWithinSecondaryProximity(row,filter){
+    if(!state.secondarySpatialIndex)return false;
+    const c=state.columns||{};
+    const lat=toNumber(row[c.lat]),lng=toNumber(row[c.lon]);
+    const distanceKm=Number(filter.distanceKm);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(distanceKm)||distanceKm<0)return false;
+    const wanted=String(filter.secondaryValue??'');
+    const column=String(filter.secondaryColumn??'');
+    if(!column||wanted==='')return false;
+    const candidates=secondaryProximityCandidates(lat,lng,distanceKm);
+    if(!candidates.length)return false;
+    const origin=L.latLng(lat,lng);
+    const maxMeters=distanceKm*1000;
+    for(const item of candidates){
+      const secondaryRow=item.row||state.secondaryLocations[item.index];
+      if(!secondaryRow)continue;
+      if(String(secondaryRow[column]??'')!==wanted)continue;
+      if(map.distance(origin,L.latLng(item.lat,item.lng))<=maxMeters+0.001)return true;
+    }
+    return false;
+  }
+  function exactFormulaTokens(formula){
+    const tokens=tokenizeTicker(String(formula??'').trim());
+    if(!tokens||!tokens.length)return null;
+    return tokens.map(t=>t.type==='operand'
+      ? (/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)?{type:'number',value:Number(t.value)}:{type:'header',value:t.value})
+      : {type:'op',value:t.value});
+  }
+  function expressionLooksNumeric(formula){
+    const tokens=exactFormulaTokens(formula);
+    if(!tokens)return false;
+    const headerTokens=[...new Set(tokens.filter(t=>t.type==='header').map(t=>t.value))];
+    if(!headerTokens.length)return true;
+    const sample=state.rows.slice(0,400);
+    return headerTokens.every(h=>sample.some(row=>toNumber(row[h])!==null));
+  }
+  function evaluateRowFormula(formula,row){
+    const tokens=tokenizePopup(String(formula??'').trim());
+    if(!tokens||!tokens.length)return null;
+    const operandValues=new Map();
+    const virtuals=state.filterCensusCache.get(row)||{};
+    for(const t of tokens){
+      if(t.type!=='operand'||/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      let value=isPopupVirtualOperand(t.value) ? toNumber(virtuals[t.value]) : toNumber(row[t.value]);
+      if(value===null)return null;
+      operandValues.set(t.value,value);
+    }
+    const value=evaluateTickerExpressionWithTokens(tokens,operandValues);
+    return Number.isFinite(value)?value:null;
+  }
+  function filterDraftBlank(){return {connector:'AND',column:'',formula:'',operator:'=',value:'',values:[],wildcard:'',type:'numeric',secondaryColumn:'',secondaryValue:'',distanceKm:''};}
+  function cloneFilterDrafts(filters){
+    return (filters||[]).map((f,i)=>({
+      connector:i===0?'AND':(f.connector||'AND'),
+      column:f.column||'', formula:f.formula||f.column||'', operator:f.operator||'=', value:f.value??'', values:Array.isArray(f.values)?[...f.values]:[], wildcard:f.wildcard||'', type:f.type||'numeric',
+      secondaryColumn:f.secondaryColumn||'', secondaryValue:f.secondaryValue||'', distanceKm:f.distanceKm??''
+    }));
+  }
+  function ensureThreeDrafts(){
+    if(state.filterDraft.length)return;
+    state.filterDraft=[filterDraftBlank(),filterDraftBlank(),filterDraftBlank()];
+  }
+  function getFilterTextColumn(draft){
+    const formula=String(draft.formula??'').trim();
+    if(formula){
+      const tokens=exactFormulaTokens(formula);
+      if(tokens){
+        for(const t of tokens){
+          if(t.type==='header' && state.types[t.value]==='text') return t.value;
+        }
+      }
+    }
+    const selectedColumn=String(draft.column??'');
+    return selectedColumn && state.types[selectedColumn]==='text' ? selectedColumn : '';
+  }
+  function detectFilterDraftType(draft){
+    const formula=String(draft.formula??'').trim();
+    if(getFilterTextColumn(draft)) return 'text';
+    if(!formula) return state.types[String(draft.column??'')]==='text'?'text':'numeric';
+    const tokens=exactFormulaTokens(formula);
+    if(!tokens) return 'numeric';
+    const headers=tokens.filter(t=>t.type==='header').map(t=>t.value);
+    if(headers.length && headers.every(h=>state.types[h]==='numeric')) return 'numeric';
+    return 'numeric';
+  }
+  function formatDiagnosticNumber(v){return Number.isFinite(v)?Number(v).toLocaleString(undefined,{maximumFractionDigits:8}):'ERR';}
+  function diagnosticRowLabel(row,index){
+    const c=state.columns||{};
+    const idHeader=c.store||c.profile||c.storeNumber||state.headers.find(h=>/store.*profile|profile.*number/i.test(h))||'';
+    const id=idHeader?row[idHeader]:'';
+    return id!==''&&id!==null&&id!==undefined?String(id):String(index+1);
+  }
+  function describeFilterRow(filter,row,index){
+    if(filter.type==='proximity'){
+      const pass=primaryRowWithinSecondaryProximity(row,filter);
+      return `Line ${index+1}: within ${Number(filter.distanceKm||0).toFixed(2)} km of secondary ${filter.secondaryColumn||''}=${JSON.stringify(filter.secondaryValue||'')} | result=${pass?'TRUE':'FALSE'}`;
+    }
+    if(filter.type==='text'){
+      const actual=String(row[filter.column]??'');
+      const pass=filter.values.some(v=>String(v)===actual);
+      return `Line ${index+1}: ${filter.column}=${JSON.stringify(actual)} | selected=${filter.values.map(v=>JSON.stringify(v)).join(', ')} | result=${pass?'TRUE':'FALSE'}`;
+    }
+    const tokens=exactFormulaTokens(filter.formula||filter.column);
+    const parts=[];
+    for(const t of (tokens||[])){
+      if(t.type==='header'&&!parts.some(p=>p[0]===t.value)) parts.push([t.value,toNumber(row[t.value])]);
+    }
+    const operands=parts.map(([h,v])=>`${h}=${formatDiagnosticNumber(v)}`).join(' ; ');
+    const calc=evaluateRowFormula(filter.formula||filter.column,row);
+    const target=Number(filter.value);
+    const pass=Number.isFinite(calc)&&Number.isFinite(target)&&({ '<=':calc<=target, '=':calc===target, '>=':calc>=target, '<':calc<target, '>':calc>target }[filter.operator]??false);
+    return `Line ${index+1}: ${filter.formula||filter.column} | ${operands} | calculation=${formatDiagnosticNumber(calc)} ${filter.operator} ${formatDiagnosticNumber(target)} | result=${pass?'TRUE':'FALSE'}`;
+  }
+  function toggleFilterDiagnostic(){
+    const box=el('filterDiagnostic');
+    const btn=el('filterDiagnosticToggle');
+    if(!box||!btn)return;
+    const show=box.classList.contains('hidden');
+    box.classList.toggle('hidden',!show);
+    btn.textContent=show?'Hide diagnostic':'Show diagnostic';
+    if(show)updateFilterDiagnostic();
+  }
+  function updateFilterDiagnostic(){
+    const box=el('filterDiagnostic'); if(!box)return;
+    if(!state.rows.length){box.textContent='No loaded rows.';return;}
+    const parsed=[];
+    for(let i=0;i<(state.filterDraft||[]).length;i++){
+      const d=state.filterDraft[i]; if(!String(d.formula??'').trim())continue;
+      const p=validateFilterDraft(d,i); if(typeof p==='string'){box.textContent=`${p}\n\nLoaded rows: ${state.rows.length.toLocaleString()}`;return;}
+      parsed.push(p);
+    }
+    if(!parsed.length){box.textContent=`Loaded rows: ${state.rows.length.toLocaleString()}\nNo completed filters yet.`;return;}
+    let passCount=0;
+    const lines=[`Loaded rows: ${state.rows.length.toLocaleString()}`,'',"FORMAT: row label | each filter actual inputs/calculation | final decision",''];
+    state.rows.forEach((row,rowIndex)=>{
+      let combined=rowMatchesFilter(parsed[0],row);
+      const details=[diagnosticRowLabel(row,rowIndex),describeFilterRow(parsed[0],row,0)];
+      for(let i=1;i<parsed.length;i++){
+        const cur=rowMatchesFilter(parsed[i],row);
+        combined=(parsed[i].connector||'AND')==='OR'?(combined||cur):(combined&&cur);
+        details.push(`${parsed[i].connector||'AND'} ${describeFilterRow(parsed[i],row,i)}`);
+      }
+      if(combined)passCount++;
+      details.push(`DECISION: ${combined?'INCLUDE':'EXCLUDE'}`);
+      lines.push(details.join('\n')); lines.push('----------------------------------------');
+    });
+    lines.unshift(`Combined decision: ${passCount.toLocaleString()} INCLUDE / ${(state.rows.length-passCount).toLocaleString()} EXCLUDE`,'');
+    box.textContent=lines.join('\n'); box.scrollTop=0;
+  }
+  function renderFilterRows(){
+    const box=el('filterRows');if(!box)return;
+    const rows=state.filterDraft||[];
+    if(!rows.length){box.innerHTML='<div class="empty-message">No filter lines. Use Add filter to create one.</div>';return;}
+    const allCols=state.headers;
+    box.innerHTML=rows.map((f,i)=>{
+      const typeMode=f.type==='proximity'?'proximity':'data';
+      const detected=detectFilterDraftType(f);
+      const dataType=typeMode==='data'?detected:'numeric';
+      const formula=f.formula||'';
+      const selectedTextValues=Array.isArray(f.values)?f.values:[];
+      const valuePicker=dataType==='text'
+        ? `<button type="button" class="filter-value-select-button" data-index="${i}">${selectedTextValues.length?esc(selectedTextValues.join(', ')):'Select values...'}</button>`
+        : `<input class="filter-value-input" data-index="${i}" type="number" step="any" placeholder="Enter value" value="${esc(f.value??'')}">`;
+      const condition=`<select class="filter-condition" data-index="${i}">${FILTER_OPERATORS.map(op=>`<option value="${op}" ${f.operator===op?'selected':''}>${op}</option>`).join('')}</select>`;
+      const connector=`<select class="filter-connector" data-index="${i}">${FILTER_CONNECTORS.map(op=>`<option value="${op}" ${f.connector===op?'selected':''}>${op}</option>`).join('')}</select>`;
+      const secondaryCols=(state.secondaryHeaders||[]).filter(h=>h!==state.secondaryLatColumn&&h!==state.secondaryLonColumn);
+      const secondaryValues=uniqueSecondaryColumnValues(f.secondaryColumn||'');
+      const proximityControls=`
+        <select class="filter-secondary-column" data-index="${i}">
+          <option value="">Secondary column</option>
+          ${secondaryCols.map(h=>`<option value="${esc(h)}" ${f.secondaryColumn===h?'selected':''}>${esc(h)}</option>`).join('')}
+        </select>
+        <select class="filter-secondary-value" data-index="${i}" ${f.secondaryColumn?'':'disabled'}>
+          <option value="">${f.secondaryColumn?(secondaryValues.length?'Choose value':'No values available'):'Choose value'}</option>
+          ${secondaryValues.map(v=>`<option value="${esc(v)}" ${String(f.secondaryValue||'')===v?'selected':''}>${esc(v)}</option>`).join('')}
+        </select>
+        <input class="filter-distance-input" data-index="${i}" type="number" min="0" step="0.01" placeholder="km" value="${esc(f.distanceKm??'')}">
+      `;
+      return `<div class="filter-line ${typeMode==='proximity'?'filter-line-proximity':''}" data-index="${i}">
+        <div class="filter-line-main" data-filter-type="${typeMode}">
+          <select class="filter-type" data-index="${i}">
+            <option value="data" ${typeMode==='data'?'selected':''}>Data</option>
+            <option value="proximity" ${typeMode==='proximity'?'selected':''}>Proximity</option>
+          </select>
+          ${typeMode==='data'
+            ? `<select class="filter-column" data-index="${i}"><option value="">Choose column</option><optgroup label="Workbook columns">${allCols.map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</optgroup><optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</optgroup></select>
+               <input class="filter-formula" data-index="${i}" type="text" placeholder="Variable or Formula" value="${esc(formula)}" autocomplete="off">
+               ${condition}
+               <div class="filter-value-cell">${valuePicker}</div>`
+            : `${proximityControls}<div class="filter-proximity-spacer"></div>`}
+          ${connector}
+          <button type="button" class="filter-delete" data-index="${i}">Delete</button>
         </div>
-        <button id="tickerConfigBtn" type="button" class="ticker-config-btn" disabled aria-label="Open ticker configuration">Ticker</button>
-      </div>
-    </div>
-</header>
+      </div>`;
+    }).join('');
 
-  <main class="app-shell">
-    <button id="leftPanelToggle" type="button" class="left-panel-toggle" aria-label="Collapse controls" aria-expanded="true"><span aria-hidden="true">‹</span></button>
-    <aside class="left-panel">
-      <section class="panel-card data-sources-card">
-        <h2>Data sources</h2>
-        <div class="data-source-block primary-data-source">
-          <div class="data-source-title">Primary Store Data</div>
-          <label class="file-button financial-upload-button" data-help-key="financial-file">
-            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
-            Load Excel / CSV file
-          </label>
-          <div id="fileStatus" class="status muted">No financial file selected.</div>
-          <button id="clearFileBtn" class="secondary clear-primary-button" disabled>Clear Primary</button>
-        </div>
-        <div class="data-source-divider"></div>
-        <div class="data-source-block secondary-data-source">
-          <div class="data-source-title">Secondary Locations</div>
-          <label class="file-button secondary-upload-button" data-help-key="secondary-file">
-            <input id="secondaryFileInput" type="file" accept=".xlsx,.xls,.csv" />
-            Load Excel / CSV file
-          </label>
-          <div id="secondaryFileStatus" class="status muted">No secondary locations loaded.</div>
-          <label class="secondary-visibility-toggle"><input id="secondaryVisibilityToggle" type="checkbox" disabled><span>Show secondary locations</span></label>
-          <div class="secondary-data-actions">
-            <button id="secondaryPopupConfigBtn" type="button" class="secondary" disabled>Popup</button>
-            <button id="secondaryHoverConfigBtn" type="button" class="secondary" disabled>Hover</button>
-            <button id="clearSecondaryBtn" type="button" class="secondary" disabled>Clear</button>
-          </div>
-        </div>
-      </section>
+    box.querySelectorAll('.filter-type').forEach(sel=>sel.addEventListener('change',e=>{
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i];
+      if(e.target.value==='proximity'){
+        f.type='proximity'; f.column=''; f.formula=''; f.operator='='; f.value=''; f.values=[]; f.wildcard='';
+      }else{
+        f.type='numeric'; f.secondaryColumn=''; f.secondaryValue=''; f.distanceKm='';
+      }
+      renderFilterRows(); updateFilterDiagnostic();
+    }));
+    box.querySelectorAll('.filter-column').forEach(sel=>sel.addEventListener('change',e=>{
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i],h=e.target.value;if(!h)return;
+      const current=String(f.formula||'').trim();
+      const chosenType=isPopupVirtualOperand(h)?'numeric':(state.types[h]==='text'?'text':'numeric');
+      if(!current){f.column=h;f.formula=h;f.type=chosenType;f.value='';f.values=[];f.wildcard='';}
+      else{f.formula=`${current}${h}`;f.type=detectFilterDraftType(f);if(f.type==='text'){f.value='';}}
+      renderFilterRows();
+      const input=box.querySelector(`.filter-formula[data-index="${i}"]`); if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}
+      updateFilterDiagnostic();
+    }));
+    box.querySelectorAll('.filter-formula').forEach(inp=>inp.addEventListener('input',e=>{
+      const i=Number(e.target.dataset.index),draft=state.filterDraft[i];
+      const before=detectFilterDraftType(draft); draft.formula=e.target.value; const after=detectFilterDraftType(draft); draft.type=after;
+      if(before!==after){const caret=e.target.selectionStart??draft.formula.length;renderFilterRows();const replacement=box.querySelector(`.filter-formula[data-index="${i}"]`);if(replacement){replacement.focus();const pos=Math.min(caret,replacement.value.length);replacement.setSelectionRange(pos,pos);}}
+      updateFilterDiagnostic();
+    }));
+    box.querySelectorAll('.filter-condition').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].operator=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-value-input').forEach(inp=>inp.addEventListener('input',e=>{state.filterDraft[Number(e.target.dataset.index)].value=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-value-select-button').forEach(btn=>btn.addEventListener('click',e=>openFilterValuePicker(Number(e.target.dataset.index))));
+    box.querySelectorAll('.filter-secondary-column').forEach(sel=>sel.addEventListener('change',e=>{
+      const i=Number(e.target.dataset.index),f=state.filterDraft[i]; f.secondaryColumn=e.target.value; f.secondaryValue=''; renderFilterRows(); updateFilterDiagnostic();
+    }));
+    box.querySelectorAll('.filter-secondary-value').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].secondaryValue=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-distance-input').forEach(inp=>inp.addEventListener('input',e=>{state.filterDraft[Number(e.target.dataset.index)].distanceKm=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-connector').forEach(sel=>sel.addEventListener('change',e=>{state.filterDraft[Number(e.target.dataset.index)].connector=e.target.value;updateFilterDiagnostic();}));
+    box.querySelectorAll('.filter-delete').forEach(btn=>btn.addEventListener('click',e=>{state.filterDraft.splice(Number(e.target.dataset.index),1);renderFilterRows();}));
+  }
+  function openFilterValuePicker(index){
+    const dialog=el('filterValueDialog'); if(!dialog)return;
+    state.filterValuePickerIndex=index;
+    const draft=state.filterDraft[index]||{};
+    const textColumn=getFilterTextColumn(draft);
+    const title=el('filterValueDialogTitle'); if(title)title.textContent=textColumn||'Select values';
+    const list=el('filterValuePickerList'); if(!list)return;
+    const values=uniqueColumnValues(textColumn||'');
+    const selected=new Set(Array.isArray(draft.values)?draft.values:[]);
+    list.innerHTML=values.map(v=>`<label><input type="checkbox" class="filter-picker-check" value="${esc(v)}" ${selected.has(v)?'checked':''}><span>${esc(v||'(blank)')}</span></label>`).join('');
+    const all=el('filterPickerSelectAll'); if(all)all.textContent=values.length&&values.every(v=>selected.has(v))?'Clear all':'Select all';
+    dialog.showModal();
+  }
+  function applyFilterValuePicker(){
+    const index=state.filterValuePickerIndex; if(index==null)return;
+    const list=el('filterValuePickerList');
+    state.filterDraft[index].values=[...list.querySelectorAll('.filter-picker-check:checked')].map(x=>x.value);
+    state.filterValuePickerIndex=null;
+    renderFilterRows(); updateFilterDiagnostic();
+  }
+  function filterVirtualFieldsUsed(filters){
+    const found=new Set();
+    for(const f of filters||[]){
+      for(const t of tokenizePopup(f.formula||'')||[]){
+        if(t.type==='operand'&&isPopupVirtualOperand(t.value))found.add(t.value);
+      }
+    }
+    return [...found];
+  }
+  async function ensureFilterCensusVirtuals(filters){
+    const needed=filterVirtualFieldsUsed(filters);
+    if(!needed.length||!state.rows.length)return;
+    const fields=needed.map(name=>({formula:name}));
+    const total=state.rows.length;
+    await showPopulationCalcStatus();
+    try{
+      for(let i=0;i<total;i++){
+        const row=state.rows[i];
+        const cached=state.filterCensusCache.get(row);
+        const values=await calculatePopupCensusForStore(row,fields);
+        state.filterCensusCache.set(row,{...(cached||{}),...(values||{})});
+      }
+    } finally {
+      hidePopulationCalcStatus();
+    }
+  }
 
-      <section class="panel-card census-query-card">
-        <h2>Census Shape Query</h2>
-        <div class="census-query-controls" aria-label="Census shape and geography controls">
-          <div class="census-query-buttons">
-            <button id="drawCircleBtn" type="button" class="circle-action-button"><span class="circle-button-icon" aria-hidden="true"></span><span>Circle</span></button>
-            <button id="drawRectangleBtn" type="button" class="circle-action-button"><span class="rectangle-button-icon" aria-hidden="true"></span><span>Box</span></button>
-          </div>
-          <div class="census-query-geo-column">
-              <select id="censusGeoSelect" aria-label="Census population scope">
-                <option value="">Province / Canada</option>
-                <option value="CA">Canada</option>
-                <option value="AB">Alberta</option>
-                <option value="BC">British Columbia</option>
-                <option value="MB">Manitoba</option>
-                <option value="NB">New Brunswick</option>
-                <option value="NL">Newfoundland and Labrador</option>
-                <option value="NS">Nova Scotia</option>
-                <option value="NT">Northwest Territories</option>
-                <option value="NU">Nunavut</option>
-                <option value="ON">Ontario</option>
-                <option value="PE">Prince Edward Island</option>
-                <option value="QC">Quebec</option>
-                <option value="SK">Saskatchewan</option>
-                <option value="YT">Yukon</option>
-              </select>
-          </div>
-          <button id="clearCensusShapeBtn" type="button" class="circle-action-button census-query-clear" disabled><span class="clear-button-icon" aria-hidden="true">×</span><span>Clear</span></button>
-          <div class="census-query-status-row">
-            <span class="census-shape-indicator-off" id="censusShapeIndicator" aria-label="No Census query shape active"></span>
-            <span id="censusShapeStatusLabel">No shape</span>
-            <div id="censusShapeSizeControl" class="census-shape-size-control hidden"><input id="censusShapeStatusValue" class="census-shape-size-input" type="text" inputmode="decimal" value="" aria-label="Circle radius in kilometres" disabled><span id="censusShapeStatusUnit">km radius</span></div>
-          </div>
-        </div>
-      </section>
+  function validateFilterDraft(draft,index){
+    if(draft.type==='proximity'){
+      if(!state.secondaryLocations?.length||!state.secondarySpatialIndex)return `Filter ${index+1} needs a loaded Secondary Locations file.`;
+      if(!String(draft.secondaryColumn||'').trim())return `Filter ${index+1} needs a secondary column.`;
+      if(!String(draft.secondaryValue||'').trim())return `Filter ${index+1} needs a secondary value.`;
+      const distance=toNumber(draft.distanceKm);
+      if(distance===null||distance<0)return `Filter ${index+1} needs a non-negative distance in km.`;
+      return {connector:index===0?'AND':(draft.connector||'AND'),type:'proximity',secondaryColumn:String(draft.secondaryColumn),secondaryValue:String(draft.secondaryValue),distanceKm:distance};
+    }
+    const formula=String(draft.formula??'').trim();
+    if(!formula)return null;
+    const type=detectFilterDraftType(draft);
+    if(type==='text'){
+      const textColumn=getFilterTextColumn(draft);
+      const values=Array.isArray(draft.values)?draft.values:[];
+      if(!textColumn)return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value:toNumber(draft.value)};
+      if(!values.length)return `Filter ${index+1} needs at least one selected value.`;
+      return {connector:index===0?'AND':(draft.connector||'AND'),type:'text',column:textColumn,formula,operator:draft.operator||'=',values,wildcard:''};
+    }
+    const value=toNumber(draft.value);
+    if(value===null)return `Filter ${index+1} needs a numeric value.`;
+    return {connector:index===0?'AND':(draft.connector||'AND'),type:'numeric',column:draft.column||formula,formula,operator:draft.operator||'=',value};
+  }
+  function rowMatchesFilter(filter,row){
+    if(filter.type==='proximity') return primaryRowWithinSecondaryProximity(row,filter);
+    if(filter.type==='numeric'){
+      const n=evaluateRowFormula(filter.formula||filter.column,row);if(n===null)return false;
+      const target=Number(filter.value);if(!Number.isFinite(target))return false;
+      if(filter.operator==='<=')return n<=target;
+      if(filter.operator==='=')return n===target;
+      if(filter.operator==='>=')return n>=target;
+      if(filter.operator==='<')return n<target;
+      if(filter.operator==='>')return n>target;
+      return false;
+    }
+    const s=String(row[filter.column]??'');
+    return Array.isArray(filter.values) && filter.values.some(v=>String(v)===s);
+  }
+  function reconcileFiltersToShape(){
+    if(!censusShapeType()||!state.filters.length)return false;
+    const scopeRows=getCensusShapeRows({respectFilters:false});
+    const availableByColumn=new Map();
+    const next=[];
+    for(const f of state.filters){
+      if(f.type!=='text'){next.push(f);continue;}
+      if(!availableByColumn.has(f.column)){
+        availableByColumn.set(f.column,new Set(scopeRows.map(r=>String(r[f.column]??''))));
+      }
+      const available=availableByColumn.get(f.column);
+      const values=(f.values||[]).filter(v=>available.has(String(v)));
+      if(values.length) next.push({...f,values});
+    }
+    const changed=JSON.stringify(next)!==JSON.stringify(state.filters);
+    if(changed){state.filters=next;rebuildFilterPassCache();}
+    return changed;
+  }
 
-      <section class="panel-card go-to-geography-card">
-        <h2>Go to geography</h2>
-        <form id="searchForm">
-          <label for="searchInput">City, postal code or address</label>
-          <div class="inline-control">
-            <input id="searchInput" type="text" placeholder="e.g. Hamilton, Ontario" autocomplete="off" />
-            <button id="searchGoBtn" type="submit">Go</button>
-          </div>
-        </form>
-        <form id="storeJumpForm" class="store-jump">
-          <label for="storeNumberInput">Store profile #</label>
-          <div class="inline-control">
-            <input id="storeNumberInput" type="text" placeholder="Store Profile Number" autocomplete="off" />
-            <button id="storeNumberBtn" type="submit">Go</button>
-          </div>
-        </form>
-        <div id="storeJumpStatus" class="status muted"></div>
-        <div id="geoStatus" class="status muted">Pan and zoom the map freely. Draw a Census Query shape to calculate Census data.</div>
-      </section>
+  function redrawAfterFilterChange(){
+    // Rebuild the marker layer from the newly applied filters so filtered stores
+    // are excluded from both the map and all viewport-based calculations.
+    unspiderfyMarkers();
+    rebuildMarkers();
+    state.daProvinceCacheKey=null; state.daProvinceCache=null;
+    if (censusShapeType()) scheduleCensusQuery(null,'filter change');
+  }
+  function updateFilterUI(){
+    const btn=el('filterBtn');if(btn)btn.disabled=!state.rows.length;
+    const clearBtn=el('clearFiltersBtn');if(clearBtn)clearBtn.disabled=!state.rows.length;
+  }
+  function openFilterDialog(){
+    const diag=el('filterDiagnostic');
+    const toggle=el('filterDiagnosticToggle');
+    if(diag)diag.classList.add('hidden');
+    if(toggle)toggle.textContent='Show diagnostic';
+    state.filterDraft=cloneFilterDrafts(state.filters);
+    ensureThreeDrafts();
+    renderFilterRows();
+    el('filterDialog').showModal();
+  }
+  async function applyFilters(){
+    const errorBox=el('filterError');
+    const diag=el('filterDiagnostic');
+    if(errorBox)errorBox.textContent='';
+    if(diag)diag.textContent='';
+    const next=[];
+    for(let i=0;i<state.filterDraft.length;i++){
+      const draft=state.filterDraft[i];
+      if(draft.type!=='proximity' && !String(draft.formula??'').trim())continue;
+      const parsed=validateFilterDraft(draft,i);
+      if(typeof parsed==='string'){
+        if(errorBox)errorBox.textContent=parsed;
+        const target=el(`filterDialog [data-index="${i}"]`);
+        if(target&&typeof target.focus==='function')target.focus();
+        return;
+      }
+      next.push(parsed);
+    }
+    await ensureFilterCensusVirtuals(next);
+    const candidateCache=new WeakMap();
+    let passingCount=0;
+    for(const row of state.rows){
+      const pass=next.length?rowPassesFiltersWithFilters(row,next):true;
+      candidateCache.set(row,pass);
+      if(pass)passingCount++;
+    }
+    if(next.length && passingCount===0){
+      if(errorBox)errorBox.textContent='No loaded store rows meet these filters. Check the formula, exact column headings, condition, and value.';
+      if(diag)diag.textContent=`Diagnostic: 0 of ${state.rows.length.toLocaleString()} loaded stores meet all filter lines.`;
+      return;
+    }
+    if(diag)diag.textContent=next.length?`Diagnostic: ${passingCount.toLocaleString()} of ${state.rows.length.toLocaleString()} loaded stores meet all filter lines.`:'';
+    state.filters=next;
+    state.filterPassCache=candidateCache;
+    state.filteredRows=state.rows.filter(row=>candidateCache.get(row)===true);
+    if(state.storeJumpTarget && !rowPassesFilters(state.storeJumpTarget)){
+      clearCircle();state.storeJumpTarget=null;
+    }
+    redrawAfterFilterChange();
+    updateSelection();
+    updateFilterUI();
+    el('filterDialog').close();
+  }
 
-      <section class="panel-card filter-dataset-card">
-        <h2>Filter dataset</h2>
-        <div class="filter-actions">
-          <button id="filterBtn" type="button" class="filter-action-button configure-filter-button" disabled>
-            <span class="filter-action-label">Configure</span>
-            <span id="filterCount" class="config-count">0</span>
-          </button>
-          <button id="clearFiltersBtn" type="button" class="filter-action-button clear-filter-button" disabled>
-            Clear
-          </button>
-        </div>
-        <div id="filterStatus" class="status muted">No filters applied.</div>
-      </section>
+  function bboxOverlaps(a,b){
+    return Array.isArray(a) && a.length>=4 && Array.isArray(b) && b.length>=4 &&
+      a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+  }
 
-      <section class="panel-card legend-card marker-config-card">
-        <div class="marker-config-actions">
-          <button id="markerConfigBtn" type="button" class="config-button-inline marker-config-button">Marker config</button>
-        </div>
-        <div class="marker-animation-box">
-          <div class="marker-animation-head"><span>Animate</span><div class="marker-animation-head-controls"><select id="markerAnimationType" class="marker-animation-type-inline" aria-label="Animation type"><option value="ripple">Ripple</option><option value="fade">Fade</option><option value="static">Static</option></select><label class="marker-animation-switch"><input id="markerAnimationEnabled" type="checkbox"><span>On</span></label></div></div>
-          <div class="marker-fade-object-row" id="markerFadeObjectRow"><label for="markerFadeObject">Fade object</label><select id="markerFadeObject" class="marker-animation-type-inline" aria-label="Fade object"><option value="smiley">🙂 Smiley</option><option value="starburst">✦ Starburst</option><option value="lightning">⚡ Lightning</option></select></div>
-          <div class="marker-animation-summary-row"><span id="markerAnimationTypeSummary">Ripple</span><button id="markerAnimationConfigureBtn" type="button" class="secondary marker-animation-configure-btn">Animate When</button></div>
-          <div id="markerAnimationStatus" class="small muted">Choose one condition to animate matching stores.</div>
-        </div>
-      </section>
+  function candidateProvinceCodesFromGeography(boundary){
+    if(!boundary?.geometry) return [];
+    const targetBbox=turf.bbox(boundary);
+    const found=new Set();
+    // CSD province coverage is a cheap candidate reducer. DA R-tree bbox hits
+    // then establish province presence without decoding DA geometry or clipping.
+    for(const code of Object.keys(CONFIG.daFiles||{})) {
+      const bbox=state.csdProvinceBBoxes?.get(code);
+      if(!bbox || bboxOverlaps(targetBbox,bbox)) found.add(code);
+    }
+    return [...found].sort();
+  }
 
-      <section class="panel-card popup-config-box">
-        <div class="section-title-row popup-title-row"><h2>Popup</h2><button id="popupConfigBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="popupCount" class="config-count">0</span></button></div>
-      </section>
+  function bboxFullyInsideViewport(provinceCode) {
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
+    if (!bbox) return false;
+    const mapBounds = map.getBounds();
+    return mapBounds.getWest() <= bbox[0] &&
+      mapBounds.getSouth() <= bbox[1] &&
+      mapBounds.getEast() >= bbox[2] &&
+      mapBounds.getNorth() >= bbox[3];
+  }
 
-      <section class="panel-card help-config-box">
-        <div class="section-title-row"><div><h2>Help</h2><div class="section-subtitle">Hover help for controls</div></div></div>
-        <button id="helpConfigBtn" type="button" class="help-config-button" data-help-key="help-config">Help config</button>
-      </section>
-    </aside>
+  function bboxFullyInsideCircle(provinceCode) {
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
+    const circle = state.circleSelection?.circle;
+    if (!bbox || !circle) return false;
+    // A circle is convex, so containing all four bbox corners contains the entire bbox.
+    const center = circle.getLatLng();
+    const radius = circle.getRadius();
+    const corners = [
+      L.latLng(bbox[1], bbox[0]), L.latLng(bbox[1], bbox[2]),
+      L.latLng(bbox[3], bbox[0]), L.latLng(bbox[3], bbox[2])
+    ];
+    return corners.every(corner => map.distance(center, corner) <= radius + 0.01);
+  }
 
-    <section class="map-panel">
-      <div id="map"></div>
-      <div id="mapLoading" class="map-loading hidden">Loading geography…</div>
-      <div id="populationCalcStatus" class="population-calc-status hidden">Population-area calculating...</div>
-    </section>
+  function bboxFullyInsideRectangle(provinceCode, rectangleBounds) {
+    const bbox = PROVINCE_COVERAGE_BBOXES[provinceCode];
+    if (!bbox || !rectangleBounds) return false;
+    return rectangleBounds[0] <= bbox[0] && rectangleBounds[1] <= bbox[1] &&
+      rectangleBounds[2] >= bbox[2] && rectangleBounds[3] >= bbox[3];
+  }
 
-    <aside class="right-panel">
-      <section class="results-card right-section-box right-kpi-box">
-        <div id="kpiScopeLabel" class="kpi-scope-label">viewport</div>
-        <div class="kpi-grid">
-          <div class="kpi"><span class="kpi-title">Stores</span><strong id="kpiStores">—</strong></div>
-          <div class="kpi"><span class="kpi-title">Positive EBIT</span><strong id="kpiSuccess">—</strong></div>
-          <div class="kpi"><span class="kpi-title">Avg EBIT</span><strong id="kpiAvgEbit">—</strong></div>
-          <div class="kpi"><span class="kpi-title">Total sales / pop</span><strong id="kpiSalesPerPopulation">—</strong></div>
-          <div class="kpi"><span class="kpi-title">Total Sales<small>(000s)</small></span><strong id="kpiTotalSales">—</strong></div>
-          <div class="kpi"><span class="kpi-title">Total EBIT<small>(000s)</small></span><div class="kpi-value-row"><strong id="kpiTotalEbit">—</strong><span id="kpiTotalEbitMargin" class="kpi-ratio">—</span></div></div>
-        </div>
-      </section>
-
-      <section class="right-section-box right-census-box census-box">
-        <div class="section-title-row census-title-row">
-          <div class="box-title">Census Catchment</div>
-          <div class="section-subtitle">(draw shape to trigger)</div>
-        </div>
-        <div class="census-settings-row">
-          <div class="census-setting-item">
-            <span>Calc delay</span>
-            <div class="census-delay-control"><input id="censusDelay" type="number" min="0" max="10000" step="50" inputmode="numeric" aria-label="Census calculation delay in milliseconds" value="500"><span>ms</span></div>
-          </div>
-          <label class="census-setting-item census-threshold-control" title="A DA is selected when at least this percentage of its area lies inside the visible map or selection circle.">
-            <span>DA overlap</span>
-            <div class="census-threshold-control-value"><input id="censusThreshold" type="number" min="0" max="100" step="1" inputmode="decimal" aria-label="DA inclusion threshold" value="10"><span>%</span></div>
-          </label>
-        </div>
-        <label class="census-da-toggle" for="showSelectedDAs">
-          <span>Show selected DAs on map</span>
-          <span class="toggle-switch"><input id="showSelectedDAs" type="checkbox" checked><span class="toggle-slider" aria-hidden="true"></span></span>
-        </label>
-        <div class="census-grid">
-          <div><span>Total population</span><strong id="censusPopulation">—</strong></div>
-          <div><span>Population 65+</span><strong id="censusSeniors">—</strong></div>
-          <div><span>Population 40+</span><strong id="censusForty">—</strong></div>
-          <div><span>Visible Minority</span><strong id="censusVisibleMinority">—</strong></div>
-          <div><span>Population / store</span><strong id="censusPopPerStore">—</strong></div>
-          <div><span>Avg household income</span><strong id="censusHouseholdIncome">—</strong></div>
-        </div>
-        <div class="census-amenity-profile">
-          <div class="census-amenity-title" id="censusAmenityTitle">— amenities within drawn shape</div>
-          <div class="census-amenity-grid" id="censusAmenityGrid">
-            <button type="button" class="census-amenity-category" data-amenity-category="retail"><span>Retail</span><strong id="censusAmenityRetail">—</strong></button>
-            <button type="button" class="census-amenity-category" data-amenity-category="food"><span>Food &amp; Leisure</span><strong id="censusAmenityFood">—</strong></button>
-            <button type="button" class="census-amenity-category" data-amenity-category="health"><span>Health &amp; Services</span><strong id="censusAmenityHealth">—</strong></button>
-            <button type="button" class="census-amenity-category" data-amenity-category="community"><span>Community &amp; Recreation</span><strong id="censusAmenityCommunity">—</strong></button>
-          </div>
-        </div>
-        <div id="censusNote" class="small muted">A Census Query shape selects DAs. The map viewport is for navigation only.</div>
-        <div class="census-site-analysis-box" id="rxSiteAnalysisCard">
-          <div id="rxSiteAnalysisSearchView">
-            <div class="census-site-analysis-action">
-              <button id="rxSiteAnalysisGo" type="button" class="rx-site-analysis-run-button">Analyze 4 km directions</button>
-              <div class="rx-site-analysis-active-centre">
-                <div class="rx-site-analysis-active-centre-label">Active geographic centre</div>
-                <div id="rxSiteAnalysisActiveCentre" class="rx-site-analysis-active-centre-value">None — enter an address or draw a shape.</div>
-                <div id="rxSiteAnalysisActiveCentreSource" class="rx-site-analysis-active-centre-source">Source: none</div>
-              </div>
-              <div class="rx-check-surrounding-control">
-                <button id="rxCheckSurroundingGo" type="button" class="rx-check-surrounding-run-button">Check Surrounding</button>
-                <div class="rx-check-surrounding-distance-wrap">
-                  <input id="rxCheckSurroundingDistance" type="number" min="0.1" step="0.1" value="1.0" inputmode="decimal" aria-label="Surrounding distance in kilometres">
-                  <span>km</span>
-                </div>
-              </div>
-              <div id="rxSiteAnalysisStatus" class="status muted">Load both Primary Store Data and Secondary Locations to enable analysis.</div>
-            </div>
-          </div>
-          <div id="rxSiteAnalysisDetailView" class="rx-site-analysis-detail-view hidden" aria-live="polite">
-          <div class="rx-site-analysis-detail-head">
-            <div>
-              <h2>Subject Site</h2>
-              <div id="rxSiteAnalysisDetailSubtitle" class="rx-site-analysis-detail-subtitle">(per sq km)</div>
-              <div id="rxSiteAnalysisSubjectAddress" class="rx-site-analysis-subject-address">—</div>
-            </div>
-            <label class="rx-site-analysis-mode-toggle" title="Switch the Subject Site table between density and absolute count">
-              <span>Density / Count</span>
-              <span class="rx-site-analysis-mode-switch">
-                <input id="rxSiteAnalysisModeToggle" type="checkbox" aria-label="Show absolute counts instead of density">
-                <span class="rx-site-analysis-mode-slider" aria-hidden="true"></span>
-              </span>
-            </label>
-          </div>
-          <div id="rxSiteAnalysisDetailGrid" class="rx-site-analysis-detail-grid" role="table" aria-label="Subject site detail">
-            <div class="rx-site-analysis-detail-header" role="row">
-              <span class="rx-site-analysis-detail-header-measure"><span>Measure</span><span>Radius (km)</span></span>
-              <span class="rx-site-analysis-radius-head"><span>Inner</span><input id="rxSiteAnalysisInnerRadius" type="number" min="0.1" step="0.1" value="0.5" inputmode="decimal" aria-label="Inner radius in kilometres"></span>
-              <span class="rx-site-analysis-radius-head"><span>Outer</span><input id="rxSiteAnalysisOuterRadius" type="number" min="0.1" step="0.1" value="2.0" inputmode="decimal" aria-label="Outer radius in kilometres"></span>
-              <span>Ratio</span>
-            </div>
-            <div class="rx-site-analysis-detail-row" data-rx-detail-key="commercial" role="row"><strong>Commercial</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" data-rx-detail-key="residential" role="row"><strong>Residential</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" data-rx-detail-key="health" role="row"><strong>Health / Serv</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" data-rx-detail-key="competition" role="row"><strong>Competitor</strong><span>—</span><span>—</span><span>—</span></div>
-            <div class="rx-site-analysis-detail-row" data-rx-detail-key="population" role="row"><strong>Population</strong><span>—</span><span>—</span><span>—</span></div>
-          </div>
-          <div class="rx-site-analysis-detail-note">Detailed Subject measures will populate from the Site Analysis data model.</div>
-        </div>
-        </div>
-      </section>
-
-
-      <section class="right-section-box right-subject-box subject-box">
-        <div class="section-title-row"><div class="box-title">Subjects<div class="section-subtitle">(avg of viewport or shape - click for distribution)</div></div><div class="stores-actions"><button id="subjectsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="subjectCount" class="config-count">0</span></button><button id="exportSubjectsBtn" type="button" class="config-button-inline export-button" disabled>Export</button></div></div>
-        <div id="subjectsSummary" class="empty-message">Select a workbook, then configure Subjects.</div>
-      </section>
-
-      <section class="right-section-box right-group-box group-box">
-        <div class="section-title-row"><div class="box-title">Grouped Subjects<div class="section-subtitle">(viewport)</div></div><button id="groupsBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="groupCount" class="config-count">0</span></button></div>
-        <div id="groupsSummary" class="empty-message">Choose one or more Groups to compare store segments.</div>
-      </section>
-
-      <section class="right-section-box right-selected-stores-box stores-box">
-        <div class="section-title-row"><div class="box-title">Selected Stores</div><div class="stores-actions"><button id="selectedStoresBtn" type="button" class="config-button-inline" disabled><span>Configure</span><span id="selectedStoresCount" class="config-count">2</span></button><button id="exportSelectedBtn" type="button" class="config-button-inline export-button" disabled>Export</button></div></div>
-        <div id="selectedStoresList" class="empty-message">Load a workbook to see selected stores.</div>
-      </section>
-
-      <section class="right-section-box right-selected-da-box census-da-box">
-        <div class="section-title-row"><div class="box-title">Selected Census DAs</div><div class="stores-actions"><button id="exportSelectedDABtn" type="button" class="config-button-inline export-button" disabled>Export</button><div class="small muted census-da-count-label">DA ID sort</div></div></div>
-        <div class="census-da-header"><span>DA ID</span><span>Population</span><span>65+</span><span>40+</span><span>Overlap</span></div>
-        <div id="censusDaList" class="census-da-list"><div class="empty-message">Selected DAs will appear here after the catchment is calculated.</div></div>
-      </section>
-    </aside>
-  </main>
-
-  <dialog id="subjectsDialog" class="ticker-dialog subject-config-dialog">
-  <form method="dialog" id="subjectsForm">
-    <div class="dialog-header subject-config-header">
-      <div>
-        <h2>Subjects Configuration</h2>
-        <p>Build a persistent open-ended table. Click any cell to edit it; click beyond the current grid to add a row or column. Column 2 is always the distribution source.</p>
-      </div>
-      <div class="subject-config-top-actions">
-        <button id="subjectCommit" type="button" class="config-button-3d">Commit changes</button>
-        <button id="subjectClose" type="button" class="config-button-3d subject-close-3d">Close</button>
-      </div>
-    </div>
-    <div class="subject-editor-body">
-      <div class="subject-cell-editor" id="subjectCellEditor">
-        <div class="subject-cell-editor-title-row">
-          <div><strong>Edit cell</strong> <span id="subjectSelectedCellLabel" class="small muted">A1</span></div>
-          <div id="subjectDistributionRule" class="small muted">Distribution: column 2</div>
-        </div>
-        <div class="subject-cell-editor-grid">
-          <label>Type
-            <select id="subjectCellType">
-              <option value="text">Text</option>
-              <option value="value">Value</option>
-              <option value="formula">Formula</option>
-            </select>
-          </label>
-          <label id="subjectChooseColumnWrap">Choose column
-            <select id="subjectCellColumn"><option value="">Choose column</option></select>
-          </label>
-          <label class="subject-cell-expression-field">Value / Formula
-            <input id="subjectCellExpression" type="text" autocomplete="off" placeholder="Enter text, value, or formula">
-            <span id="subjectCellFormulaWarning" class="formula-warning" hidden></span>
-          </label>
-          <label>Number format
-            <select id="subjectCellNumberFormat">
-              <option value="auto">Auto</option><option value="number">Number</option><option value="currency">Currency</option><option value="percentage">Percentage</option>
-            </select>
-          </label>
-          <label>Decimals
-            <select id="subjectCellDecimals"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select>
-          </label>
-          <label>Aggregation
-            <select id="subjectCellAggregation"><option value="sum">Sum</option><option value="average" selected>Average</option><option value="median">Median</option></select>
-          </label>
-        </div>
-        <div class="subject-cell-editor-hint">For Value, choose one workbook column. For Formula, use the same formula field and operator mechanic as the existing metric builder; selecting a column appends it to the formula.</div>
-        <div class="subject-table-edit-actions" aria-label="Table edit actions">
-          <button id="subjectAddColumnZone" type="button" class="subject-canvas-add-zone" aria-label="Add column">＋ Add column</button>
-          <button id="subjectAddRowZone" type="button" class="subject-canvas-add-zone" aria-label="Add row">＋ Add row</button>
-        </div>
-      </div>
-      <div class="subject-canvas-wrap">
-        <div class="subject-canvas-title">Subject Table Contents (click table cell to edit)</div>
-        <div class="subject-canvas-scroll" id="subjectCanvasScroll">
-          <div id="subjectCanvas" class="subject-canvas" role="grid" aria-label="Subject table editor"></div>
-        </div>
-      </div>
-    </div>
-  </form>
-</dialog>
-
-  <dialog id="distributionDialog" class="config-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Distribution</h2><p>Choose one workbook column to distribute the currently selected stores. Numeric columns use value intervals; text columns count occurrences of each value.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="dialog-tools"><input id="distributionSearch" type="search" placeholder="Find a column…" /><button id="distributionClear" type="button" class="secondary">Clear</button></div>
-      <div class="subject-list-head distribution-list-head"><span>Column</span><span>Type</span></div><div id="distributionList" class="checkbox-list"></div>
-      <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="distributionApply" value="default">Apply</button></div>
-    </form>
-  </dialog>
-
-  <dialog id="filterDialog" class="config-dialog filter-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Filter</h2><p>Build filter lines from workbook columns or numeric formulas. Each line explicitly uses AND or OR to relate it to the line above.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="filter-config-scroll">
-        <div id="filterError" class="filter-error" role="alert" aria-live="polite"></div><div class="filter-diagnostic-toggle-row"><button id="filterDiagnosticToggle" type="button" class="secondary">Show diagnostic</button></div><div id="filterDiagnostic" class="filter-diagnostic hidden" aria-live="polite"></div>
-        <div class="filter-table-head" aria-hidden="true"><div>Type</div><div>Column / Secondary</div><div>Formula / Value</div><div>Condition / Distance</div><div>Value</div><div>AND / OR</div><div></div></div>
-        <div id="filterRows" class="filter-rows"></div>
-      </div>
-      <div class="dialog-footer filter-dialog-footer">
-        <button id="addFilterBtn" type="button" class="secondary">Add filter</button>
-        <button id="clearAllFilters" type="button" class="secondary">Clear All</button>
-        <span class="filter-footer-note">Note: initial run of census stats may take 20-30 seconds</span>
-        <span class="filter-footer-spacer"></span>
-        <button value="cancel" class="secondary">Close</button>
-        <button id="applyFiltersBtn" value="default">Apply Filter</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="selectedStoresDialog" class="config-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Selected Stores</h2><p>Choose additional workbook columns to display with the fixed Store Profile Number and Location columns.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="dialog-tools"><input id="selectedStoresSearch" type="search" placeholder="Find a column…" /><button id="selectedStoresClear" type="button" class="secondary">Clear</button></div>
-      <div class="subject-list-head selected-stores-list-head"><span>Column</span><span>Type</span></div>
-      <div id="selectedStoresListConfig" class="checkbox-list"></div>
-      <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="selectedStoresApply" value="default">Apply</button></div>
-    </form>
-  </dialog>
-
-  <dialog id="groupsDialog" class="config-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Groups</h2><p>Subjects will be summarized for each selected grouping combination.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="dialog-tools"><input id="groupSearch" type="search" placeholder="Find a column…" /><button id="groupsClear" type="button" class="secondary">Clear</button></div>
-      <div id="groupsList" class="checkbox-list"></div>
-      <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="groupsApply" value="default">Apply</button></div>
-    </form>
-  </dialog>
-
-  <dialog id="secondaryPopupDialog" class="ticker-dialog secondary-config-dialog">
-    <form method="dialog" id="secondaryPopupForm">
-      <div class="ticker-dialog-head"><div><h2>Secondary Location Popup</h2><p>Choose the fields shown when a secondary location marker is clicked.</p></div><button value="cancel" class="dialog-close" aria-label="Close">×</button></div>
-      <div class="secondary-config-body">
-        <label>Title column<select id="secondaryPopupTitle"></select></label>
-        <label>Subtitle column<select id="secondaryPopupSubtitle"></select></label>
-        <div class="secondary-config-subtitle">Popup fields</div>
-        <div id="secondaryPopupFields" class="secondary-popup-fields"></div>
-        <button id="secondaryPopupAddField" type="button" class="secondary">Add field</button>
-      </div>
-      <div class="dialog-footer ticker-dialog-footer"><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="secondaryPopupReset" type="button" class="secondary">Reset defaults</button><button id="secondaryPopupApply" type="button">Save popup</button></div></div>
-    </form>
-  </dialog>
-
-  <dialog id="secondaryHoverDialog" class="ticker-dialog secondary-config-dialog">
-    <form method="dialog" id="secondaryHoverForm">
-      <div class="ticker-dialog-head"><div><h2>Secondary Location Hover</h2><p>Choose the short value shown when you hover a secondary location marker.</p></div><button value="cancel" class="dialog-close" aria-label="Close">×</button></div>
-      <div class="secondary-config-body">
-        <label>Hover column<select id="secondaryHoverColumn"></select></label>
-      </div>
-      <div class="dialog-footer ticker-dialog-footer"><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="secondaryHoverReset" type="button" class="secondary">Reset defaults</button><button id="secondaryHoverApply" type="button">Save hover</button></div></div>
-    </form>
-  </dialog>
-
-  <dialog id="popupDialog" class="ticker-dialog popup-config-dialog">
-    <form method="dialog" id="popupForm">
-      <div class="dialog-header ticker-dialog-header">
-        <div><h2>Popup Configuration</h2><p>Configure the fields shown in store popup cards. Column fields may be numeric or text; formula fields must use numeric columns.</p></div>
-        <button type="button" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div class="ticker-config-main">
-        <div class="ticker-config-toolbar"><span class="small muted">Popup fields are independent of Tickers and Subjects.</span><button id="popupTickerConfigBtn" type="button" class="secondary" disabled>Choose ticker columns</button></div>
-        <section class="popup-header-config" aria-label="Popup header configuration">
-          <div class="popup-header-config-title">Popup header</div>
-          <div class="popup-header-config-grid">
-            <label><span>Title A</span><div class="popup-header-config-controls"><select id="popupHeaderTitleA"></select><select id="popupHeaderTitleASize" aria-label="Title A font size"></select><select id="popupHeaderTitleAWeight" aria-label="Title A bold setting"></select></div></label>
-            <label><span>Title B</span><div class="popup-header-config-controls"><select id="popupHeaderTitleB"></select><select id="popupHeaderTitleBSize" aria-label="Title B font size"></select><select id="popupHeaderTitleBWeight" aria-label="Title B bold setting"></select></div></label>
-            <label><span>Subtitle</span><div class="popup-header-config-controls"><select id="popupHeaderSubtitle"></select><select id="popupHeaderSubtitleSize" aria-label="Subtitle font size"></select><select id="popupHeaderSubtitleWeight" aria-label="Subtitle bold setting"></select></div></label>
-          </div>
-        </section>
-        <div id="popupTabConfigSections" class="popup-tab-config-sections"></div>
-      </div>
-      <div class="dialog-footer ticker-dialog-footer"><div></div><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="popupReset" type="button" class="secondary">Reset defaults</button><button id="popupApply" value="default">Save popup</button></div></div>
-    </form>
-  </dialog>
-
-  <dialog id="popupTickerDialog" class="ticker-dialog popup-config-dialog">
-    <form method="dialog" id="popupTickerForm">
-      <div class="dialog-header ticker-dialog-header">
-        <div><h2>Popup Ticker Columns</h2><p>Choose which workbook columns or Census virtual fields appear in the popup ticker.</p></div>
-        <button type="button" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div class="ticker-config-main"><div id="popupTickerFieldList" class="popup-ticker-field-list"></div></div>
-      <div class="dialog-footer ticker-dialog-footer"><label class="ticker-speed-control" for="popupTickerSpeed"><span>Popup ticker speed</span><input id="popupTickerSpeed" type="range" min="50" max="120" step="5" value="70"><strong id="popupTickerSpeedValue">70</strong></label><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="popupTickerApply" type="button">Save ticker</button></div></div>
-    </form>
-  </dialog>
-
-  <dialog id="tickerDialog" class="ticker-dialog">
-    <form method="dialog" id="tickerForm">
-      <div class="dialog-header ticker-dialog-header">
-        <div><h2>Ticker Configuration</h2><p>Choose workbook columns or build simple calculations. Your ticker is saved locally in this browser.</p></div>
-        <button type="button" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div class="ticker-config-main">
-        <div class="ticker-config-toolbar"><span class="small muted">Metrics are shown left to right; the ticker displays three at a time.</span></div>
-        <div id="tickerMetricList" class="ticker-metric-list"></div>
-      </div>
-      <div class="dialog-footer ticker-dialog-footer"><button id="tickerAddMetric" type="button" class="secondary">Add ticker</button><label class="ticker-speed-control" for="tickerSpeed"><span>Scroll speed</span><input id="tickerSpeed" type="range" min="50" max="120" step="5" value="70"><strong id="tickerSpeedValue">35</strong></label><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="tickerReset" type="button" class="secondary">Reset defaults</button><button id="tickerApply" value="default">Save ticker</button></div></div>
-    </form>
-  </dialog>
+  function classifyCandidateProvinces(candidates, boundaryType='viewport', targetCircle=null, targetRectangleBounds=null) {
+    return candidates.map(code => {
+      let full=false;
+      if(boundaryType==='circle') full=bboxFullyInsideCircle(code);
+      else if(boundaryType==='rectangle') full=bboxFullyInsideRectangle(code, targetRectangleBounds);
+      return {provinceCode:code,mode:full?'full':'partial'};
+    });
+  }
 
 
-  <dialog id="markerConfigDialog" class="marker-config-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Marker config</h2><p>Set the visible screen size of the primary and secondary markers.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="marker-config-body">
-        <label class="marker-config-row" for="primaryMarkerSizeInput"><span>Primary marker</span><input id="primaryMarkerSizeInput" type="number" min="8" max="64" step="1" value="22"><span>px</span></label>
-        <label class="marker-config-row" for="secondaryMarkerSizeInput"><span>Default secondary marker</span><input id="secondaryMarkerSizeInput" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>
-        <div class="marker-config-subtitle">Competitor-specific secondary markers (default 11 px)</div>
-        <div id="secondaryMarkerIconConfig" class="secondary-marker-icon-config"></div>
-        <div id="markerConfigStatus" class="small muted"></div>
-      </div>
-      <div class="dialog-footer"><button value="cancel" class="secondary">Close</button></div>
-    </form>
-  </dialog>
+  // Runtime Census/DA province coverage is intentionally independent of the CSD
+  // lookup. These conservative province/territory bounding boxes are used only
+  // as a sufficient full-containment test; they are intentionally no smaller
+  // than the actual jurisdiction, so a false 'full' classification cannot occur.
+  const PROVINCE_COVERAGE_BBOXES = {
+    AB: [-120.1, 48.9, -109.9, 60.1],
+    BC: [-139.2, 48.2, -113.9, 60.2],
+    MB: [-102.1, 48.9, -94.9, 60.1],
+    NB: [-69.2, 44.5, -63.6, 48.2],
+    NL: [-68.0, 46.5, -52.4, 60.6],
+    NS: [-66.4, 43.3, -59.4, 47.2],
+    NT: [-136.6, 59.8, -101.9, 78.6],
+    NU: [-110.1, 51.3, -60.8, 83.3],
+    ON: [-95.3, 41.5, -74.2, 57.0],
+    PE: [-64.6, 45.8, -61.8, 47.2],
+    QC: [-80.0, 44.7, -56.9, 62.8],
+    SK: [-110.1, 48.9, -101.3, 60.2],
+    YT: [-141.2, 59.3, -123.8, 69.8]
+  };
+  const DA_PERF_ENABLED = new URLSearchParams(location.search).get('perf') === '1';
+  const DA_PERF = {
+    reset(){ this.d={refreshMs:0,provinceMs:0,candidateMs:0,selectMs:0,renderMs:0,candidateCacheHit:false,candidates:0,indexed:0,full:0,partial:0,boolCalls:0,boolMs:0,intersectCalls:0,intersectMs:0,areaCalls:0,areaMs:0,actual:0,selected:0,intersections:[]}; },
+    show(){
+      if(!DA_PERF_ENABLED)return;
+      const d=this.d;
+      let el=document.getElementById('daPerfPanel');
+      if(!el){el=document.createElement('pre');el.id='daPerfPanel';Object.assign(el.style,{position:'fixed',right:'10px',bottom:'10px',zIndex:99999,background:'rgba(0,0,0,.88)',color:'#fff',padding:'10px',margin:0,font:'12px/1.45 monospace',whiteSpace:'pre-wrap',maxWidth:'760px',maxHeight:'78vh',overflow:'auto'});document.body.appendChild(el);}
+      const f=n=>`${(n||0).toFixed(1)} ms`;
+      const top=d.intersections.slice().sort((a,b)=>b.ms-a.ms).slice(0,12);
+      const lines=top.length
+        ? top.map((x,i)=>`${String(i+1).padStart(2,' ')} ${x.daId||'—'} ${x.type.padEnd(11)} pts ${String(x.points).padStart(7,' ')} rings ${String(x.rings).padStart(4,' ')} ${f(x.ms)}`)
+        : ['(none)'];
+      el.textContent=[
+        `DA PERF v1.150`,
+        `refresh ${f(d.refreshMs)} | render ${f(d.renderMs)}`,
+        `province ${f(d.provinceMs)} | candidates ${f(d.candidateMs)} | select ${f(d.selectMs)}`,
+        `cache hit: ${d.candidateCacheHit}`,
+        `indexed ${d.indexed.toLocaleString()} | bbox candidates ${d.candidates.toLocaleString()}`,
+        `full-contained ${d.full.toLocaleString()} | partial ${d.partial.toLocaleString()}`,
+        `booleanIntersects ${d.boolCalls} / ${f(d.boolMs)}`,
+        `turf.intersect ${d.intersectCalls} / ${f(d.intersectMs)}`,
+        `turf.area ${d.areaCalls} / ${f(d.areaMs)}`,
+        `actual intersections ${d.actual.toLocaleString()} | selected ${d.selected.toLocaleString()}`,
+        `top intersect calls: DA_ID type points rings time`,
+        ...lines,
+        `full intersect detail is logged to console as [DA PERF INTERSECTIONS]`
+      ].join('\n');
+      console.log('[DA PERF]',d);
+      console.table('[DA PERF INTERSECTIONS]',d.intersections.slice().sort((a,b)=>b.ms-a.ms));
+    }
+  };
+  DA_PERF.reset();
 
-  <dialog id="markerAnimationValueDialog" class="filter-value-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="filter-picker-toolbar"><button id="markerAnimationSelectAll" type="button" class="secondary">Select all</button></div>
-      <div id="markerAnimationValuePickerList" class="filter-picker-list"></div>
-      <div class="dialog-footer"><button id="markerAnimationValueCancel" type="button" class="secondary">Cancel</button><button id="markerAnimationValueApply" type="button">Apply</button></div>
-    </form>
-  </dialog>
+  // ---------- DA spatial selection engine (isolated) ----------
+  // This component intentionally knows nothing about stores, KPIs, workbook data,
+  // or Census population attributes. Its only job is:
+  //   DA GeoJSON -> boundary selection -> threshold -> selected DA features.
+  // Province selection is owned by the outer app; rendering consumes the same selected set.
+  const DA_ENGINE = (() => {
+    const cache = new Map();
+    const defaultThresholdPct = 50;
+    const provinceAggregateCache = new Map();
+    function getProvinceAggregate(provinceCode) {
+      if (provinceAggregateCache.has(provinceCode)) return provinceAggregateCache.get(provinceCode);
+      const raw = CONFIG.provinceAggregates?.[provinceCode] || {};
+      const households = Number(raw.total_households) || 0;
+      const aggregate = {
+        totalPopulation:Number(raw.total_population)||0,
+        population65Plus:Number(raw.population_65_plus)||0,
+        population40Plus:(Number(raw.population_65_plus)||0)+(Number(raw.population_40_64)||0),
+        visibleMinorityPopulation:Number(raw.visible_minority_population)||0,
+        totalHouseholds:households,
+        incomeWeighted:Number(raw.incomeWeighted)||0,
+        daCount:Number(raw.da_count)||0
+      };
+      provinceAggregateCache.set(provinceCode, aggregate);
+      return aggregate;
+    }
 
-  <dialog id="markerAnimationValueDialog" class="filter-value-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2 id="markerAnimationValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="filter-picker-toolbar"><button id="markerAnimationSelectAll" type="button" class="secondary">Select all</button></div>
-      <div id="markerAnimationValuePickerList" class="filter-picker-list"></div>
-      <div class="dialog-footer"><button id="markerAnimationValueCancel" type="button" class="secondary">Cancel</button><button id="markerAnimationValueApply" type="button">Apply</button></div>
-    </form>
-  </dialog>
+    function getId(feature) {
+      const p = feature?.properties || {};
+      return String(p.DA_ID ?? p.DAUID ?? p.DAUID_2021 ?? p.DAUID2021 ?? p.GEOUID ?? p.UID ?? '').trim();
+    }
 
-  <dialog id="markerAnimationDialog" class="filter-dialog marker-animation-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2>Animate When</h2><p>Set one condition using the exact workbook headings and the same formula rules as filters and the ticker.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="marker-animation-dialog-body">
-        <div class="marker-animation-dialog-grid">
-          <div><label for="markerAnimationColumn">Choose column</label><select id="markerAnimationColumn" class="marker-animation-control"><option value="">Choose column</option></select></div>
-          <div class="marker-animation-formula-wide"><label for="markerAnimationFormula">Variable or Formula</label><input id="markerAnimationFormula" class="marker-animation-control" type="text" placeholder="Variable or Formula" autocomplete="off"></div>
-          <div><label for="markerAnimationCondition">Condition</label><select id="markerAnimationCondition" class="marker-animation-control"><option value="<=">&lt;=</option><option value="=">=</option><option value=">=">&gt;=</option><option value="<">&lt;</option><option value=">">&gt;</option></select></div>
-          <div id="markerAnimationValueCell" class="marker-animation-value-cell"><label for="markerAnimationValue">Value</label><input id="markerAnimationValue" class="marker-animation-control" type="number" step="any" placeholder="Value"></div>
-          <button id="markerAnimationValueButton" type="button" class="secondary marker-animation-value-button hidden">Select values...</button>
-        </div>
-        <div class="marker-animation-formula-help">Use exact workbook column headings. Numeric formulas use <strong>(), +, -, *, /</strong>.</div>
-        <div id="markerAnimationDialogStatus" class="small muted"></div>
-      </div>
-      <div class="dialog-footer"><button value="cancel" class="secondary">Cancel</button><button id="markerAnimationApply" value="default">Apply</button></div>
-    </form>
-  </dialog>
+    function assetUrl(provinceCode) {
+      const file = CONFIG.daFiles[provinceCode];
+      if (!file) throw new Error(`No provincial DA asset configured for ${provinceCode}.`);
+      return `${CONFIG.daAssetBase}/${encodeURIComponent(file)}`;
+    }
 
-  <dialog id="filterValueDialog" class="filter-value-dialog">
-    <form method="dialog">
-      <div class="dialog-header"><div><h2 id="filterValueDialogTitle">Select values</h2><p>Choose one or more exact values from this workbook column.</p></div><button type="button" class="icon-btn" aria-label="Close">×</button></div>
-      <div class="filter-picker-toolbar"><button id="filterPickerSelectAll" type="button" class="secondary">Select all</button></div>
-      <div id="filterValuePickerList" class="filter-picker-list"></div>
-      <div class="dialog-footer"><button id="filterPickerCancel" type="button" class="secondary">Cancel</button><button id="filterPickerApply" type="button">Apply</button></div>
-    </form>
-  </dialog>
+    function zigZagDecode(n) { return (n >>> 1) ^ -(n & 1); }
+
+    function decodeVarints(base64) {
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      const out = [];
+      let value = 0;
+      let shift = 0;
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        value |= (b & 0x7f) << shift;
+        if (b < 0x80) {
+          out.push(zigZagDecode(value));
+          value = 0;
+          shift = 0;
+        } else {
+          shift += 7;
+        }
+      }
+      if (shift !== 0) throw new Error('Corrupt provincial DA geometry encoding.');
+      return out;
+    }
+
+    function decodeGeometry(record, scale) {
+      if (!record || !Array.isArray(record.r) || !Array.isArray(record.p)) return null;
+      const nums = decodeVarints(record.g);
+      const pointCount = record.r.reduce((a,b) => a + Number(b || 0), 0);
+      if (nums.length !== pointCount * 2) throw new Error('Provincial DA geometry length mismatch.');
+
+      let pos = 0;
+      let x = 0;
+      let y = 0;
+      const allRings = [];
+      for (let ringIndex = 0; ringIndex < record.r.length; ringIndex++) {
+        const count = Number(record.r[ringIndex]);
+        if (!(count > 0)) throw new Error('Provincial DA ring has no vertices.');
+        const ring = [];
+        if (ringIndex === 0) {
+          x = nums[pos++];
+          y = nums[pos++];
+        } else {
+          x += nums[pos++];
+          y += nums[pos++];
+        }
+        ring.push([x / scale, y / scale]);
+        for (let i = 1; i < count; i++) {
+          x += nums[pos++];
+          y += nums[pos++];
+          ring.push([x / scale, y / scale]);
+        }
+        allRings.push(ring);
+      }
+      if (pos !== nums.length) throw new Error('Provincial DA geometry decode did not consume all coordinates.');
+
+      if (Number(record.t) === 1) {
+        const polygons = [];
+        let ringOffset = 0;
+        for (const ringCountRaw of record.p) {
+          const ringCount = Number(ringCountRaw);
+          polygons.push(allRings.slice(ringOffset, ringOffset + ringCount));
+          ringOffset += ringCount;
+        }
+        if (ringOffset !== allRings.length) throw new Error('Provincial DA multipolygon ring structure mismatch.');
+        return {type:'MultiPolygon', coordinates:polygons};
+      }
+      return {type:'Polygon', coordinates:allRings};
+    }
+
+    function featureFromAsset(entry, index, includeGeometry=true) {
+      const cacheKey = includeGeometry ? index : `p:${index}`;
+      if (entry.featureCache.has(cacheKey)) return entry.featureCache.get(cacheKey);
+      const props = {};
+      for (const key of entry.asset.property_keys) props[key] = entry.asset.properties[key]?.[index] ?? null;
+      const geometry = includeGeometry ? decodeGeometry(entry.asset.geometry_records[index], entry.asset.coordinate_scale || 1e7) : null;
+      const feature = {type:'Feature', properties:props, geometry};
+      entry.featureCache.set(cacheKey, feature);
+      return feature;
+    }
+
+    function bboxForAssetIndex(entry, index) {
+      const record = entry.asset.geometry_records[index];
+      if (!record || !Array.isArray(record.b) || record.b.length !== 4) return null;
+      const scale = entry.asset.coordinate_scale || 1e7;
+      return [Number(record.b[0]) / scale, Number(record.b[1]) / scale, Number(record.b[2]) / scale, Number(record.b[3]) / scale];
+    }
+
+    function bboxFullyContainedInTarget(entry, index, targetBbox, boundaryType, targetCircle) {
+      const daBbox = bboxForAssetIndex(entry, index);
+      if (!daBbox) return false;
+      if (boundaryType !== 'circle') {
+        return daBbox[0] >= targetBbox[0] && daBbox[1] >= targetBbox[1] &&
+          daBbox[2] <= targetBbox[2] && daBbox[3] <= targetBbox[3];
+      }
+      if (!targetCircle) return false;
+      const cx = targetCircle.lng;
+      const cy = targetCircle.lat;
+      const r = targetCircle.radiusMeters;
+      const corners = [
+        [daBbox[0], daBbox[1]], [daBbox[0], daBbox[3]],
+        [daBbox[2], daBbox[1]], [daBbox[2], daBbox[3]]
+      ];
+      for (const [lng, lat] of corners) {
+        if (turf.distance([cx, cy], [lng, lat], {units:'meters'}) > r + 0.01) return false;
+      }
+      return true;
+    }
+
+    function buildAeqdProjector(targetCircle) {
+      if (!targetCircle || typeof proj4 !== 'function') throw new Error('WGS84 projection engine did not load.');
+      const definition = `+proj=aeqd +lat_0=${targetCircle.lat} +lon_0=${targetCircle.lng} +datum=WGS84 +units=m +x_0=0 +y_0=0 +no_defs`;
+      return proj4('EPSG:4326', definition);
+    }
+
+    function projectRingToAeqd(ring, projector) {
+      return ring.map(([lng, lat]) => {
+        const xy = projector.forward([lng, lat]);
+        if (!Array.isArray(xy) || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) {
+          throw new Error('Non-finite WGS84 AEQD coordinate encountered.');
+        }
+        return [xy[0], xy[1]];
+      });
+    }
+
+    function signedRingArea(ring) {
+      let sum = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        sum += a[0] * b[1] - b[0] * a[1];
+      }
+      return sum / 2;
+    }
+
+    function edgeCircleContribution(ax, ay, bx, by, radius) {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const A = dx * dx + dy * dy;
+      if (A === 0) return 0;
+      const B = 2 * (ax * dx + ay * dy);
+      const C = ax * ax + ay * ay - radius * radius;
+      const discriminant = B * B - 4 * A * C;
+      const ts = [0];
+      if (discriminant > 0) {
+        const root = Math.sqrt(discriminant);
+        const t1 = (-B - root) / (2 * A);
+        const t2 = (-B + root) / (2 * A);
+        if (t1 > 0 && t1 < 1) ts.push(t1);
+        if (t2 > 0 && t2 < 1 && Math.abs(t2 - t1) > 1e-12) ts.push(t2);
+      }
+      ts.push(1);
+      ts.sort((a,b) => a - b);
+
+      let contribution = 0;
+      for (let i = 0; i < ts.length - 1; i++) {
+        const t0 = ts[i];
+        const t1 = ts[i + 1];
+        const x0 = ax + dx * t0;
+        const y0 = ay + dy * t0;
+        const x1 = ax + dx * t1;
+        const y1 = ay + dy * t1;
+        const mx = (x0 + x1) / 2;
+        const my = (y0 + y1) / 2;
+        if (mx * mx + my * my <= radius * radius) {
+          contribution += (x0 * y1 - x1 * y0) / 2;
+        } else {
+          contribution += radius * radius * Math.atan2(x0 * y1 - y0 * x1, x0 * x1 + y0 * y1) / 2;
+        }
+      }
+      return contribution;
+    }
+
+    function clippedRingArea(ring, radius) {
+      let area = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        area += edgeCircleContribution(a[0], a[1], b[0], b[1], radius);
+      }
+      return area;
+    }
+
+    function trueCircleIntersectionArea(feature, targetCircle, projector) {
+      const aeqdProjector = projector || buildAeqdProjector(targetCircle);
+      const geometry = feature?.geometry;
+      if (!geometry) return 0;
+
+      const polygonAreaFromRings = rings => {
+        if (!Array.isArray(rings) || !rings.length) return 0;
+        let total = 0;
+        for (let i = 0; i < rings.length; i++) {
+          const projected = projectRingToAeqd(rings[i], aeqdProjector);
+          if (projected.length < 3) continue;
+          const winding = signedRingArea(projected);
+          const clipped = clippedRingArea(projected, targetCircle.radiusMeters);
+          if (i === 0) total += winding >= 0 ? clipped : -clipped;
+          else total += winding <= 0 ? clipped : -clipped;
+        }
+        return Math.abs(total);
+      };
+
+      if (geometry.type === 'Polygon') return polygonAreaFromRings(geometry.coordinates);
+      if (geometry.type === 'MultiPolygon') {
+        let total = 0;
+        for (const polygon of geometry.coordinates || []) total += polygonAreaFromRings(polygon);
+        return Math.abs(total);
+      }
+      return 0;
+    }
+
+    function bboxQuery(entry, bbox) {
+      const tree = entry.asset.spatial_index;
+      if (!tree?.levels?.length) return [];
+      const scale = entry.asset.coordinate_scale || 1e7;
+      const q = [bbox[0] * scale, bbox[1] * scale, bbox[2] * scale, bbox[3] * scale];
+      const intersects = node => node.b[0] <= q[2] && node.b[2] >= q[0] && node.b[1] <= q[3] && node.b[3] >= q[1];
+      let nodes = tree.levels[tree.root_level] || [];
+      for (let level = tree.root_level; level >= 0; level--) {
+        const next = [];
+        for (const node of nodes) {
+          if (!intersects(node)) continue;
+          if (level === 0) {
+            for (const index of (node.c || [])) next.push(Number(index));
+          } else {
+            const childLevel = tree.levels[level - 1] || [];
+            for (const index of (node.c || [])) {
+              const child = childLevel[Number(index)];
+              if (child) next.push(child);
+            }
+          }
+        }
+        if (level === 0) return [...new Set(next)];
+        nodes = next;
+      }
+      return [];
+    }
+
+    function entryForAsset(asset, provinceCode) {
+      return { asset, provinceCode, featureCache:new Map(), aggregate:asset.province_aggregate || null, featureCount:asset.feature_count || 0 };
+    }
+
+    async function loadProvince(provinceCode) {
+      if (!provinceCode) throw new Error('Province code is required.');
+      if (cache.has(provinceCode)) return cache.get(provinceCode);
+      const file = CONFIG.daFiles[provinceCode];
+      if (!file) throw new Error(`No DA asset configured for ${provinceCode}.`);
+      const asset = await fetchJson(assetUrl(provinceCode), {timeout:180000});
+      if (!asset || asset.format !== 'StoreExplorerDAProvinceAsset' || !Array.isArray(asset.geometry_records) || !asset.spatial_index) {
+        throw new Error(`Invalid provincial DA asset for ${provinceCode}.`);
+      }
+      const entry = entryForAsset(asset, provinceCode);
+      cache.set(provinceCode, entry);
+      return entry;
+    }
+
+    function pointInRing(x,y,ring){
+      let inside=false;
+      for(let i=0,j=ring.length-1;i<ring.length;j=i++) {
+        const xi=ring[i][0], yi=ring[i][1], xj=ring[j][0], yj=ring[j][1];
+        const intersect=((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi || Number.EPSILON)+xi);
+        if(intersect) inside=!inside;
+      }
+      return inside;
+    }
+    function pointInPolygonGeometry(x,y,geometry){
+      if(!geometry) return false;
+      const polys=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];
+      for(const rings of polys){
+        if(!rings?.length || !pointInRing(x,y,rings[0])) continue;
+        let inHole=false;
+        for(let i=1;i<rings.length;i++){ if(pointInRing(x,y,rings[i])) { inHole=true; break; } }
+        if(!inHole) return true;
+      }
+      return false;
+    }
+    function orientation(a,b,c){
+      const v=(b[1]-a[1])*(c[0]-b[0])-(b[0]-a[0])*(c[1]-b[1]);
+      if(Math.abs(v)<1e-12) return 0;
+      return v>0?1:2;
+    }
+    function onSegment(a,b,p){
+      return p[0]>=Math.min(a[0],b[0])-1e-12 && p[0]<=Math.max(a[0],b[0])+1e-12 &&
+             p[1]>=Math.min(a[1],b[1])-1e-12 && p[1]<=Math.max(a[1],b[1])+1e-12;
+    }
+    function segmentsIntersect(a,b,c,d){
+      const o1=orientation(a,b,c),o2=orientation(a,b,d),o3=orientation(c,d,a),o4=orientation(c,d,b);
+      if(o1!==o2 && o3!==o4) return true;
+      if(o1===0 && onSegment(a,b,c)) return true;
+      if(o2===0 && onSegment(a,b,d)) return true;
+      if(o3===0 && onSegment(c,d,a)) return true;
+      if(o4===0 && onSegment(c,d,b)) return true;
+      return false;
+    }
+    function ringIntersectsRect(ring,bbox){
+      if(!Array.isArray(ring)||ring.length<2) return false;
+      const [minX,minY,maxX,maxY]=bbox;
+      for(const p of ring){ if(p[0]>=minX && p[0]<=maxX && p[1]>=minY && p[1]<=maxY) return true; }
+      const corners=[[minX,minY],[maxX,minY],[maxX,maxY],[minX,maxY]];
+      for(let i=0;i<ring.length;i++){
+        const a=ring[i],b=ring[(i+1)%ring.length];
+        for(let j=0;j<4;j++) if(segmentsIntersect(a,b,corners[j],corners[(j+1)%4])) return true;
+      }
+      return pointInRing(minX,minY,ring);
+    }
+    function geometryIntersectsRect(geometry,bbox){
+      if(!geometry) return false;
+      const polys=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];
+      for(const rings of polys){
+        if(!rings?.length) continue;
+        if(ringIntersectsRect(rings[0],bbox)) return true;
+        for(let i=1;i<rings.length;i++) if(ringIntersectsRect(rings[i],bbox)) return true;
+        const [minX,minY,maxX,maxY]=bbox;
+        if(pointInPolygonGeometry(minX,minY,geometry) || pointInPolygonGeometry(maxX,minY,geometry) ||
+           pointInPolygonGeometry(maxX,maxY,geometry) || pointInPolygonGeometry(minX,maxY,geometry)) return true;
+      }
+      return false;
+    }
+    async function collectIndexedCandidates(boundary,provinceCodes,{boundaryType='viewport',targetCircle=null}={}){
+      if(!boundary?.geometry) return {provinces:[],candidatesByProvince:{},candidateCount:0,indexedFeatures:0,boundaryBbox:null};
+      const perfT0=DA_PERF_ENABLED?performance.now():0;
+      const boundaryBbox=turf.bbox(boundary);
+      const candidatesByProvince={};
+      const provinces=[];
+      let candidateCount=0;
+      let indexedFeatures=0;
+      for(const provinceCode of provinceCodes||[]){
+        if(!CONFIG.daFiles[provinceCode]) continue;
+        const entry=await loadProvince(provinceCode);
+        const candidates=bboxQuery(entry,boundaryBbox);
+        candidatesByProvince[provinceCode]=candidates;
+        candidateCount+=candidates.length;
+        indexedFeatures+=entry.featureCount||0;
+        if(candidates.length) provinces.push(provinceCode);
+      }
+      provinces.sort();
+      if(DA_PERF_ENABLED){DA_PERF.d.candidateMs+=performance.now()-perfT0;DA_PERF.d.candidates=candidateCount;DA_PERF.d.indexed=indexedFeatures;}
+      return {provinces,candidatesByProvince,candidateCount,indexedFeatures,boundaryBbox};
+    }
+
+    function evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,boundaryType,targetCircle,threshold,selected,aggregate,includeAggregate){
+      let actualIntersectionCount=0;
+      
+      const circleProjector = boundaryType === 'circle' && targetCircle ? buildAeqdProjector(targetCircle) : null;
+      for(const index of candidates){
+        try{
+          const fullyContained=bboxFullyContainedInTarget(entry,index,boundaryBbox,boundaryType,targetCircle);
+          if(fullyContained){
+            if(DA_PERF_ENABLED) DA_PERF.d.full++;
+            const feature=featureFromAsset(entry,index,true);
+            selected.push({feature,provinceCode:entry.provinceCode,overlapPct:100});
+            if(includeAggregate){
+              const a=censusAttributes(feature);
+              aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
+              aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
+              aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
+            }
+            continue;
+          }
+          const feature=featureFromAsset(entry,index,true);
+          if(DA_PERF_ENABLED) DA_PERF.d.partial++;
+          let overlapPct=0;
+          if ((boundaryType || 'viewport') === 'circle' && targetCircle) {
+            const daArea=feature.properties && Number(feature.properties.DA_AREA);
+            if (!(daArea>0)) continue;
+            const intersectionArea=trueCircleIntersectionArea(feature,targetCircle,circleProjector);
+            if (!(intersectionArea>0)) continue;
+            actualIntersectionCount+=1;
+            overlapPct=intersectionArea/daArea*100;
+          } else {
+            if(DA_PERF_ENABLED){
+              const t0=performance.now(); const hit=turf.booleanIntersects(feature,boundary);
+              DA_PERF.d.boolCalls++; DA_PERF.d.boolMs+=performance.now()-t0; if(!hit)continue;
+            }else{ if(!turf.booleanIntersects(feature,boundary))continue; }
+            actualIntersectionCount+=1;
+            const daArea=feature.properties && Number(feature.properties.DA_AREA);
+            if(!(daArea>0))continue;
+            const i0=DA_PERF_ENABLED?performance.now():0; const inter=turf.intersect(turf.featureCollection([feature,boundary]));
+            if(DA_PERF_ENABLED){
+              const elapsed=performance.now()-i0;
+              DA_PERF.d.intersectCalls++;
+              DA_PERF.d.intersectMs+=elapsed;
+              const g=feature.geometry;
+              let points=0, rings=0;
+              if(g?.type==='Polygon'){
+                rings=g.coordinates?.length||0;
+                for(const ring of (g.coordinates||[])) points+=ring?.length||0;
+              }else if(g?.type==='MultiPolygon'){
+                for(const polygon of (g.coordinates||[])){
+                  rings+=polygon?.length||0;
+                  for(const ring of (polygon||[])) points+=ring?.length||0;
+                }
+              }
+              DA_PERF.d.intersections.push({
+                daId:String(feature.properties?.DA_ID ?? ''),
+                type:String(g?.type||'unknown'),
+                points,
+                rings,
+                ms:elapsed
+              });
+            }
+            if(!inter)continue;
+            const a1=DA_PERF_ENABLED?performance.now():0; const interArea=turf.area(inter);
+            if(DA_PERF_ENABLED){DA_PERF.d.areaCalls++;DA_PERF.d.areaMs+=performance.now()-a1;}
+            overlapPct=interArea/daArea*100;
+          }
+          if(overlapPct<threshold)continue;
+          selected.push({feature,provinceCode:entry.provinceCode,overlapPct});
+          if(includeAggregate){
+            const a=censusAttributes(feature);
+            aggregate.totalPopulation+=a.totalPopulation;aggregate.population65Plus+=a.population65Plus;aggregate.population40Plus+=a.population40Plus;
+            aggregate.visibleMinorityPopulation+=a.visibleMinorityPopulation;aggregate.totalHouseholds+=a.totalHouseholds;
+            aggregate.incomeWeighted+=a.householdIncome*a.totalHouseholds;aggregate.daCount+=1;
+          }
+        }catch(_){ }
+      }
+      return actualIntersectionCount;
+    }
+
+    async function select(boundary, provinceModes, thresholdPct, options={}) {
+      if (!boundary?.geometry) throw new Error('Active boundary geometry is missing.');
+      const perfT0=DA_PERF_ENABLED?performance.now():0;
+      const threshold = Number.isFinite(Number(thresholdPct)) ? Math.min(100, Math.max(0, Number(thresholdPct))) : defaultThresholdPct;
+      const modes = [...new Map((provinceModes || []).map(x => [x.provinceCode, x])).values()].filter(x => CONFIG.daFiles[x.provinceCode]);
+      if (!modes.length) {
+        return {threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,
+          aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},
+          fullProvinceCodes:[],partialProvinceCodes:[],renderableSelected:[]};
+      }
+
+      const selected = [];
+      const aggregate = {totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0};
+      let candidateCount = 0;
+      let actualIntersectionCount = 0;
+      let indexedFeatures = 0;
+      const fullProvinceCodes = [];
+      const partialProvinceCodes = [];
+      const shouldRender = !!options.shouldRender;
+      let boundaryBbox = turf.bbox(boundary);
+      if ((options.boundaryType || 'viewport') === 'circle' && options.targetCircle) {
+        // circleBoundary() is only the R-tree query shell. Expand it by the
+        // maximum sagitta of the 360-segment circle so the true geodesic circle
+        // can never fall just outside the candidate bbox. Exact overlap is
+        // handled by the WGS84 AEQD true-circle clipper below.
+        const r = Number(options.targetCircle.radiusMeters) || 0;
+        const lat = Number(options.targetCircle.lat) || 0;
+        const sagittaM = r * (1 - Math.cos(Math.PI / 360));
+        const latMargin = sagittaM / 111320;
+        const cosLat = Math.max(0.1, Math.cos(lat * Math.PI / 180));
+        const lngMargin = sagittaM / (111320 * cosLat);
+        boundaryBbox = [
+          boundaryBbox[0] - lngMargin, boundaryBbox[1] - latMargin,
+          boundaryBbox[2] + lngMargin, boundaryBbox[3] + latMargin
+        ];
+      }
+
+        const indexedCandidatesByProvince=options.indexedCandidatesByProvince || null;
+      for (const mode of modes) {
+        // FULL provinces are fully contained by the active target. Their
+        // Census totals come entirely from the precomputed province aggregate.
+        // DA geometry is loaded only when rendering is enabled; in that case
+        // every DA in the fully contained province is part of the same
+        // selected-DA result used by Census and rendering.
+        if(mode.mode==='full'){
+          fullProvinceCodes.push(mode.provinceCode);
+          const aggregateStub=getProvinceAggregate(mode.provinceCode);
+          aggregate.totalPopulation+=aggregateStub.totalPopulation;aggregate.population65Plus+=aggregateStub.population65Plus;
+          aggregate.population40Plus+=aggregateStub.population40Plus;aggregate.visibleMinorityPopulation+=aggregateStub.visibleMinorityPopulation;
+          aggregate.totalHouseholds+=aggregateStub.totalHouseholds;aggregate.incomeWeighted+=aggregateStub.incomeWeighted;aggregate.daCount+=aggregateStub.daCount;
+          if(!shouldRender)continue;
+          const entry=await loadProvince(mode.provinceCode);
+          const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+          const candidates = Array.isArray(precomputedCandidates)
+            ? precomputedCandidates
+            : bboxQuery(entry,boundaryBbox);
+          candidateCount+=candidates.length;
+          actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,false);
+          continue;
+        }
+        const entry=await loadProvince(mode.provinceCode);
+        partialProvinceCodes.push(mode.provinceCode);
+        const precomputedCandidates = indexedCandidatesByProvince?.[mode.provinceCode];
+        const candidates = Array.isArray(precomputedCandidates)
+          ? precomputedCandidates
+          : bboxQuery(entry,boundaryBbox);
+        indexedFeatures+=entry.featureCount||0;
+        candidateCount+=candidates.length;
+        actualIntersectionCount+=evaluateIndexedCandidates(entry,candidates,boundary,boundaryBbox,options.boundaryType||'viewport',options.targetCircle||null,threshold,selected,aggregate,true);
+      }
+
+      selected.sort((a,b) => getId(a.feature).localeCompare(getId(b.feature), undefined, {numeric:true}));
+      if(DA_PERF_ENABLED){DA_PERF.d.selectMs+=performance.now()-perfT0;DA_PERF.d.candidates=candidateCount;DA_PERF.d.indexed=indexedFeatures;DA_PERF.d.selected=aggregate.daCount;DA_PERF.d.actual=actualIntersectionCount;}
+      return {threshold,boundary,provinces:modes.map(x=>x.provinceCode),indexedFeatures,candidateCount,actualIntersectionCount,selected,selectedCount:aggregate.daCount,aggregate,fullProvinceCodes,partialProvinceCodes,renderableSelected:selected};
+    }
+
+    function clearCache() { cache.clear(); }
+    return {select,clearCache,getId,collectIndexedCandidates};
+  })();
+
+  function circleBoundary() {
+    const circle = state.circleSelection?.circle;
+    if (!circle) return null;
+    return turf.circle([circle.getLngLat ? circle.getLngLat().lng : circle.getLatLng().lng, circle.getLatLng().lat], circle.getRadius() / 1000, {units:'kilometers', steps:360});
+  }
+
+  function rectangleBoundary() {
+    const rectangle = state.rectangleSelection?.rectangle;
+    if (!rectangle) return null;
+    const b = rectangle.getBounds();
+    return turf.bboxPolygon([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+  }
+
+  function activeCensusBoundary() {
+    return circleBoundary() || rectangleBoundary();
+  }
+
+  function censusShapeType() {
+    if(state.circleSelection?.circle) return 'circle';
+    if(state.rectangleSelection?.rectangle) return 'rectangle';
+    return null;
+  }
+
+  function censusGeoScopeType() {
+    return state.censusGeoSelection?.type || null;
+  }
+
+  function censusScopeType() {
+    return state.censusScope?.type || 'viewport';
+  }
+
+  // v1.175: filteredRows branches into viewportSelectedRows and selectedRows.
+  // Navigation/selection visuals may still have their own state, but metrics
+  // always follow this scope: viewport | circle | box | province | canada.
+  function metricSelectionScope() {
+    const type=censusScopeType();
+    return ['viewport','circle','box','province','canada'].includes(type) ? type : 'viewport';
+  }
+
+  function setCensusScope(type, meta={}) {
+    const previous=state.censusScope?.type || 'viewport';
+    state.censusScope={
+      type,
+      code:meta.code || null,
+      name:meta.name || null,
+      generation:meta.generation ?? (state.censusScope?.generation||0),
+      reason:meta.reason || null
+    };
+    CENSUS_DEBUG.log('scope:set',{from:previous,to:type,code:state.censusScope.code,name:state.censusScope.name,reason:state.censusScope.reason});
+  }
+
+  function clearActiveScopeToViewport(reason='scope reset') {
+    state.censusScopeGeneration++;
+    state.censusRequestId++;
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    setCensusScope('viewport',{reason,generation:state.censusScopeGeneration});
+  }
+
+  function clearCensusGeoSelection(){
+    if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
+    state.censusGeoSelection=null;
+    const sel=el('censusGeoSelect'); if(sel)sel.value='';
+    updateHeaderCensusIndicator();
+  }
+
+  function clearRightPanelHighlights({refresh=true}={}){
+    const changed=state.selectedGroupKey!==null||state.distributionBinKey!==null||state.distributionBinKey2!==null||state.selectedStoreRow!==null;
+    state.selectedGroupKey=null;
+    state.distributionBinKey=null;
+    state.distributionBinKey2=null;
+    state.selectedStoreRow=null;
+    if(refresh&&changed){updateGroups();updateDistribution();updateSelectedStoresList();refreshMarkerStyles();}
+    return changed;
+  }
+
+  function censusScopeAggregate(scope){
+    if(!scope)return null;
+    if(scope==='CA') {
+      return Object.values(CONFIG.provinceAggregates).reduce((a,p)=>({
+        totalPopulation:a.totalPopulation+Number(p.total_population||0),
+        population65Plus:a.population65Plus+Number(p.population_65_plus||0),
+        population40Plus:a.population40Plus+Number(p.population_40_64||0)+Number(p.population_65_plus||0),
+        visibleMinorityPopulation:a.visibleMinorityPopulation+Number(p.visible_minority_population||0),
+        totalHouseholds:a.totalHouseholds+Number(p.total_households||0),
+        incomeWeighted:a.incomeWeighted+Number(p.incomeWeighted||0),
+        daCount:a.daCount+Number(p.da_count||0)
+      }),{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0});
+    }
+    const p=CONFIG.provinceAggregates[scope];
+    if(!p)return null;
+    return {totalPopulation:Number(p.total_population||0),population65Plus:Number(p.population_65_plus||0),population40Plus:Number(p.population_40_64||0)+Number(p.population_65_plus||0),visibleMinorityPopulation:Number(p.visible_minority_population||0),totalHouseholds:Number(p.total_households||0),incomeWeighted:Number(p.incomeWeighted||0),daCount:Number(p.da_count||0)};
+  }
+
+  async function applyCensusGeoScope(scope){
+    // A new Province/Canada scope supersedes any pending address/store navigation
+    // completion callback so the previous navigation cannot reset us back to viewport.
+    ++state.searchToken;
+    const scopeGeneration=++state.censusScopeGeneration;
+    state.censusRequestId++;
+    CENSUS_DEBUG.log('geoScope:start',{scope,scopeGeneration});
+    const select=el('censusGeoSelect');
+    if(!scope){
+      clearCensusGeoSelection();
+      setCensusScope('viewport',{reason:'geography cleared',generation:state.censusScopeGeneration});
+      CENSUS_DEBUG.log('geoScope:cleared');
+      resetCensusPopulationSummary();
+      setDaTestStatus('Draw a Census Query circle or rectangle, or choose a province/Canada population scope.');
+      if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+      updateCensusShapeStatus();
+      return;
+    }
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
+    clearNavigationResult();
+    state.storeJumpTarget=null;
+    state.navigationDaSuppressed=false;
+    clearCensusShapeOnly({keepGeoScope:true});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-shape-clear',hadShape:!!state.censusShape,hadGeoLayer:!!state.censusGeoLayer});
+    clearRightPanelHighlights();
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-viewport-reset'});
+    setCensusScope('viewport',{reason:'preparing geography scope',generation:scopeGeneration});
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-viewport-reset',currentScope:metricSelectionScope()});
+    if(select) select.value=scope;
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'select-value-set',selectValue:select?.value||''});
+
+    const name=scope==='CA'?'Canada':(CENSUS_PROVINCE_NAMES[scope]||scope);
+    const markerProvinceColumn=state.columns.province || null;
+    const bbox=scope==='CA' ? CONFIG.canadaBounds : PROVINCE_COVERAGE_BBOXES[scope];
+    CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'marker-scope-ready',provinceColumn:markerProvinceColumn||null,bbox:bbox||null});
+
+    if(state.censusGeoLayer){map.removeLayer(state.censusGeoLayer);state.censusGeoLayer=null;}
+    state.censusGeoSelection={type:scope==='CA'?'canada':'province',code:scope,name,geometry:null,scopeGeneration};
+    if(scope==='CA') {
+      state.selection={type:'national',name:'Canada',feature:null,provinceCode:null,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
+    } else {
+      state.selection={type:'province',name,feature:null,provinceCode:scope,radius:null};
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
+    }
+    setCensusScope(state.censusGeoSelection.type==='canada'?'canada':'province',{code:scope,name,generation:scopeGeneration,reason:'geography selected'});
+    CENSUS_DEBUG.log('geoScope:activated',{scope,type:state.censusGeoSelection.type,name,scopeGeneration,currentScope:state.censusScope?.type});
+
+    const aggregate=censusScopeAggregate(scope);
+    updateCensusPopulationSummary(aggregate);
+    const storeScope=scope==='CA'?'Canada':name;
+    el('censusPopPerStore').textContent='—';
+    el('censusDaList').innerHTML=`<div class="empty-message">${esc(storeScope)} population uses precomputed Census totals. No DA selection or intersection is performed.</div>`;
+    setDaTestStatus(`${esc(storeScope)} population selected from precomputed Census totals. No DA spatial query was run.`);
+    state.daSelectionResult=null;
+    updateSelectedDaExportButton();
+    state.daActivationTrigger='geography scope';
+    updateCensusShapeStatus();
+
+    if(scope==='CA'){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-canada-view',center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom,selection:'national'});
+      state.programmaticMoveDepth+=1;
+      state.programmaticMoveUntil=Date.now()+3000;
+      state.userMapInteraction=false;
+      map.setView(CONFIG.canadaView.center,CONFIG.canadaView.zoom,{animate:false});
+      CENSUS_DEBUG.log('geoScope:fit',{scope,center:CONFIG.canadaView.center,zoom:CONFIG.canadaView.zoom});
+      setTimeout(()=>{ if(Date.now() >= state.programmaticMoveUntil) state.programmaticMoveDepth=0; },3200);
+    } else if(bbox){
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-bounds'});
+      const fitBounds = L.latLngBounds([[bbox[1],bbox[0]],[bbox[3],bbox[2]]]);
+      CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'bounds-resolved',valid:fitBounds.isValid(),bounds:fitBounds.isValid()?fitBounds.toBBoxString():null});
+      if(fitBounds.isValid()){
+        CENSUS_DEBUG.log('geoScope:fit',{scope,bounds:fitBounds.toBBoxString()});
+        CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'before-fit-map'});
+        fitMapProgrammatically(fitBounds,{padding:[22,22]});
+        CENSUS_DEBUG.log('geoScope:checkpoint',{scope,step:'after-fit-map-call'});
+      }
+    }
+    updateSelection();
+  }
+
+  function setCensusGeoScope(scope){
+    return applyCensusGeoScope(scope||'');
+  }
+
+  function setDaTestStatus(text) {
+    const note = el('censusNote');
+    if (note) note.textContent = text;
+  }
 
 
-  <dialog id="helpConfigDialog" class="ticker-dialog help-config-dialog">
-    <form method="dialog" id="helpConfigForm">
-      <div class="dialog-header ticker-dialog-header">
-        <div><h2>Help Configuration</h2><p>Enter a short one- or two-sentence explanation for each left-panel, right-panel, and header Ticker button. Help appears on hover or keyboard focus.</p></div>
-        <button type="button" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div class="help-config-main">
-        <div id="helpConfigList" class="help-config-list"></div>
-      </div>
-      <div class="dialog-footer ticker-dialog-footer"><button id="helpReset" type="button" class="secondary">Reset defaults</button><div></div><div class="ticker-footer-actions"><button value="cancel" class="secondary">Cancel</button><button id="helpApply" value="default">Save help</button></div></div>
-    </form>
-  </dialog>
+  function censusAttributes(feature) {
+    const p = feature?.properties || {};
+    const total = Number(p.total_population);
+    const senior = Number(p.population_65_plus);
+    const age40to64 = Number(p.population_40_64);
+    const visibleMinority = Number(p.visible_minority_population);
+    const households = Number(p.total_households);
+    const avgHouseholdIncome = Number(p.average_household_income);
+    const totalPopulation = Number.isFinite(total) ? total : 0;
+    const population65Plus = Number.isFinite(senior) ? senior : 0;
+    const population40Plus = population65Plus + (Number.isFinite(age40to64) ? age40to64 : 0);
+    const visibleMinorityPopulation = Number.isFinite(visibleMinority) ? visibleMinority : 0;
+    const totalHouseholds = Number.isFinite(households) ? households : 0;
+    const householdIncome = Number.isFinite(avgHouseholdIncome) ? avgHouseholdIncome : 0;
+    return { totalPopulation, population65Plus, population40Plus, visibleMinorityPopulation, totalHouseholds, householdIncome };
+  }
 
-  <script id="storeExplorerDefaultMenuConfig" type="application/json">{"storeExplorer.help.v1":{"financial-file":"Loaded Excel / CSV populates store data.  1st tab primary, header autodetected, s/b 1  row, at min have \"latitude\", \"longitude\", \"store profile number\", \"province\". Other tabs content added via marker popup config.","secondary-file":"Load a separate set of locations that remain independent of the primary store data and analysis.","clear-financial":"Remove current workbook and reset store data. Census map tools remain available.","circle":"Draw circular Census catchment. Click on map to place its centre.","box":"Draw rectangular Census catchment. Click on map to place its centre.","clear-census":"Remove active Census catchment & its calculated DA results.","go-search":"Jump to a city, postal code, or address.","store-jump":"Jump to a Store Profile number.","filter-config":"Build filters to isolate workbook data.","filter-clear":"Remove all workbook filters.","animate-when":"Choose single data file column filter that controls marker animation.","popup-config":"Choose data file columns to be shown in a map marker popup.","subjects-config":"Configure table of average values below","groups-config":"Choose data file column on which to group stores for comparison.","distribution-config":"Build distribution bar chart for chosen data file column (all data file rows incl)","distribution2-config":"Build distribution bar chart for chosen data file column (all data file rows incl)","selected-config":"Choose data file columns shown for the Selected Stores list.","selected-export":"Export currently selected stores to XLS","selected-da-export":"Export the currently selected Census DAs to XLS","ticker-config":"Configure metrics streamed in header ticker.","marker-red":"Set map marker colour to red.","marker-blue":"Set map marker colour to royal blue.","marker-purple":"Set map marker colour to purple.","marker-black":"Set map marker colour to black.","help-config":"Customize hover help shown for the main controls in this app.","secondaryPopupConfigBtn":"Configure secondary marker popup","secondaryHoverConfigBtn":"Configure secondary marker hover","clearSecondaryBtn":"Remove secondary markers","markerConfigBtn":"Set size of map markers","button-retail":"Click for definition","button-food-leisure":"Click for definition","button-health-services":"Click for definition","button-community-recreation":"Click for definition","exportSubjectsBtn":"Export Subject table to xls","button-total-sales":"","button-gross-profit":"","button-total-labour-expense":"","button-total-occupancy-expense":"","button-store-4-wall-profit-ebit":"","button-shrink":"","button-prescription-count":"","button-fs-sales":"","button-cosmetics-sales":"","button-prescription-sales":"","rxSiteAnalysisGo":"Show amenity and population densities directly north / south & east / west"},"storeExplorer.subjects.v1":{"version":2,"table":{"rows":11,"cols":3,"cells":[[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"Average","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"% of sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"Total Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Total Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"Gross Profit","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"-Gross Profit","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"formula","content":"Gross Margin/Total Sales","numberFormat":"percentage","decimalPlaces":1,"aggregation":"average"}],[{"type":"text","content":"Total Labour Expense","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Total Labour Expense","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"formula","content":"Total Labour Expense/Total Sales","numberFormat":"percentage","decimalPlaces":1,"aggregation":"average"}],[{"type":"text","content":"Total Occupancy Expense","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Total Occupancy Expense","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"formula","content":"Total Occupancy Expense/Total Sales","numberFormat":"percentage","decimalPlaces":1,"aggregation":"average"}],[{"type":"text","content":"Store 4-Wall Profit  (EBIT)","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Store 4-Wall Profit  (EBIT)","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"Shrink","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Shrink (Total Loss)","numberFormat":"currency","decimalPlaces":0,"aggregation":"average"},{"type":"formula","content":"Shrink (Total Loss)/Total Sales","numberFormat":"percentage","decimalPlaces":1,"aggregation":"average"}],[{"type":"text","content":"Prescription Count","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Prescription Count","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"FS Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Other Front Store Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"Cosmetics Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Cosmetics Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}],[{"type":"text","content":"Prescription Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"value","content":"Prescription Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"average"}]]}},"storeExplorer.secondaryPopup.v1":{"title":"Pharmacy Name","subtitle":"Address Line 1","fields":["Competitor Banner","City","Pharmacy Decile Rank"]},"storeExplorer.secondaryHover.v1":"Pharmacy Name","cse_popup_header_config_v176":{"titleA":"Location","titleB":"Store Profile Number","subtitle":"__CITY_PROVINCE__","titleASize":14,"titleBSize":14,"subtitleSize":11,"titleAWeight":400,"titleBWeight":600,"subtitleWeight":400},"cse_popup_config_v171":[{"type":"column","column":"Prescription Count","formula":"Prescription Count","title":"Rx Count","numberFormat":"auto","decimalPlaces":0,"quartile":true},{"type":"column","column":"Prescription Sales","formula":"Prescription Sales","title":"Rx sales","numberFormat":"auto","decimalPlaces":0,"quartile":false},{"type":"column","column":"FS Sales","formula":"FS Sales","title":"Front sales","numberFormat":"auto","decimalPlaces":0,"quartile":false},{"type":"column","column":"Total Sales","formula":"Total Sales","title":"Total sales","numberFormat":"auto","decimalPlaces":0,"quartile":true},{"type":"column","column":"Store 4-Wall Profit  (EBIT)","formula":"Store 4-Wall Profit  (EBIT)","title":"4-Wall EBIT","numberFormat":"auto","decimalPlaces":0,"quartile":true},{"type":"column","column":"Shrink (Total Loss)","formula":"Shrink (Total Loss)","title":"Shrink","numberFormat":"auto","decimalPlaces":0,"quartile":true},{"type":"column","column":"Total Occupancy Expense","formula":"Total Occupancy Expense","title":"Occupancy","numberFormat":"number","decimalPlaces":0,"quartile":true},{"type":"column","column":"Total Labour Expense","formula":"Total Labour Expense","title":"Labour","numberFormat":"number","decimalPlaces":0,"quartile":true},{"type":"virtual","column":"","formula":"Population 1 km","title":"Population 1 km","numberFormat":"number","decimalPlaces":0,"quartile":false},{"type":"virtual","column":"","formula":"Population 2 km","title":"Population 2 km","numberFormat":"number","decimalPlaces":0,"quartile":false}],"cse_popup_ticker_config_v102":[{"formula":"Gross Area (Sq. Ft.)","title":"Gross Area (Sq. Ft.)"},{"formula":"Location Type","title":"Location Type"}],"cse_ticker_config_v075_exact":{"metrics":[{"title":"Total Sales","formula":"Total Sales","aggregation":"average","numberFormat":"auto","decimalPlaces":0},{"title":"Store 4-Wall Profit  (EBIT)","formula":"Store 4-Wall Profit  (EBIT)","aggregation":"average","numberFormat":"auto","decimalPlaces":0}],"speed":70},"cse_marker_animation_v102":{"enabled":false,"type":"ripple","fadeObject":"smiley","column":"Store 4-Wall Profit  (EBIT)","formula":"Store 4-Wall Profit  (EBIT)","operator":"<","value":"0","values":[],"typeMode":"numeric"},"store_explorer_marker_config_v1":{"primarySize":20,"secondarySize":11,"secondaryIconSizes":{"calgary coop":17,"calgary co-op":17,"freshco":17,"brunet":17,"metro":17,"safeway (sobeys)":16,"sobeys":17,"pharmacie jean coutu":17,"wal-mart":19,"sav-on foods":11}},"storeExplorer.popupTabs.v1":[{"name":"2025A BIDW Data","filterOnProfile":true,"filters":[],"grid":{"rows":13,"cols":3,"cells":[[{"type":"text","content":"Rx Count","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Prescription Count","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Rx sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Prescription Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Front sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"FS Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Total sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Total Sales","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"4-Wall EBIT","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Store 4-Wall Profit  (EBIT)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Shrink","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Shrink (Total Loss)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Occupancy","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Total Occupancy Expense","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":true},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Labour","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Total Labour Expense","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":true},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Population 1 km","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Population 1 km","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Population 2 km","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Population 2 km","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"","numberFormat":"number","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}]],"rowIds":["popup-row-mwpj3xmq-53","popup-row-mwpj3xmq-54","popup-row-mwpj3xmq-55","popup-row-mwpj3xmq-56","popup-row-mwpj3xmq-57","popup-row-mwpj3xmq-58","popup-row-mwpj3xmq-59","popup-row-mwpj3xmq-60","popup-row-mwpj3xmq-61","popup-row-mwpj3xmq-62","popup-row-mwpj3xmq-63","popup-row-mwpj3xmq-64","popup-row-mwxz7q2h-51"],"quartileRows":[true,false,false,true,true,true,true,true,false,false,false,false,false]}},{"name":"cyp vs actual","filterOnProfile":true,"filters":[],"grid":{"rows":5,"cols":3,"cells":[[{"type":"text","content":"Rx count","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"YTD P11","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Actual","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"SKF Actual - Transaction","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Plan","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"Plan","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Delta","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"formula","content":"SKF Actual - Transaction-Plan","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}]],"rowIds":["popup-row-mwpj3xmq-70","popup-row-mwpj3xmq-71","popup-row-mwpj3xmq-72","popup-row-mwpj3xmq-73","popup-row-mwpj3xmr-74"],"quartileRows":[false,false,false,false,false]}},{"name":"historical rx","filterOnProfile":true,"filters":[{"column":"RX Fiscal Year","value":"2024","operator":"=","scope":"row","rowId":"popup-row-mwpj3xmr-82"},{"column":"RX Fiscal Year","value":"2025","operator":"=","scope":"row","rowId":"popup-row-mwpj3xmr-83"},{"column":"RX Fiscal Year","value":"2023","operator":"=","scope":"row","rowId":"popup-row-mwpj3xmr-81"},{"column":"Top Level","value":"TOPLEVEL GOVERNMENT","operator":"=","scope":"row","rowId":"popup-row-mwpj3xmr-84"},{"column":"RX Fiscal Year","value":"2025","operator":"=","scope":"row","rowId":"popup-row-mwpj3xmr-84"}],"grid":{"rows":6,"cols":4,"cells":[[{"type":"text","content":"Yr","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"Rx count","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"2023","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"TX Count - Total (#)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"2024","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"TX Count - Total (#)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"2025","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"TX Count - Total (#)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"Govt 2025","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"value","content":"TX Count - Total (#)","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"2025 Govt%","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"colrow","content":"b5/b4","numberFormat":"percentage","decimalPlaces":1,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}]],"rowIds":["popup-row-mwpj3xmr-80","popup-row-mwpj3xmr-81","popup-row-mwpj3xmr-82","popup-row-mwpj3xmr-83","popup-row-mwpj3xmr-84","popup-row-mwxu6nwu-166"],"quartileRows":[false,false,false,false,false,false]}},{"name":"historical rx (old)","filterOnProfile":true,"filters":[],"grid":{"rows":5,"cols":3,"cells":[[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}],[{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false},{"type":"text","content":"","numberFormat":"auto","decimalPlaces":0,"aggregation":"sum","quartile":false}]],"rowIds":["popup-row-mwxtw1b6-86","popup-row-mwxtw1b6-87","popup-row-mwxtw1b6-88","popup-row-mwxtw1b6-89","popup-row-mwxtw1b6-90"],"quartileRows":[false,false,false,false,false]}}]}</script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.343"></script>
+  function censusValueWithShare(value, total) {
+    const pct = total > 0 ? Math.round(value / total * 100) : 0;
+    return `<span class="census-metric-value">${esc(fmtInt(value))}</span><span class="census-share">(${pct}%)</span>`;
+  }
+
+  function resetCensusAmenitySummary(){
+    const title=el('censusAmenityTitle');
+    if(title) title.textContent='— amenities within drawn shape';
+    ['censusAmenityRetail','censusAmenityFood','censusAmenityHealth','censusAmenityCommunity'].forEach(id=>{const n=el(id);if(n)n.textContent='—';});
+  }
+  function amenityIndicesWithinBounds(bounds){
+    const grid=amenityBuildGridIndex();
+    const north=bounds.getNorth(), south=bounds.getSouth(), east=bounds.getEast(), west=bounds.getWest();
+    const minLat=Math.floor(south/AMENITY_GRID_DEG),maxLat=Math.floor(north/AMENITY_GRID_DEG),minLon=Math.floor(west/AMENITY_GRID_DEG),maxLon=Math.floor(east/AMENITY_GRID_DEG);
+    const ids=[];
+    for(let cellLat=minLat;cellLat<=maxLat;cellLat++)for(let cellLon=minLon;cellLon<=maxLon;cellLon++){
+      const ranges=grid.get(`${cellLat},${cellLon}`);if(!ranges)continue;
+      for(const [start,end] of ranges)for(let i=start;i<end;i++){
+        const r=amenityReadRecord(i,new DataView(state.amenityAssetState.buffer));
+        if(r.lat>=south&&r.lat<=north&&r.lon>=west&&r.lon<=east)ids.push(i);
+      }
+    }
+    return ids;
+  }
+
+  async function calculateCensusAmenityProfile(result){
+    const shapeType=censusShapeType();
+    if(shapeType!=='circle'&&shapeType!=='rectangle')return null;
+    const asset=await loadAmenityAsset(),view=new DataView(asset.buffer);
+    let ids=[];
+    if(shapeType==='circle' && state.circleSelection?.circle){
+      const ll=state.circleSelection.circle.getLatLng();
+      const radiusKm=state.circleSelection.circle.getRadius()/1000;
+      ids=amenityIndicesWithinRadius(ll.lat,ll.lng,radiusKm);
+    } else if(shapeType==='rectangle' && state.rectangleSelection?.rectangle){
+      ids=amenityIndicesWithinBounds(state.rectangleSelection.rectangle.getBounds());
+    } else return null;
+    let total=0,retail=0,food=0,health=0,community=0;
+    for(const i of ids){const r=amenityReadRecord(i,view);total++;if(r.mask&1)retail++;if(r.mask&2)food++;if(r.mask&4)health++;if(r.mask&8)community++;}
+    return {total,retail,food,health,community};
+  }
+
+  function updateCensusAmenitySummary(result){
+    resetCensusAmenitySummary(); if(!censusShapeType())return; const gen=state.censusScopeGeneration; calculateCensusAmenityProfile(result).then(p=>{if(gen!==state.censusScopeGeneration||!p)return; const title=el('censusAmenityTitle'); if(title) title.textContent=`${fmtInt(p.total)} amenities within drawn shape`; for(const [id,key] of [['censusAmenityRetail','retail'],['censusAmenityFood','food'],['censusAmenityHealth','health'],['censusAmenityCommunity','community']]){const n=el(id);if(n)n.textContent=fmtInt(p[key]);}}).catch(()=>{});
+  }
+
+  function updateCensusPopulationSummary(aggregate) {
+    const totals = aggregate || {totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0};
+    state.censusTotalPopulation = Number.isFinite(totals.totalPopulation) ? totals.totalPopulation : null;
+    el('censusPopulation').textContent = fmtInt(totals.totalPopulation);
+    el('censusSeniors').innerHTML = censusValueWithShare(totals.population65Plus, totals.totalPopulation);
+    el('censusForty').innerHTML = censusValueWithShare(totals.population40Plus, totals.totalPopulation);
+    el('censusVisibleMinority').innerHTML = censusValueWithShare(totals.visibleMinorityPopulation, totals.totalPopulation);
+    const storeCount = Number(el('kpiStores')?.textContent?.replace(/,/g,'').trim()) || 0;
+    el('censusPopPerStore').textContent = censusGeoScopeType() ? '—' : (storeCount > 0 ? fmtInt(Math.round(totals.totalPopulation / storeCount)) : '—');
+    el('censusHouseholdIncome').textContent = totals.totalHouseholds > 0 ? `$${fmtInt(Math.round(totals.incomeWeighted / totals.totalHouseholds))}` : '—';
+    updateKpis();
+  }
+  function resetCensusPopulationSummary() {
+    resetCensusAmenitySummary();
+    state.censusTotalPopulation = null;
+    el('censusPopulation').textContent = '—';
+    el('censusSeniors').textContent = '—';
+    el('censusForty').textContent = '—';
+    el('censusVisibleMinority').textContent = '—';
+    el('censusPopPerStore').textContent = '—';
+    el('censusHouseholdIncome').textContent = '—';
+    el('kpiSalesPerPopulation').textContent = '—';
+  }
+
+  function updateSelectedDaExportButton(){
+    const btn=el('exportSelectedDABtn');
+    if(btn)btn.disabled=!(state.daSelectionResult?.selected?.length);
+  }
+
+  // Renderer is a consumer only: geographic membership is decided exclusively by DA_ENGINE.select().
+  // No renderer-side province/R-tree query is permitted here.
+  function renderDaSelection(result) {
+    const renderT0=DA_PERF_ENABLED?performance.now():0;
+    clearDaOverlay();
+    state.daSelectionResult = result;
+    updateSelectedDaExportButton();
+    state.selectedRows=getCensusShapeRows();
+    requestAnimationFrame(()=>showActiveCensusShapeHandles());
+    CENSUS_DEBUG.log('da:rendered',{count:result?.selectedCount||0,shape:censusShapeType()});
+    updateSelectionState();
+    updateSelectionPanels();
+    updateCensusPopulationSummary(result.aggregate);
+    updateCensusAmenitySummary(result);
+
+    const zoom = map.getZoom();
+    const renderAllowed = zoom >= CONFIG.daMinRenderZoom && state.showDaOverlay;
+    const features = renderAllowed ? result.selected : [];
+    if (renderAllowed && features.length) {
+      state.daLayer = L.geoJSON(turf.featureCollection(features.map(item => item.feature)), {
+        pane: 'daSelectionPane', interactive: false, style: daStyle
+      }).addTo(map);
+    }
+
+    const detailLimit = 500;
+    const detail = result.selected.slice(0, detailLimit);
+    const detailNote = result.selected.length > detailLimit ? ` Showing first ${detailLimit.toLocaleString()} DAs.` : '';
+    const fullNote = result.fullProvinceCodes.length ? ` Fully contained: ${result.fullProvinceCodes.join(', ')}.` : '';
+    const partialNote = result.partialProvinceCodes.length ? ` Partial: ${result.partialProvinceCodes.join(', ')}.` : '';
+    const zoomNote = !renderAllowed && result.selectedCount ? ` DA polygons render at zoom ${CONFIG.daMinRenderZoom}+.` : '';
+
+    setDaTestStatus(`${result.selectedCount.toLocaleString()} DAs selected at >= ${result.threshold}% overlap.${fullNote}${partialNote}${detailNote}${zoomNote}`);
+
+    const list = el('censusDaList');
+    if (list) {
+      if (!detail.length) {
+        list.innerHTML = result.selectedCount ? '<div class="empty-message">DA detail is suppressed at this zoom level; totals above include all selected DAs.</div>' : '<div class="empty-message">No qualifying DAs in the active boundary.</div>';
+      } else {
+        list.innerHTML = detail.map(item => {
+          const a = censusAttributes(item.feature);
+          return `<div class="census-da-row"><span>${esc(DA_ENGINE.getId(item.feature) || '—')}</span><span>${fmtInt(a.totalPopulation)}</span><span>${fmtInt(a.population65Plus)}</span><span>${fmtInt(a.population40Plus)}</span><span>${item.overlapPct.toFixed(1)}%</span></div>`;
+        }).join('');
+      }
+    }
+    if(DA_PERF_ENABLED){DA_PERF.d.renderMs+=performance.now()-renderT0;DA_PERF.show();}
+  }
+
+  function getDaDelayMs() {
+    const input = Number(el('censusDelay')?.value);
+    return Number.isFinite(input) ? Math.max(0, Math.min(10000, input)) : 500;
+  }
+
+  function scheduleCensusQuery(delay=null, reason='shape change') {
+    if(state.navigationDaSuppressed || !censusShapeType()) return;
+    if(state.censusShapeHandleDragActive){
+      if(reason)state.censusShapeHandlePendingReason=reason;
+      if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+      return;
+    }
+    const scopeGeneration=state.censusScopeGeneration;
+    if(state.daRefreshTimer)clearTimeout(state.daRefreshTimer);
+    if(reason)state.daActivationTrigger=reason;
+    const wait = delay === null ? getDaDelayMs() : Math.max(0, delay);
+    state.daRefreshTimer=setTimeout(()=>{state.daRefreshTimer=null;refreshCensusQuery(scopeGeneration);},wait);
+  }
+
+  function beginCensusShapeHandleDrag(reason){
+    state.censusShapeHandleDragActive=true;
+    state.censusShapeHandlePendingReason=reason||'shape handle drag';
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+  }
+
+  function endCensusShapeHandleDrag(reason){
+    const pending=state.censusShapeHandlePendingReason||reason||'shape handle drag';
+    state.censusShapeHandleDragActive=false;
+    state.censusShapeHandlePendingReason=null;
+    scheduleCensusQuery(null,pending);
+  }
+
+  async function refreshCensusQuery(expectedGeneration=state.censusScopeGeneration) {
+    const refreshT0=DA_PERF_ENABLED?performance.now():0;
+    if(DA_PERF_ENABLED) DA_PERF.reset();
+    if(state.navigationDaSuppressed || !censusShapeType() || expectedGeneration!==state.censusScopeGeneration) return;
+    if(typeof turf==='undefined' || typeof RBush==='undefined'){
+      setDaTestStatus('DA spatial engine could not start because Turf or the spatial-index library did not load.');
+      return;
+    }
+    const threshold=Number(el('censusThreshold')?.value ?? 10);
+    const requestId=++state.censusRequestId;
+    const scopeGeneration=expectedGeneration;
+    state.daSelectionResult=null;
+    const shapeType=censusShapeType();
+    setDaTestStatus(`Finding DAs inside the active ${shapeType} query…`);
+    try{
+      const boundary=activeCensusBoundary();
+      const geoT0=DA_PERF_ENABLED?performance.now():0;
+      const geoCandidates=candidateProvinceCodesFromGeography(boundary);
+      if(DA_PERF_ENABLED)DA_PERF.d.provinceMs+=performance.now()-geoT0;
+      const hasCircle=shapeType==='circle';
+      const hasRectangle=shapeType==='rectangle';
+      const targetCircle=hasCircle?(()=>{const ll=state.circleSelection.circle.getLatLng();return {lat:ll.lat,lng:ll.lng,radiusMeters:state.circleSelection.circle.getRadius()};})():null;
+      const rectangleBounds=hasRectangle?(()=>{const b=state.rectangleSelection.rectangle.getBounds();return [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()];})():null;
+      const boundaryType=shapeType;
+      const boundaryKey=`${boundaryType}:${boundaryType==='circle'?`${targetCircle.lat.toFixed(5)}:${targetCircle.lng.toFixed(5)}:${targetCircle.radiusMeters.toFixed(1)}`:rectangleBounds.map(v=>Number(v).toFixed(5)).join(':')}|${geoCandidates.join(',')}`;
+      let candidatePacket=null;
+      if(state.daProvinceCacheKey===boundaryKey && state.daProvinceCache?.candidatesByProvince){
+        candidatePacket=state.daProvinceCache;
+        if(DA_PERF_ENABLED)DA_PERF.d.candidateCacheHit=true;
+      }else{
+        candidatePacket=await DA_ENGINE.collectIndexedCandidates(boundary,geoCandidates,{boundaryType,targetCircle});
+        state.daProvinceCacheKey=boundaryKey;
+        state.daProvinceCache=candidatePacket;
+      }
+      const candidates=candidatePacket.provinces;
+      if(!candidates.length){
+        if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
+        clearDaOverlay();
+        const empty={threshold,boundary,provinces:[],selected:[],selectedCount:0,candidateCount:0,actualIntersectionCount:0,indexedFeatures:0,aggregate:{totalPopulation:0,population65Plus:0,population40Plus:0,visibleMinorityPopulation:0,totalHouseholds:0,incomeWeighted:0,daCount:0},fullProvinceCodes:[],partialProvinceCodes:[]};
+        state.daSelectionResult=empty;
+        updateSelectedDaExportButton();
+        updateCensusPopulationSummary(empty.aggregate);
+        const list=el('censusDaList');if(list)list.innerHTML='<div class="empty-message">No Census DAs intersect the active Census Query shape.</div>';
+        setDaTestStatus('No Census DAs intersect the active Census Query shape.');
+        if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
+        DA_PERF.show();
+        return;
+      }
+      const provinceModes=classifyCandidateProvinces(candidates,boundaryType,targetCircle,rectangleBounds);
+      const result=await selectCensusBoundary(boundary,candidates,threshold,{provinceModes,indexedCandidatesByProvince:candidatePacket.candidatesByProvince,shouldRender:!!state.showDaOverlay,boundaryType,targetCircle});
+      if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
+      renderDaSelection(result);
+      if(DA_PERF_ENABLED)DA_PERF.d.refreshMs=performance.now()-refreshT0;
+    }catch(err){
+      if(requestId!==state.censusRequestId || scopeGeneration!==state.censusScopeGeneration)return;
+      clearDaOverlay();
+      setDaTestStatus(`Census Query failed: ${err.message}`);
+    }
+  }
+
+  function goToStoreNumber(){
+    clearRightPanelHighlights();
+    const query=String(el('storeNumberInput').value??'').trim();
+    const token=++state.searchToken;
+    if(!query){el('storeJumpStatus').textContent='Enter a Store Profile Number.';return;}
+    const idCol=state.columns.storeId;
+    if(!idCol){el('storeJumpStatus').textContent='Store Profile Number column not found in workbook.';return;}
+    const target=state.rows.find(r=>norm(r[idCol])===norm(query));
+    if(!target){el('storeJumpStatus').textContent='Store Profile Number not found.';return;}
+    if(!hasCoords(target)){
+      el('storeJumpStatus').textContent='Store found, but it has no valid Latitude / Longitude.';return;
+    }
+    if(!rowPassesFilters(target)){
+      alert('Not in filter, check filters');
+      el('storeJumpStatus').textContent='Not in filter, check filters';
+      return;
+    }
+    const lat=toNumber(target[state.columns.lat]), lng=toNumber(target[state.columns.lon]);
+    const storeCity=state.columns.city?String(target[state.columns.city]??'').trim():'';
+    const storeProvince=state.columns.province?provinceCodeFromText(target[state.columns.province]||''):null;
+    // Header resolves from the current map position via the local CSD lookup.
+    const km=2.5;
+    closeStorePopup(); clearCensusShape(); clearDaOverlay(); clearNavigationResult(); state.censusRequestId++;
+    state.navigationDaSuppressed=true;
+    state.storeJumpTarget=target;
+    state.selection={type:'viewport',name:`Store ${query} — map view`,feature:null,provinceCode:provinceCodeFromText(target[state.columns.province]||''),radius:null};
+    state.initialNationalView=false; state.mapReadyForViewport=true; state.daActivationTrigger='store jump';
+    const dLat=km/110.5, dLon=km/(111*Math.cos(lat*Math.PI/180));
+    const targetBounds=L.latLngBounds([[lat-dLat,lng-dLon],[lat+dLat,lng+dLon]]);
+    fitMapProgrammatically(targetBounds,{padding:[25,25]});
+    el('storeJumpStatus').textContent=`Showing store ${query}.`;
+    let completed=false;
+    const finish=()=>{
+      if(completed || token!==state.searchToken)return;
+      completed=true;
+      showNavigationResult(lat,lng,'store',target,()=>{
+        if(token!==state.searchToken)return;
+        state.navigationDaSuppressed=false;
+        clearActiveScopeToViewport('store navigation complete');
+        setDaTestStatus('Map navigation complete. Draw a Census Query shape to calculate Census data.');
+        updateSelection();
+      });
+    };
+    map.once('moveend',finish);
+    setTimeout(finish,900);
+    updateSelection();
+  }
+
+  function populateMarkerAnimationControls(){
+    const col=el('markerAnimationColumn');
+    if(!col)return;
+    const a=state.markerAnimation;
+    col.innerHTML='<option value="">Choose column</option>'+state.headers.map(h=>`<option value="${esc(h)}" ${a.column===h?'selected':''}>${esc(h)}</option>`).join('');
+    const type=state.types[a.column]==='text'&&!markerAnimationFormulaIsValid()?'text':'numeric';
+    a.typeMode=type;
+    if(type==='text'&&a.formula===a.column){
+      el('markerAnimationValueCell')?.classList.add('hidden');
+      el('markerAnimationValueButton')?.classList.remove('hidden');
+      el('markerAnimationValueButton').textContent=a.values.length?`${a.values.length} value${a.values.length===1?'':'s'} selected`:'Select values...';
+    }else{
+      el('markerAnimationValueCell')?.classList.remove('hidden');
+      el('markerAnimationValueButton')?.classList.add('hidden');
+      el('markerAnimationValue').value=a.value||'';
+    }
+    const enabled=el('markerAnimationEnabled'); if(enabled) enabled.checked=!!a.enabled;
+    const typeSelect=el('markerAnimationType'); if(typeSelect) typeSelect.value=a.type;
+    const fadeRow=el('markerFadeObjectRow'); if(fadeRow) fadeRow.style.display=a.type==='fade'?'flex':'none';
+    const fadeObject=el('markerFadeObject'); if(fadeObject) fadeObject.value=a.fadeObject||'smiley';
+    const typeSummary=el('markerAnimationTypeSummary'); if(typeSummary) typeSummary.textContent=a.type==='fade'?'Fade':(a.type==='static'?'Static':'Ripple');
+    const formulaInput=el('markerAnimationFormula'); if(formulaInput) formulaInput.value=a.formula||'';
+    const condition=el('markerAnimationCondition'); if(condition) condition.value=a.operator||'=';
+    const status=el('markerAnimationStatus'); if(status) status.textContent=markerAnimationConditionSummary();
+  }
+  function openMarkerAnimationValuePicker(){
+    const dialog=el('markerAnimationValueDialog'), a=state.markerAnimation;
+    if(!dialog||!a.column)return;
+    el('markerAnimationValueDialogTitle').textContent=a.column;
+    const vals=uniqueColumnValues(a.column), selected=new Set(a.values||[]);
+    el('markerAnimationValuePickerList').innerHTML=vals.map(v=>`<label><input type="checkbox" class="marker-animation-picker-check" value="${esc(v)}" ${selected.has(v)?'checked':''}><span>${esc(v||'(blank)')}</span></label>`).join('');
+    const all=el('markerAnimationSelectAll');
+    all.textContent=vals.length&&vals.every(v=>selected.has(v))?'Clear all':'Select all';
+    dialog.showModal();
+  }
+  function refreshMarkerAnimationUI(){rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();}
+  function wireMarkerAnimationControls(){
+    const on=(id,event,handler)=>{const node=el(id); if(node) node.addEventListener(event,handler);};
+    on('markerAnimationEnabled','change',e=>{state.markerAnimation.enabled=!!e.target.checked;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
+    on('markerAnimationType','change',e=>{state.markerAnimation.type=e.target.value;saveMarkerAnimationConfig();rebuildMarkerAnimationCache();refreshMarkerAnimationUI();});
+    on('markerFadeObject','change',e=>{state.markerAnimation.fadeObject=e.target.value;saveMarkerAnimationConfig();refreshMarkerStyles();populateMarkerAnimationControls();});
+    on('markerAnimationColumn','change',e=>{const h=e.target.value;state.markerAnimation.column=h;state.markerAnimation.formula=h;state.markerAnimation.value='';state.markerAnimation.values=[];state.markerAnimation.typeMode=state.types[h]==='text'?'text':'numeric';saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
+    on('markerAnimationFormula','input',e=>{state.markerAnimation.formula=e.target.value;state.markerAnimation.typeMode=detectFilterDraftType({column:state.markerAnimation.column,formula:e.target.value})==='text'?'text':'numeric';populateMarkerAnimationControls();});
+    on('markerAnimationCondition','change',e=>{state.markerAnimation.operator=e.target.value;saveMarkerAnimationConfig();refreshMarkerAnimationUI();});
+    on('markerAnimationValue','input',e=>{state.markerAnimation.value=e.target.value;const status=el('markerAnimationStatus');if(status)status.textContent=markerAnimationConditionSummary();});
+    on('markerAnimationValueButton','click',e=>{e.preventDefault();openMarkerAnimationValuePicker();});
+    const markerAnimationOperandInsert = el('markerAnimationOperandInsert');
+    if(markerAnimationOperandInsert){
+      markerAnimationOperandInsert.addEventListener('change',e=>{const h=e.target.value;if(!h)return;const current=String(state.markerAnimation.formula||'').trim();const next=current?`${current}${h}`:h;state.markerAnimation.formula=next;state.markerAnimation.typeMode='numeric';e.target.value='';refreshMarkerAnimationUI();});
+    }
+    on('markerAnimationConfigureBtn','click',e=>{e.preventDefault();e.stopPropagation();populateMarkerAnimationControls();const dlg=el('markerAnimationDialog');if(dlg)dlg.showModal();});
+    on('markerAnimationApply','click',e=>{e.preventDefault();const a=state.markerAnimation;const formula=String(a.formula||'').trim();const status=el('markerAnimationDialogStatus');const dlg=el('markerAnimationDialog');if(!formula){if(status)status.textContent='Choose a column or enter a formula.';return;}if(a.typeMode==='numeric'&&!tickerFormulaValid(formula)){if(status)status.textContent='Invalid formula. Use exact workbook column headings and (), +, -, *, /. ';return;}if(a.typeMode==='numeric'&&!Number.isFinite(Number(a.value))){if(status)status.textContent='Enter a numeric comparison value.';return;}if(a.typeMode==='text'&&(!a.column||!a.values.length)){if(status)status.textContent='Choose one or more values.';return;}saveMarkerAnimationConfig();rebuildMarkerAnimationCache();populateMarkerAnimationControls();refreshMarkerStyles();if(dlg)dlg.close();});
+    on('markerAnimationSelectAll','click',e=>{const checks=[...document.querySelectorAll('.marker-animation-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);e.currentTarget.textContent=all?'Select all':'Clear all';});
+    on('markerAnimationValueApply','click',e=>{e.preventDefault();state.markerAnimation.values=[...document.querySelectorAll('.marker-animation-picker-check:checked')].map(x=>x.value);state.markerAnimation.typeMode='text';saveMarkerAnimationConfig();const dlg=el('markerAnimationValueDialog');if(dlg)dlg.close();refreshMarkerAnimationUI();});
+    on('markerAnimationValueCancel','click',e=>{e.preventDefault();const dlg=el('markerAnimationValueDialog');if(dlg)dlg.close();});
+  }
 
 
-</body>
-</html>
+  // ---------- Trade Area Halo (standalone, on-demand analysis overlay) ----------
+
+  // ---------- Marker configuration ----------
+  const MARKER_CONFIG_STORAGE_KEY='store_explorer_marker_config_v1';
+  function defaultSecondaryIconSizes(){
+    return Object.fromEntries(SECONDARY_MARKER_ICONS.map(icon=>[icon.key,11]));
+  }
+  function loadMarkerConfig(){
+    const defaults={primarySize:22,secondarySize:11,secondaryIconSizes:defaultSecondaryIconSizes()};
+    try{
+      const raw=localStorage.getItem(MARKER_CONFIG_STORAGE_KEY);
+      const parsed=raw?JSON.parse(raw):{};
+      const savedIconSizes=parsed?.secondaryIconSizes && typeof parsed.secondaryIconSizes==='object' ? parsed.secondaryIconSizes : {};
+      // Migrate the prior Safeway key to the new SAFEWAY (SOBEYS) manifest key.
+      if(savedIconSizes.safeway!==undefined && savedIconSizes['safeway (sobeys)']===undefined){
+        savedIconSizes['safeway (sobeys)']=savedIconSizes.safeway;
+      }
+      // Preserve every saved icon size, including icons that were added to the manifest
+      // after the user's previous session. The old code only copied keys that existed in
+      // the built-in icon list, so newly manifested icons fell back to their JSON default.
+      const iconSizes={...defaultSecondaryIconSizes()};
+      Object.entries(savedIconSizes).forEach(([key,value])=>{
+        if(typeof key==='string' && Number.isFinite(Number(value))){
+          iconSizes[key.toLowerCase()]=normalizeMarkerSize(value,6,48,11);
+        }
+      });
+      SECONDARY_MARKER_ICONS.forEach(icon=>{
+        if(Number.isFinite(Number(iconSizes[icon.key]))) iconSizes[icon.key]=normalizeMarkerSize(iconSizes[icon.key],6,48,11);
+      });
+      state.markerConfig={
+        primarySize:Number.isFinite(Number(parsed?.primarySize))?Math.max(8,Math.min(64,Number(parsed.primarySize))):defaults.primarySize,
+        secondarySize:Number.isFinite(Number(parsed?.secondarySize))?Math.max(6,Math.min(48,Number(parsed.secondarySize))):defaults.secondarySize,
+        secondaryIconSizes:iconSizes
+      };
+    }catch(_){state.markerConfig=defaults;}
+  }
+  function saveMarkerConfig(){try{localStorage.setItem(MARKER_CONFIG_STORAGE_KEY,JSON.stringify(state.markerConfig));}catch(_){}
+  }
+  function refreshMarkerConfigUI(){
+    const p=el('primaryMarkerSizeInput'),s=el('secondaryMarkerSizeInput');
+    if(p)p.value=String(state.markerConfig.primarySize);
+    if(s)s.value=String(state.markerConfig.secondarySize);
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const input=el(`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`);
+      if(input)input.value=String(state.markerConfig.secondaryIconSizes?.[icon.key]??11);
+    });
+    const status=el('markerConfigStatus');
+    if(status)status.textContent=`Primary ${state.markerConfig.primarySize}px • Secondary ${state.markerConfig.secondarySize}px • Branded secondary icons ${Math.min(...SECONDARY_MARKER_ICONS.map(icon=>Number(state.markerConfig.secondaryIconSizes?.[icon.key]??11)))}–${Math.max(...SECONDARY_MARKER_ICONS.map(icon=>Number(state.markerConfig.secondaryIconSizes?.[icon.key]??11)))}px`;
+  }
+  function renderSecondaryIconConfig(){
+    const wrap=el('secondaryMarkerIconConfig'); if(!wrap)return;
+    wrap.innerHTML=SECONDARY_MARKER_ICONS.map(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      return `<label class="marker-config-row marker-config-icon-row" for="${id}"><span><img class="marker-config-icon-preview" src="${esc(icon.asset)}" alt="">${esc(icon.label)}</span><input id="${id}" type="number" min="6" max="48" step="1" value="11"><span>px</span></label>`;
+    }).join('');
+  }
+  function applyPrimaryMarkerConfig(){
+    state.markerConfig.primarySize=normalizeMarkerSize(el('primaryMarkerSizeInput')?.value,8,64,state.markerConfig.primarySize);
+    state.markerConfig.secondarySize=normalizeMarkerSize(el('secondaryMarkerSizeInput')?.value,6,48,state.markerConfig.secondarySize);
+    saveMarkerConfig();
+    refreshMarkerConfigUI();
+    rebuildMarkers();
+  }
+  function applySecondaryMarkerConfig(){
+    state.markerConfig.secondarySize=normalizeMarkerSize(el('secondaryMarkerSizeInput')?.value,6,48,state.markerConfig.secondarySize);
+    state.markerConfig.secondaryIconSizes=state.markerConfig.secondaryIconSizes||defaultSecondaryIconSizes();
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      const input=el(id);
+      if(input) state.markerConfig.secondaryIconSizes[icon.key]=normalizeMarkerSize(input.value,6,48,state.markerConfig.secondaryIconSizes[icon.key]??11);
+    });
+    saveMarkerConfig();
+    refreshMarkerConfigUI();
+    state.secondaryCanvasLayer?.redraw();
+  }
+  function bindMarkerConfigInputs(){
+    const primary=el('primaryMarkerSizeInput');
+    if(primary){primary.addEventListener('input',applyPrimaryMarkerConfig);primary.addEventListener('change',applyPrimaryMarkerConfig);}
+    const secondary=el('secondaryMarkerSizeInput');
+    if(secondary){secondary.addEventListener('input',applySecondaryMarkerConfig);secondary.addEventListener('change',applySecondaryMarkerConfig);}
+    SECONDARY_MARKER_ICONS.forEach(icon=>{
+      const id=`secondaryIconSize_${icon.key.replace(/[^a-z0-9]+/g,'_')}`;
+      const input=el(id);
+      if(input){input.addEventListener('input',applySecondaryMarkerConfig);input.addEventListener('change',applySecondaryMarkerConfig);}
+    });
+  }
+  function initMarkerConfig(skipLoad=false){
+    if(!skipLoad)loadMarkerConfig();
+    renderSecondaryIconConfig();
+    refreshMarkerConfigUI();
+    bindMarkerConfigInputs();
+    const btn=el('markerConfigBtn');
+    const dlg=el('markerConfigDialog');
+    if(btn&&dlg){
+      btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();renderSecondaryIconConfig();refreshMarkerConfigUI();bindMarkerConfigInputs();dlg.showModal();});
+      const closeBtn=dlg.querySelector('.dialog-header .icon-btn');
+      if(closeBtn){
+        closeBtn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();dlg.close();});
+      }
+    }
+  }
+  // ---------- Marker colour compatibility (UI removed in v1.233) ----------
+  const MARKER_COLORS = [
+    {name:'Red', value:'#d34c4c'},
+    {name:'Royal Blue', value:'#4169e1'},
+    {name:'Purple', value:'#7a3db8'},
+    {name:'Black', value:'#1f2933'}
+  ];
+
+  function updateMarkerColorUI(){
+    document.querySelectorAll('.marker-color-swatch').forEach(btn=>{
+      const active=btn.dataset.color===state.markerColor;
+      btn.classList.toggle('active',active);
+      btn.setAttribute('aria-pressed',active?'true':'false');
+    });
+    const dot=el('defaultMarkerDot');
+    if(dot)dot.style.background=state.markerColor;
+  }
+
+  function setMarkerColor(color){
+    if(!MARKER_COLORS.some(x=>x.value===color))return;
+    state.markerColor=color;
+    updateMarkerColorUI();
+    refreshMarkerStyles();
+  }
+
+
+  const POPUP_STORAGE_KEY='cse_popup_config_v171';
+
+  // ---------- Ticker ----------
+  const TICKER_STORAGE_KEY='cse_ticker_config_v075_exact';
+  const TICKER_OLD_STORAGE_KEYS=['cse_ticker_config_v074_exact','cse_ticker_config_v075_exact','cse_ticker_config_v075_exact'];
+  const TICKER_DEFAULT_SPEED=70;
+  const TICKER_DEFAULTS=[
+    {title:'',formula:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
+    {title:'',formula:'',aggregation:'average',numberFormat:'auto',decimalPlaces:0},
+    {title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
+  ];
+  function loadTickerConfig(){
+    try{
+      let raw=localStorage.getItem(TICKER_STORAGE_KEY);
+      if(!raw){for(const key of TICKER_OLD_STORAGE_KEYS){raw=localStorage.getItem(key);if(raw)break;}}
+      const parsed=raw?JSON.parse(raw):null;
+      const metrics=Array.isArray(parsed)?parsed:(Array.isArray(parsed?.metrics)?parsed.metrics:null);
+      state.tickerMetrics=metrics&&metrics.length?metrics.map(normalizeTickerMetric):TICKER_DEFAULTS.map(normalizeTickerMetric);
+      const speed=Array.isArray(parsed)?TICKER_DEFAULT_SPEED:Number(parsed?.speed);
+      state.tickerSpeed=Number.isFinite(speed)?Math.min(120,Math.max(50,speed)):TICKER_DEFAULT_SPEED;
+      state.tickerConfigDraftSpeed=state.tickerSpeed;
+    }catch(_){state.tickerMetrics=TICKER_DEFAULTS.map(normalizeTickerMetric);state.tickerSpeed=TICKER_DEFAULT_SPEED;state.tickerConfigDraftSpeed=TICKER_DEFAULT_SPEED;}
+  }
+  function saveTickerConfig(){localStorage.setItem(TICKER_STORAGE_KEY,JSON.stringify({metrics:state.tickerMetrics,speed:state.tickerSpeed}));}
+  function defaultTickerDecimals(format){
+    if(format==='percentage')return 1;
+    return 0;
+  }
+  function firstTickerOperand(formula){
+    const tokens=tokenizeTicker(String(formula??'').trim())||[];
+    const operand=tokens.find(t=>t.type==='operand'&&String(t.value||'').trim());
+    return operand?String(operand.value).trim():'';
+  }
+  function normalizeTickerMetric(m){
+    const aggregation=['sum','average','median'].includes(m?.aggregation)?m.aggregation:'sum';
+    const numberFormat=['auto','number','currency','percentage'].includes(m?.numberFormat)?m.numberFormat:'auto';
+    const rawDecimals=Number(m?.decimalPlaces);
+    const decimalPlaces=Number.isInteger(rawDecimals)&&rawDecimals>=0&&rawDecimals<=4?rawDecimals:defaultTickerDecimals(numberFormat);
+    const formula=m?.formula===null?'':String(m?.formula??'');
+    const suppliedTitle=String(m?.title??'');
+    const title=suppliedTitle||firstTickerOperand(formula);
+    return {title,formula,aggregation,numberFormat,decimalPlaces};
+  }
+  function tickerColumns(){return state.headers.filter(h=>state.types[h]==='numeric');}
+  function tickerDefaultMetrics(){
+    const sales=state.columns.sales||'';
+    const ebit=state.columns.ebit||'';
+    return [
+      {title:firstTickerOperand(sales),formula:sales,aggregation:'sum',numberFormat:'auto',decimalPlaces:0},
+      {title:firstTickerOperand(ebit),formula:ebit,aggregation:'average',numberFormat:'auto',decimalPlaces:0},
+      {title:'Stores',formula:'1',aggregation:'sum',numberFormat:'number',decimalPlaces:0}
+    ];
+  }
+  function tickerDefaultFormula(){return tickerColumns()[0]||'';}
+  // Shared exact-header formula tokenizer used by both ticker and filters.
+  // A workbook header is accepted only as a complete operand: the characters
+  // immediately before/after it must be expression boundaries. This prevents
+  // partial or wildcard header matching and avoids prefix collisions such as
+  // `Sales` vs `Sales Growth`.
+  function exactTickerHeaderAt(expr,index){
+    const text=String(expr??'');
+    const rest=text.slice(index);
+    let best=null;
+    for(const h of state.headers){
+      if(!h)continue;
+      if(!rest.startsWith(h))continue;
+      const before=index>0?text[index-1]:'';
+      const after=index+h.length<text.length?text[index+h.length]:'';
+      const isBoundaryBefore=!before||/[\s()+\-*/×÷]/.test(before);
+      const isBoundaryAfter=!after||/[\s()+\-*/×÷]/.test(after);
+      if(!isBoundaryBefore||!isBoundaryAfter)continue;
+      if(!best||h.length>best.length)best=h;
+    }
+    return best;
+  }
+  function tokenizeTicker(expr){
+    const tokens=[];let i=0;
+    while(i<expr.length){
+      while(i<expr.length&&/\s/.test(expr[i]))i++;
+      if(i>=expr.length)break;
+      const ch=expr[i];
+      if(/[()+*/×÷]/.test(ch)){tokens.push({type:'op',value:ch==='×'?'*':ch==='÷'?'/':ch});i++;continue;}
+      if(ch==='-'){
+        tokens.push({type:'op',value:'-'});i++;continue;
+      }
+      const header=exactTickerHeaderAt(expr,i);
+      if(header){tokens.push({type:'operand',value:header});i+=header.length;continue;}
+      const num=expr.slice(i).match(/^(?:\d+(?:\.\d+)?|\.\d+)/);
+      if(num){tokens.push({type:'operand',value:num[0]});i+=num[0].length;continue;}
+      return null;
+    }
+    return tokens;
+  }
+  function tickerFormulaValid(expr){
+    if(!expr||!expr.trim())return false;
+    const tokens=tokenizeTicker(expr);if(!tokens||!tokens.length)return false;
+    const cols=new Set(state.headers);let depth=0,expectOperand=true,seen=false;
+    for(const t of tokens){
+      if(t.type==='operand'){
+        if(!cols.has(t.value)&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))return false;
+        if(!expectOperand)return false;
+        expectOperand=false;seen=true;continue;
+      }
+      if(t.value==='('){if(!expectOperand)return false;depth++;continue;}
+      if(t.value===')'){if(expectOperand||depth===0)return false;depth--;expectOperand=false;continue;}
+      if(expectOperand&&t.value!=='-')return false;
+      expectOperand=true;
+    }
+    return seen&&depth===0&&!expectOperand;
+  }
+  function evaluateTickerExpression(expr,operandValues){
+    const tokens=tokenizeTicker(expr),values=[],ops=[];
+    if(!tokens)return NaN;
+    const prec=o=>(o==='+'||o==='-')?1:2;
+    const apply=()=>{
+      const op=ops.pop(),b=values.pop(),a=values.pop();
+      if(!Number.isFinite(a)||!Number.isFinite(b)){values.push(NaN);return;}
+      if(op==='+')values.push(a+b);
+      else if(op==='-')values.push(a-b);
+      else if(op==='*')values.push(a*b);
+      else if(op==='/')values.push(b===0?NaN:a/b);
+    };
+    try{
+      for(const t of tokens){
+        if(t.type==='operand'){
+          if(/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))values.push(Number(t.value));
+          else values.push(operandValues.has(t.value)?operandValues.get(t.value):NaN);
+          continue;
+        }
+        if(t.value==='-' && (values.length===0 || ops.at(-1)==='(' || ['+','-','*','/'].includes(ops.at(-1)))){
+          // Unary minus: encode as 0 - operand through a low-complexity sentinel.
+          values.push(0);
+          ops.push('-');
+          continue;
+        }
+        if(t.value==='('){ops.push(t.value);continue;}
+        if(t.value===')'){
+          while(ops.length&&ops.at(-1)!=='(')apply();
+          if(ops.at(-1)!=='(')return NaN;
+          ops.pop();
+          continue;
+        }
+        while(ops.length&&ops.at(-1)!=='('&&prec(ops.at(-1))>=prec(t.value))apply();
+        ops.push(t.value);
+      }
+      while(ops.length){if(ops.at(-1)==='(')return NaN;apply();}
+      return values.length===1?values[0]:NaN;
+    }catch(_){return NaN;}
+  }
+  function aggregateTickerOperand(header,rows,aggregation){
+    const vals=rows.map(r=>toNumber(r[header])).filter(v=>Number.isFinite(v));
+    if(!vals.length)return NaN;
+    if(aggregation==='average')return avg(vals);
+    if(aggregation==='median')return median(vals);
+    return vals.reduce((a,b)=>a+b,0);
+  }
+  function evaluateTickerFormula(expr,rows,aggregation='sum'){
+    const tokens=tokenizeTicker(expr);if(!tokens)return NaN;
+    const operandValues=new Map();
+    for(const t of tokens){
+      if(t.type!=='operand'||/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value))continue;
+      if(!operandValues.has(t.value))operandValues.set(t.value,aggregateTickerOperand(t.value,rows,aggregation));
+    }
+    return evaluateTickerExpression(expr,operandValues);
+  }
+  function formatTickerValue(value,format='auto',formula='',decimalPlaces=0){
+    if(!Number.isFinite(value))return '—';
+    const decimals=Number.isInteger(decimalPlaces)?Math.min(4,Math.max(0,decimalPlaces)):defaultTickerDecimals(format);
+    if(format==='percentage')return `${(value*100).toFixed(decimals)}%`;
+    if(format==='currency')return new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:decimals,minimumFractionDigits:decimals}).format(value);
+    if(format==='number')return new Intl.NumberFormat('en-CA',{maximumFractionDigits:decimals,minimumFractionDigits:decimals}).format(value);
+    const f=norm(formula||'');
+    if(f.includes('%')||f.includes('margin')||f.includes('rate'))return `${Math.abs(value)<=1.5?(value*100).toFixed(Math.max(1,decimals)):value.toFixed(Math.max(1,decimals))}%`;
+    if(f.includes('sales')||f.includes('profit')||f.includes('ebit')||f.includes('expense')||f.includes('wage')||f.includes('income')||f.includes('cogs')||f.includes('sga'))return new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:decimals,minimumFractionDigits:decimals}).format(value);
+    if(Math.abs(value)>=1000000)return new Intl.NumberFormat('en-CA',{notation:'compact',maximumFractionDigits:decimals,minimumFractionDigits:Math.min(1,decimals)}).format(value);
+    return new Intl.NumberFormat('en-CA',{maximumFractionDigits:decimals,minimumFractionDigits:decimals}).format(value);
+  }
+  function tickerMetricTitle(m){
+    const title=String(m?.title??'').trim();
+    if(title)return title;
+    return firstTickerOperand(m?.formula)||'Metric';
+  }
+  function tickerItems(){return (state.tickerMetrics||[]).filter(m=>m.formula);}
+  function buildTickerTrack(){
+    const track=el('tickerTrack');if(!track)return;
+    const items=tickerItems();
+    if(!items.length||!state.rows.length){track.innerHTML='<div class="ticker-empty">Load a financial workbook to see ticker metrics.</div>';state.tickerLoopWidth=0;state.tickerOffset=0;return;}
+    const cards=items.map((m,idx)=>{const valueClass=idx%2===0?'ticker-value-red':'ticker-value-yellow';return `<div class="ticker-metric" data-ticker-index="${idx}"><div class="ticker-value ${valueClass}" data-ticker-value="1"></div><div class="ticker-title">${esc(tickerMetricTitle(m))}</div></div>`;}).join('');
+    track.innerHTML=cards+cards;
+    requestAnimationFrame(()=>{state.tickerLoopWidth=track.scrollWidth/2;state.tickerOffset=state.tickerLoopWidth?((state.tickerOffset%state.tickerLoopWidth)+state.tickerLoopWidth)%state.tickerLoopWidth:0;track.style.transform=`translate3d(${-state.tickerOffset}px,0,0)`;updateTickerValues();});
+  }
+  function updateTickerValues(){
+    const track=el('tickerTrack');if(!track)return;
+    const items=tickerItems();
+    if(!items.length||!state.rows.length){if(!track.querySelector('.ticker-empty'))buildTickerTrack();return;}
+    const rows=state.selectedRows;
+    track.querySelectorAll('.ticker-metric').forEach(card=>{
+      const idx=Number(card.dataset.tickerIndex);
+      const m=items[idx]; if(!m)return;
+      const value=evaluateTickerFormula(m.formula,rows,m.aggregation);
+      const node=card.querySelector('[data-ticker-value]');
+      if(node)node.textContent=formatTickerValue(value,m.numberFormat,m.formula,m.decimalPlaces);
+    });
+  }
+  function renderTicker(options={rebuild:false}){
+    const track=el('tickerTrack');if(!track)return;
+    const items=tickerItems();
+    if(options.rebuild || !track.querySelector('.ticker-metric') || track.children.length !== items.length*2){buildTickerTrack();return;}
+    updateTickerValues();
+  }
+  function tickerAnimate(ts){
+    const track=el('tickerTrack');if(!track)return;
+    if(state.tickerLastTime===null)state.tickerLastTime=ts;
+    const dt=Math.min(64,ts-state.tickerLastTime);state.tickerLastTime=ts;
+    if(state.tickerPlaying&&state.tickerLoopWidth){state.tickerOffset=(state.tickerOffset+(dt*(state.tickerSpeed/1000)))%state.tickerLoopWidth;track.style.transform=`translate3d(${-state.tickerOffset}px,0,0)`;}
+    state.tickerAnimationFrame=requestAnimationFrame(tickerAnimate);
+  }
+  function openTickerConfig(){
+    if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring the ticker.');return;}
+    state.tickerConfigDraft=state.tickerMetrics.map(normalizeTickerMetric);
+    state.tickerConfigDraftSpeed=state.tickerSpeed;
+    renderTickerConfig();
+    el('tickerDialog').showModal();
+  }
+  function formulaIssue(formula){
+    const text=String(formula??'').trim();
+    if(!text)return 'Invalid formula';
+    const tokens=tokenizeTicker(text);
+    if(!tokens)return 'Invalid formula';
+    const workbookOperands=tokens.filter(t=>t.type==='operand'&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value));
+    const nonNumeric=workbookOperands.filter(t=>state.types[t.value]!=='numeric');
+    if(nonNumeric.length){
+      return nonNumeric.length===workbookOperands.length
+        ? 'Invalid formula: choose numeric columns for calculations.'
+        : 'Invalid formula: non-numeric columns cannot be combined with numeric columns.';
+    }
+    return tickerFormulaValid(text)?'':'Invalid formula';
+  }
+  function updateFormulaValidation(input,warning,validator=formulaIssue){
+    const issue=validator(input.value);
+    input.classList.toggle('formula-invalid',!!issue);
+    input.setAttribute('aria-invalid',issue?'true':'false');
+    if(warning){warning.textContent=issue||'';warning.hidden=!issue;}
+    return !issue;
+  }
+  function metricConfigHeaderHTML({kind, idx, title, extraControls=''}){
+    const titleClass = kind==='popup' ? 'popup-title-input' : (kind==='subject' ? 'subject-title-input' : 'ticker-title-input');
+    const titlePlaceholder = kind==='popup' || kind==='subject' ? 'Enter title' : 'Enter title';
+    const dragClass='ticker-drag-handle';
+    const removeClass=kind==='popup'?'popup-remove':(kind==='subject'?'subject-remove':'ticker-remove');
+    return `<div class="metric-row-head ${kind}-row-head"><strong>${kind==='popup'?'Field':'Metric'} ${idx+1}</strong><label class="metric-title-field"><span>Title</span><input class="${titleClass}" data-index="${idx}" value="${esc(title||'')}" placeholder="${titlePlaceholder}"></label>${extraControls}<span class="${dragClass}" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">↕</span><button type="button" class="icon-btn ${removeClass}" data-index="${idx}" aria-label="Remove ${kind==='popup'?'field':'metric'}">×</button></div>`;
+  }
+  function metricConfigSettingsHTML({kind, idx, headers, formula, numberFormat, decimalPlaces, aggregation, directSelected=''}){
+    const prefix = kind==='popup'?'popup':(kind==='subject'?'subject':'ticker');
+    const formulaClass = `${prefix}-formula-input`;
+    const columnClass = kind==='popup'?'popup-column-select':`${prefix}-operand-select`;
+    const numberClass = `${prefix}-number-format-select`;
+    const decimalClass = `${prefix}-decimal-select`;
+    const aggregationClass = `${prefix}-aggregation-select`;
+    const isPopup=kind==='popup';
+    const aggregationMarkup = isPopup ? '' : `<label>Aggregation<select class="${aggregationClass}" data-index="${idx}"><option value="sum" ${aggregation==='sum'?'selected':''}>Sum</option><option value="average" ${aggregation==='average'?'selected':''}>Average</option><option value="median" ${aggregation==='median'?'selected':''}>Median</option></select></label>`;
+    const popupVirtualMarkup = isPopup ? `<optgroup label="Census virtual fields">${popupVirtualNames().map(name=>`<option value="${esc(name)}" ${directSelected===name?'selected':''}>${esc(name)}</option>`).join('')}</optgroup>` : '';
+    const headerMarkup=headers.map(h=>`<option value="${esc(h)}" ${directSelected===h?'selected':''}>${esc(h)}</option>`).join('');
+    const formulaPlaceholder = isPopup ? 'Variable or formula' : 'Formula or value';
+    return `<div class="metric-settings-row ${isPopup?'metric-settings-popup':'metric-settings-standard'}"><label>Choose column<select class="${columnClass}" data-index="${idx}"><option value="">Choose column</option>${isPopup?`<optgroup label="Workbook columns">${headerMarkup}</optgroup>${popupVirtualMarkup}`:headerMarkup}</select></label><label class="metric-formula-field">Formula<input class="${formulaClass}" data-index="${idx}" value="${esc(formula||'')}" placeholder="${formulaPlaceholder}" autocomplete="off"><span class="formula-warning" hidden></span></label><label>Number format<select class="${numberClass}" data-index="${idx}"><option value="auto" ${numberFormat==='auto'?'selected':''}>Auto</option><option value="number" ${numberFormat==='number'?'selected':''}>Number</option><option value="currency" ${numberFormat==='currency'?'selected':''}>Currency</option><option value="percentage" ${numberFormat==='percentage'?'selected':''}>Percentage</option></select></label><label>Decimals<select class="${decimalClass}" data-index="${idx}">${[0,1,2,3,4].map(n=>`<option value="${n}" ${decimalPlaces===n?'selected':''}>${n}</option>`).join('')}</select></label>${aggregationMarkup}</div>`;
+  }
+  function attachMetricDragHandlers(wrap,stateArray,rerender){
+    let dragFrom=-1;
+    wrap.querySelectorAll('.metric-config-row').forEach(row=>{
+      const handle=row.querySelector('.ticker-drag-handle');
+      handle?.addEventListener('dragstart',e=>{dragFrom=Number(row.dataset.index);row.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',row.dataset.index);});
+      handle?.addEventListener('dragend',()=>{dragFrom=-1;row.classList.remove('dragging');});
+      row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';row.classList.add('drag-over');});
+      row.addEventListener('dragleave',()=>row.classList.remove('drag-over'));
+      row.addEventListener('drop',e=>{e.preventDefault();row.classList.remove('drag-over');const from=dragFrom>=0?dragFrom:Number(e.dataTransfer.getData('text/plain'));const to=Number(row.dataset.index);if(!Number.isInteger(from)||!Number.isInteger(to)||from===to||from<0||to<0||from>=stateArray.length||to>=stateArray.length)return;const [moved]=stateArray.splice(from,1);stateArray.splice(to,0,moved);rerender();});
+    });
+  }
+  function renderTickerConfig(){
+    const wrap=el('tickerMetricList');if(!wrap)return;const cols=state.headers.length?state.headers:[];
+    wrap.replaceChildren();
+    if(!cols.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first. The ticker uses workbook columns as operands.</div>';return;}
+    state.tickerConfigDraft.forEach((m,idx)=>{
+      const derivedTitle=m.title||firstTickerOperand(m.formula)||'';
+      if(!m.title&&derivedTitle)m.title=derivedTitle;
+      const row=document.createElement('div');row.className='metric-config-row ticker-config-row';row.draggable=false;row.dataset.index=idx;
+      row.innerHTML=metricConfigHeaderHTML({kind:'ticker',idx,title:m.title})+metricConfigSettingsHTML({kind:'ticker',idx,headers:cols,formula:m.formula,numberFormat:m.numberFormat,decimalPlaces:m.decimalPlaces,aggregation:m.aggregation});
+      wrap.appendChild(row);
+    });
+    const speedInput=el('tickerSpeed');const speedValue=el('tickerSpeedValue');if(speedInput){speedInput.value=String(state.tickerConfigDraftSpeed);if(speedValue)speedValue.textContent=String(state.tickerConfigDraftSpeed);}
+    wrap.querySelectorAll('.ticker-title-input').forEach(s=>s.addEventListener('input',e=>{state.tickerConfigDraft[+e.target.dataset.index].title=e.target.value;}));
+    wrap.querySelectorAll('.ticker-formula-input').forEach(s=>{const warning=s.parentElement.querySelector('.formula-warning');updateFormulaValidation(s,warning);s.addEventListener('input',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.formula=e.target.value;if(!m.title.trim()){const derived=firstTickerOperand(m.formula);if(derived)m.title=derived;}updateFormulaValidation(e.target,warning);});});
+    wrap.querySelectorAll('.ticker-aggregation-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].aggregation=e.target.value;}));
+    wrap.querySelectorAll('.ticker-number-format-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const m=state.tickerConfigDraft[i];m.numberFormat=e.target.value;m.decimalPlaces=defaultTickerDecimals(m.numberFormat);renderTickerConfig();}));
+    wrap.querySelectorAll('.ticker-decimal-select').forEach(s=>s.addEventListener('change',e=>{state.tickerConfigDraft[+e.target.dataset.index].decimalPlaces=Number(e.target.value);}));
+    wrap.querySelectorAll('.ticker-operand-select').forEach(s=>s.addEventListener('change',e=>{const i=+e.target.dataset.index;const chosen=e.target.value;if(chosen){const m=state.tickerConfigDraft[i];const input=wrap.querySelector(`.ticker-formula-input[data-index="${i}"]`);const current=input.value.trim();input.value=current?`${current}${chosen}`:chosen;m.formula=input.value;if(!m.title.trim()){m.title=firstTickerOperand(m.formula)||chosen;const titleInput=wrap.querySelector(`.ticker-title-input[data-index="${i}"]`);if(titleInput)titleInput.value=m.title;}updateFormulaValidation(input,input.parentElement.querySelector('.formula-warning'),popupFormulaIssue);}e.target.value='';}));
+    wrap.querySelectorAll('.ticker-remove').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const i=Number(b.dataset.index);if(!Number.isInteger(i)||i<0||i>=state.tickerConfigDraft.length)return;state.tickerConfigDraft.splice(i,1);renderTickerConfig();}));
+    attachMetricDragHandlers(wrap,state.tickerConfigDraft,renderTickerConfig);
+  }
+  function validateTickerDraft(){
+    if(!state.headers.length)return 'Load a financial workbook before saving the ticker.';
+    if(!state.tickerConfigDraft.length)return 'Add at least one ticker metric.';
+    const exactHeaders=new Set(state.headers);
+    for(const [i,m] of state.tickerConfigDraft.entries()){
+      const formula=String(m.formula||'').trim();
+      if(!formula)return `Metric ${i+1} needs a formula.`;
+      const issue=formulaIssue(formula);
+      if(issue)return `Metric ${i+1}: ${issue}.`;
+      const tokens=tokenizeTicker(formula)||[];
+      for(const t of tokens){
+        if(t.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(t.value)&&!exactHeaders.has(t.value))return `Metric ${i+1} uses a column that is not present in the workbook: ${t.value}`;
+      }
+    }
+    return '';
+  }
+  function applyTickerConfig(){
+    const error=validateTickerDraft();
+    if(error){alert(error);return;}
+    state.tickerMetrics=state.tickerConfigDraft.map(normalizeTickerMetric);
+    state.tickerSpeed=Math.min(120,Math.max(50,Number(state.tickerConfigDraftSpeed)||TICKER_DEFAULT_SPEED));
+    saveTickerConfig();
+    state.tickerOffset=0;
+    renderTicker({rebuild:true});
+    el('tickerDialog').close();
+  }
+  function resetTickerDefaults(){
+    state.tickerConfigDraft=(state.headers.length?tickerDefaultMetrics():TICKER_DEFAULTS).map(normalizeTickerMetric);
+    state.tickerConfigDraftSpeed=TICKER_DEFAULT_SPEED;
+    renderTickerConfig();
+  }
+  function tickerToggle(){
+    state.tickerPlaying=!state.tickerPlaying;
+    state.tickerLastTime=null;
+    const vp=el('tickerViewport');
+    if(vp)vp.classList.toggle('paused',!state.tickerPlaying);
+    if(vp)vp.setAttribute('aria-label',state.tickerPlaying?'Ticker metrics — click to pause':'Ticker metrics — click to resume; drag while paused');
+  }
+  function loadHelpConfig(){
+    try{
+      const raw=localStorage.getItem(HELP_STORAGE_KEY);
+      if(raw){
+        const parsed=JSON.parse(raw);
+        state.helpConfig={...HELP_DEFAULTS,...(parsed&&typeof parsed==='object'?parsed:{})};
+      }else state.helpConfig={...HELP_DEFAULTS};
+    }catch(_){state.helpConfig={...HELP_DEFAULTS};}
+  }
+  function saveHelpConfig(){try{localStorage.setItem(HELP_STORAGE_KEY,JSON.stringify(state.helpConfig));}catch(_){} applyAllHelpTooltips();}
+  function helpButtonKey(btn){
+    if(btn.dataset.helpKey) return btn.dataset.helpKey;
+    if(btn.id==='tickerConfigBtn') return 'ticker-config';
+    const text=(btn.innerText||btn.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().toLowerCase();
+    const id=btn.id||'';
+    const preferred={
+      clearFileBtn:'clear-financial',drawCircleBtn:'circle',drawRectangleBtn:'box',clearCensusShapeBtn:'clear-census',
+      filterBtn:'filter-config',clearFiltersBtn:'filter-clear',markerAnimationConfigureBtn:'animate-when',popupConfigBtn:'popup-config',
+      subjectsBtn:'subjects-config',groupsBtn:'groups-config',distributionBtn:'distribution-config',distributionBtn2:'distribution2-config',
+      selectedStoresBtn:'selected-config',exportSelectedBtn:'selected-export',exportSelectedDABtn:'selected-da-export',tickerConfigBtn:'ticker-config',helpConfigBtn:'help-config',
+      markerColorRed:'marker-red',searchGoBtn:'go-search',storeNumberBtn:'store-jump'
+    };
+    return preferred[id] || id || `button-${text.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}`;
+  }
+  function helpButtonLabel(btn){
+    const label=(btn.innerText||btn.getAttribute('aria-label')||btn.getAttribute('title')||'Button').replace(/\s+/g,' ').trim();
+    return label || 'Button';
+  }
+  function getHelpButtons(){
+    return [...document.querySelectorAll('.left-panel button,.left-panel .file-button,.right-panel button,#tickerConfigBtn')];
+  }
+  let helpTooltip=null,helpHideTimer=null;
+  function hideHelpTooltip(){if(helpTooltip){helpTooltip.remove();helpTooltip=null;}clearTimeout(helpHideTimer);}
+  function showHelpTooltip(btn){
+    const key=helpButtonKey(btn); const message=String(state.helpConfig?.[key]||'').trim();
+    if(!message) return;
+    hideHelpTooltip();
+    const tip=document.createElement('div'); tip.className='help-hover-tooltip'; tip.textContent=message; tip.setAttribute('role','tooltip');
+    document.body.appendChild(tip); helpTooltip=tip;
+    const r=btn.getBoundingClientRect(); const pad=10; const gap=8;
+    let left=r.left; let top=r.bottom+gap;
+    const width=Math.min(300,Math.max(220,document.documentElement.clientWidth-2*pad));
+    tip.style.width=width+'px';
+    const t=tip.getBoundingClientRect();
+    if(left+t.width>window.innerWidth-pad) left=window.innerWidth-pad-t.width;
+    if(left<pad) left=pad;
+    if(top+t.height>window.innerHeight-pad) top=r.top-gap-t.height;
+    if(top<pad) top=pad;
+    tip.style.left=Math.round(left)+'px'; tip.style.top=Math.round(top)+'px';
+  }
+  function applyHelpTooltipToButton(btn){
+    const key=helpButtonKey(btn); btn.dataset.helpKey=key;
+    btn.removeEventListener('mouseenter',btn._helpEnter); btn.removeEventListener('mouseleave',btn._helpLeave); btn.removeEventListener('focus',btn._helpFocus); btn.removeEventListener('blur',btn._helpBlur);
+    btn._helpEnter=()=>showHelpTooltip(btn); btn._helpLeave=()=>{helpHideTimer=setTimeout(hideHelpTooltip,80);}; btn._helpFocus=()=>showHelpTooltip(btn); btn._helpBlur=hideHelpTooltip;
+    btn.addEventListener('mouseenter',btn._helpEnter); btn.addEventListener('mouseleave',btn._helpLeave); btn.addEventListener('focus',btn._helpFocus); btn.addEventListener('blur',btn._helpBlur);
+  }
+  function applyAllHelpTooltips(){getHelpButtons().forEach(applyHelpTooltipToButton);}
+  function renderHelpConfig(){
+    const list=el('helpConfigList'); if(!list)return;
+    list.innerHTML='';
+    const seen=new Set();
+    getHelpButtons().forEach(btn=>{
+      const key=helpButtonKey(btn); if(seen.has(key))return; seen.add(key);
+      const row=document.createElement('label'); row.className='help-config-row';
+      const title=document.createElement('span'); title.className='help-config-label'; title.textContent=helpButtonLabel(btn);
+      const input=document.createElement('textarea'); input.rows=2; input.maxLength=220; input.value=state.helpConfig?.[key]||''; input.dataset.helpKey=key; input.placeholder='One or two short sentences.';
+      row.append(title,input); list.appendChild(row);
+    });
+  }
+  function openHelpConfig(){renderHelpConfig();el('helpConfigDialog').showModal();}
+  function applyHelpConfig(){
+    document.querySelectorAll('#helpConfigList textarea[data-help-key]').forEach(input=>{state.helpConfig[input.dataset.helpKey]=input.value.trim();});
+    saveHelpConfig(); el('helpConfigDialog').close();
+  }
+
+  function setupTicker(){
+    loadTickerConfig();
+    renderTicker();
+    state.tickerAnimationFrame=requestAnimationFrame(tickerAnimate);
+    const vp=el('tickerViewport');
+    if(!vp)return;
+    vp.setAttribute('aria-label','Ticker metrics — click to pause');
+    let suppressNextClick=false;
+    vp.addEventListener('pointerdown',e=>{
+      if(state.tickerPlaying)return;
+      state.tickerPointerId=e.pointerId;
+      state.tickerDragStart={x:e.clientX,offset:state.tickerOffset,moved:false};
+      try{vp.setPointerCapture(e.pointerId);}catch(_){ }
+    });
+    vp.addEventListener('pointermove',e=>{
+      if(state.tickerPointerId!==e.pointerId||!state.tickerDragStart)return;
+      const dx=e.clientX-state.tickerDragStart.x;
+      if(Math.abs(dx)>3)state.tickerDragStart.moved=true;
+      if(!state.tickerDragStart.moved)return;
+      const width=state.tickerLoopWidth;
+      state.tickerOffset=width?((state.tickerDragStart.offset-dx)%width+width)%width:state.tickerDragStart.offset-dx;
+      el('tickerTrack').style.transform=`translate3d(${-state.tickerOffset}px,0,0)`;
+    });
+    vp.addEventListener('pointerup',e=>{
+      if(state.tickerPointerId!==e.pointerId)return;
+      const moved=!!state.tickerDragStart.moved;
+      state.tickerPointerId=null;
+      state.tickerDragStart=null;
+      if(moved)suppressNextClick=true;
+      try{vp.releasePointerCapture(e.pointerId);}catch(_){ }
+      if(moved)setTimeout(()=>{suppressNextClick=false;},250);
+    });
+    vp.addEventListener('pointercancel',e=>{
+      if(state.tickerPointerId===e.pointerId){state.tickerPointerId=null;state.tickerDragStart=null;}
+    });
+    vp.addEventListener('click',e=>{
+      if(suppressNextClick){e.preventDefault();e.stopPropagation();return;}
+      tickerToggle();
+    });
+    el('tickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openTickerConfig();});
+    el('tickerAddMetric').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.tickerConfigDraft.push({title:'',formula:'',aggregation:'sum',numberFormat:'auto',decimalPlaces:0});renderTickerConfig();});
+    el('tickerSpeed').addEventListener('input',e=>{state.tickerConfigDraftSpeed=Number(e.target.value)||TICKER_DEFAULT_SPEED;el('tickerSpeedValue').textContent=`${state.tickerConfigDraftSpeed}`;});
+    el('tickerReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetTickerDefaults();});
+    el('tickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyTickerConfig();});
+  }
+  el('popupConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupConfig();});
+  el('popupDialog')?.querySelector('.dialog-header .icon-btn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();el('popupDialog')?.close();});
+  el('popupTickerConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPopupTickerConfig();});
+  el('popupTickerApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupTickerConfig();});
+  document.addEventListener('change',e=>{
+    if(!e.target.matches('.popup-ticker-option-check'))return;
+    const formula=String(e.target.dataset.formula||'').trim();if(!formula)return;
+    const list=state.popupTickerDraft||[];
+    if(e.target.checked){
+      if(!list.some(m=>String(m.formula||'').trim()===formula))list.push({formula,title:formula});
+    }else{
+      state.popupTickerDraft=list.filter(m=>String(m.formula||'').trim()!==formula);
+    }
+    state.popupTickerDraft=list;
+  });
+  el('popupReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();resetPopupDefaults();});
+  el('popupApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyPopupConfig();});
+  // ---------- Subjects configuration ----------
+  function ensureDraftTable(){if(!state.subjectConfigDraftTable)state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));return state.subjectConfigDraftTable;}
+  function selectedSubjectCell(){const t=ensureDraftTable();state.subjectSelectedCell=state.subjectSelectedCell||{r:0,c:0};const r=Math.max(0,Math.min(t.rows-1,Number(state.subjectSelectedCell.r)||0));const c=Math.max(0,Math.min(t.cols-1,Number(state.subjectSelectedCell.c)||0));state.subjectSelectedCell={r,c};return {t,r,c,cell:t.cells[r][c]};}
+  function subjectCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
+  function syncSubjectCellEditor(){const {cell,r,c}=selectedSubjectCell();el('subjectSelectedCellLabel').textContent=subjectCellLabel(r,c);el('subjectCellType').value=cell.type;const select=el('subjectCellColumn');select.innerHTML='<option value="">Choose column</option><optgroup label="Workbook columns">'+(state.headers||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup><optgroup label="Census virtual fields">'+subjectVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup>';if(cell.type==='value'&&cell.content)select.value=cell.content;else if(cell.type==='formula'){const first=firstSubjectOperand(cell.content);if(first)select.value=first;}el('subjectCellExpression').value=cell.content;el('subjectCellNumberFormat').value=cell.numberFormat;el('subjectCellDecimals').value=String(cell.decimalPlaces);el('subjectCellAggregation').value=cell.aggregation;const show=cell.type!=='text';el('subjectChooseColumnWrap').style.display=show?'grid':'none';['subjectCellNumberFormat','subjectCellDecimals','subjectCellAggregation'].forEach(id=>{const node=el(id);if(node)node.closest('label').style.display=show?'grid':'none';});const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':subjectFormulaIssue(String(cell.content||''));warning.textContent=issue||'';warning.hidden=!issue;}
+  function bindSubjectEditor(){el('subjectCellType').addEventListener('change',()=>{const {cell}=selectedSubjectCell();cell.type=el('subjectCellType').value;syncSubjectCellEditor();});el('subjectCellExpression').addEventListener('input',e=>{const {cell}=selectedSubjectCell();cell.content=e.target.value;const warning=el('subjectCellFormulaWarning');const issue=cell.type==='text'?'':subjectFormulaIssue(cell.content);warning.textContent=issue||'';warning.hidden=!issue;});el('subjectCellColumn').addEventListener('change',e=>{const chosen=e.target.value;if(!chosen)return;const {cell}=selectedSubjectCell();const current=String(cell.content||'').trim();if(cell.type==='value')cell.content=chosen;else if(cell.type==='formula')cell.content=current?`${current}${chosen}`:chosen;else{cell.type='value';cell.content=chosen;}syncSubjectCellEditor();});el('subjectCellNumberFormat').addEventListener('change',e=>{const {cell}=selectedSubjectCell();cell.numberFormat=e.target.value;cell.decimalPlaces=defaultTickerDecimals(cell.numberFormat);syncSubjectCellEditor();});el('subjectCellDecimals').addEventListener('change',e=>{selectedSubjectCell().cell.decimalPlaces=Number(e.target.value)||0;});el('subjectCellAggregation').addEventListener('change',e=>{selectedSubjectCell().cell.aggregation=e.target.value;});}
+  function focusSubjectCell(r,c,{scroll=true}={}){const t=ensureDraftTable();if(t.rows<1||t.cols<1)return;const nextR=Math.max(0,Math.min(t.rows-1,r));const nextC=Math.max(0,Math.min(t.cols-1,c));state.subjectSelectedCell={r:nextR,c:nextC};syncSubjectCellEditor();renderSubjectCanvas();const canvas=el('subjectCanvas');const cell=canvas?.querySelector(`.subject-canvas-cell[data-row="${nextR}"][data-col="${nextC}"]`);if(scroll)cell?.scrollIntoView({block:'nearest',inline:'nearest'});cell?.focus({preventScroll:true});}
+  function handleSubjectCanvasKeydown(e){const {r,c}=selectedSubjectCell();const t=ensureDraftTable();let nr=r,nc=c,moved=false;if(e.key==='ArrowUp'){nr=Math.max(0,r-1);moved=nr!==r;}else if(e.key==='ArrowDown'){nr=Math.min(t.rows-1,r+1);moved=nr!==r;}else if(e.key==='ArrowLeft'){nc=Math.max(0,c-1);moved=nc!==c;}else if(e.key==='ArrowRight'){nc=Math.min(t.cols-1,c+1);moved=nc!==c;}else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();syncSubjectCellEditor();const input=el('subjectCellExpression');if(input){input.focus();const pos=input.value.length;try{input.setSelectionRange(pos,pos);}catch(_){}}return;}else{return;}e.preventDefault();e.stopPropagation();if(moved)focusSubjectCell(nr,nc);}
+  function renderSubjectCanvas(){const canvas=el('subjectCanvas');if(!canvas)return;const t=ensureDraftTable();canvas.style.setProperty('--subject-cols',t.cols);canvas.innerHTML='';for(let r=0;r<t.rows;r++){const row=document.createElement('div');row.className='subject-canvas-row';for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const div=document.createElement('button');div.type='button';div.className='subject-canvas-cell';div.dataset.row=r;div.dataset.col=c;div.setAttribute('role','gridcell');div.tabIndex=state.subjectSelectedCell?.r===r&&state.subjectSelectedCell?.c===c?0:-1;div.classList.toggle('selected',state.subjectSelectedCell?.r===r&&state.subjectSelectedCell?.c===c);const text=String(cell.content||'').trim();div.innerHTML=cell.type==='formula'&&text?`<span class="subject-canvas-formula-fragment">${esc(subjectCellFormulaFragment(cell))}</span>`:esc(text);if(cell.type==='formula'&&text)div.title=text;div.addEventListener('click',()=>{focusSubjectCell(r,c);});div.addEventListener('focus',()=>{if(state.subjectSelectedCell?.r!==r||state.subjectSelectedCell?.c!==c){state.subjectSelectedCell={r,c};syncSubjectCellEditor();}});row.appendChild(div);}canvas.appendChild(row);}}
+  function addSubjectRow(){const t=ensureDraftTable();t.cells.push(Array.from({length:t.cols},()=>blankSubjectCell()));t.rows++;state.subjectSelectedCell={r:t.rows-1,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
+  function addSubjectColumn(){const t=ensureDraftTable();for(const row of t.cells)row.push(blankSubjectCell());t.cols++;state.subjectSelectedCell={r:0,c:t.cols-1};renderSubjectCanvas();syncSubjectCellEditor();}
+  function openSubjectConfig(){if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring Subjects.');return;}state.subjectConfigDraftTable=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();el('subjectsDialog').showModal();}
+  function validateSubjectTableDraft(){const t=ensureDraftTable();const exactHeaders=new Set(state.headers);for(let r=0;r<t.rows;r++)for(let c=0;c<t.cols;c++){const cell=normalizeSubjectCell(t.cells[r][c]);const formula=String(cell.content||'').trim();if(!formula||cell.type==='text')continue;const issue=subjectFormulaIssue(formula);if(issue)return `Cell ${subjectCellLabel(r,c)}: ${issue}.`;for(const tok of subjectFormulaTokens(formula)||[]){if(tok.type==='operand'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(tok.value)&&!exactHeaders.has(tok.value)&&!isSubjectVirtualOperand(tok.value))return `Cell ${subjectCellLabel(r,c)} uses a column that is not present in the workbook: ${tok.value}`;}}return '';}
+  function applySubjectConfig(){state.subjectTable=sanitizeSubjectTableForHeaders(ensureDraftTable(),state.headers||[]);state.subjects=subjectTableToMetrics(state.subjectTable);saveSubjectConfig();refreshConfigUI();updateSubjects();updateGroups();updateDistribution();refreshMarkerStyles();renderSubjectCanvas();syncSubjectCellEditor();}
+  function resetSubjectDefaults(){state.subjectConfigDraftTable=canonicalSubjectDefaultTable();state.subjectSelectedCell={r:0,c:0};renderSubjectCanvas();syncSubjectCellEditor();}
+  async function exportSubjectsTable(){
+    if(typeof XLSX==='undefined'){alert('Excel export library did not load.');return;}
+    const t=normalizeSubjectTable(state.subjectTable||loadSubjectTableForHeaders(state.headers||[]));const rows=state.selectedRows||[];
+    const data=t.cells.map(row=>row.map(cell=>subjectTableCellDisplay(cell,rows)));
+    if(!data.some(row=>row.some(v=>String(v||'').trim()!==''))){alert('There is no Subject table content to export.');return;}
+    const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,'Subjects');const filename='subjects.xls';
+    if(typeof window.showSaveFilePicker==='function'){
+      try{const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Excel 97-2003 workbook',accept:{'application/vnd.ms-excel':['.xls']}}]});const bytes=XLSX.write(wb,{bookType:'biff8',type:'array'});const writable=await handle.createWritable();await writable.write(bytes);await writable.close();return;}catch(err){if(err?.name==='AbortError')return;}
+    }
+    XLSX.writeFile(wb,filename,{bookType:'biff8'});
+  }
+  bindSubjectEditor();
+  el('subjectCommit').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applySubjectConfig();});
+  el('subjectClose').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();el('subjectsDialog').close();});
+  el('subjectAddColumnZone').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();addSubjectColumn();});
+  el('subjectAddRowZone').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();addSubjectRow();});
+  el('subjectCanvas').addEventListener('keydown',handleSubjectCanvasKeydown);
+  el('exportSubjectsBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();exportSubjectsTable();});
+  el('subjectsBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openSubjectConfig();});
+  // ---------- Popup configuration ----------
+  const POPUP_TABS_STORAGE_KEY='storeExplorer.popupTabs.v1';
+  const POPUP_TAB_ROWS_DEFAULT=5, POPUP_TAB_COLS_DEFAULT=3;
+  let popupGridRowSeq=0;
+  function makePopupGridRowId(){popupGridRowSeq+=1;return `popup-row-${Date.now().toString(36)}-${popupGridRowSeq}`;}
+  function blankPopupGridCell(){return {type:'text',content:'',numberFormat:'auto',decimalPlaces:0,aggregation:'sum',quartile:false};}
+  function makePopupGrid(rows=POPUP_TAB_ROWS_DEFAULT,cols=POPUP_TAB_COLS_DEFAULT){return {rows,cols,cells:Array.from({length:rows},()=>Array.from({length:cols},()=>blankPopupGridCell())),rowIds:Array.from({length:rows},()=>makePopupGridRowId()),quartileRows:Array.from({length:rows},()=>false)};}
+  function normalizePopupGridCell(c){const type=['text','value','formula','colrow'].includes(c?.type)?c.type:'text';const nf=['auto','number','currency','percentage'].includes(c?.numberFormat)?c.numberFormat:'auto';const d=Number(c?.decimalPlaces);return {type,content:String(c?.content??''),numberFormat:nf,decimalPlaces:Number.isInteger(d)&&d>=0&&d<=4?d:defaultTickerDecimals(nf),aggregation:['sum','average','median','count'].includes(c?.aggregation)?c.aggregation:'sum',quartile:!!c?.quartile};}
+  function normalizePopupGrid(g){const rows=Math.max(1,Math.min(30,Number(g?.rows)||POPUP_TAB_ROWS_DEFAULT)),cols=Math.max(1,Math.min(20,Number(g?.cols)||POPUP_TAB_COLS_DEFAULT));const hasRowFlags=Array.isArray(g?.quartileRows);const rowIds=Array.from({length:rows},(_,r)=>String(g?.rowIds?.[r]||makePopupGridRowId()));const quartileRows=Array.from({length:rows},(_,r)=>hasRowFlags?!!g.quartileRows[r]:Array.isArray(g?.cells?.[r])&&g.cells[r].some(c=>!!c?.quartile));return {rows,cols,cells:Array.from({length:rows},(_,r)=>Array.from({length:cols},(_,c)=>normalizePopupGridCell(g?.cells?.[r]?.[c]))),rowIds,quartileRows};}
+  function popupTabDefaultConfig(i){
+    const grid=makePopupGrid();
+    if(i===0){
+      const fields=(state.popupConfig||[]).map(normalizePopupField);
+      const wanted=Math.max(grid.rows,fields.length+popupVirtualNames().length);
+      while(grid.rows<wanted){grid.cells.push(Array.from({length:grid.cols},()=>blankPopupGridCell()));grid.rowIds.push(makePopupGridRowId());grid.quartileRows.push(false);grid.rows++;}
+      fields.forEach((f,r)=>{
+        grid.cells[r][0]={type:'text',content:f.title||f.formula};
+        grid.cells[r][1]={type:'value',content:f.formula,numberFormat:f.numberFormat,decimalPlaces:f.decimalPlaces,aggregation:'sum',quartile:false};
+        grid.quartileRows[r]=!!f.quartile;
+      });
+      popupVirtualNames().forEach((v,j)=>{
+        const r=fields.length+j;
+        grid.cells[r][0]={type:'text',content:v};
+        grid.cells[r][1]={type:'value',content:v,numberFormat:'number',decimalPlaces:0,aggregation:'sum',quartile:false};
+      });
+    }
+    return {name:state.primaryTabs?.[i]?.name||`Tab ${i+1}`,filterOnProfile:true,grid};
+  }
+  function loadPopupTabConfigs(){
+    let raw=null;try{raw=JSON.parse(localStorage.getItem(POPUP_TABS_STORAGE_KEY)||'null');}catch(_){}
+    const tabs=state.primaryTabs||[];
+    state.popupTabConfigs=tabs.map((t,i)=>{
+      const fallback=popupTabDefaultConfig(i),saved=Array.isArray(raw)?raw[i]:null;
+      return {name:t.name||`Tab ${i+1}`,filterOnProfile:typeof saved?.filterOnProfile==='boolean'?saved.filterOnProfile:fallback.filterOnProfile,filters:Array.isArray(saved?.filters)?saved.filters.filter(x=>x&&x.column).map(x=>({column:x.column,value:String(x.value??''),operator:['=','<','<=','>','>='].includes(x.operator)?x.operator:'=',scope:x.scope==='row'&&normalizePopupGrid(saved?.grid||fallback.grid).rowIds.includes(x.rowId)?'row':'all',rowId:x.scope==='row'?x.rowId:''})):[],grid:normalizePopupGrid(saved?.grid||fallback.grid)};
+    });
+    state.popupTabDrafts=state.popupTabConfigs.map(x=>({name:x.name,filterOnProfile:x.filterOnProfile,filters:x.filters.map(f=>({...f})),grid:normalizePopupGrid(x.grid)}));
+  }
+  function savePopupTabConfigs(){try{localStorage.setItem(POPUP_TABS_STORAGE_KEY,JSON.stringify(state.popupTabConfigs||[]));}catch(_){} }
+  function addPopupTabFilter(i){const d=state.popupTabDrafts?.[i];if(!d)return;d.filters.push({column:'',value:'',operator:'=',scope:'all',rowId:''});renderPopupTabConfigSections();}
+  function removePopupTabFilter(i,idx){const d=state.popupTabDrafts?.[i];if(!d)return;d.filters.splice(idx,1);renderPopupTabConfigSections();}
+  function popupTabSelectedCell(i){const d=state.popupTabDrafts?.[i];if(!d)return null;const r=Math.max(0,Math.min(d.grid.rows-1,state.popupTabSelected?.tab===i?state.popupTabSelected.r:0)),c=Math.max(0,Math.min(d.grid.cols-1,state.popupTabSelected?.tab===i?state.popupTabSelected.c:0));state.popupTabSelected={tab:i,r,c};return {draft:d,cell:d.grid.cells[r][c],r,c};}
+  function popupCellLabel(r,c){let n=c+1,s='';while(n){const rem=(n-1)%26;s=String.fromCharCode(65+rem)+s;n=Math.floor((n-1)/26);}return `${s}${r+1}`;}
+  function popupTabSourceOptions(i){const t=state.primaryTabs?.[i],hs=t?.headers||[];let html='<option value="">Choose column</option><optgroup label="Worksheet">';html+=hs.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')+'</optgroup>';if(i===0)html+=`<optgroup label="Census virtual fields">${popupVirtualNames().map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}</optgroup>`;return html;}
+  function popupTabRenderEditor(section,i){const sel=popupTabSelectedCell(i);if(!sel)return;const {cell,r,c}=sel;section.querySelector('[data-role="cell-label"]').textContent=popupCellLabel(r,c);section.querySelector('[data-role="cell-type"]').value=cell.type;const col=section.querySelector('[data-role="cell-column"]');const colWrap=section.querySelector('[data-role="cell-column-wrap"]');const expr=section.querySelector('[data-role="cell-expression"]');const fmt=section.querySelector('[data-role="cell-format"]');const dec=section.querySelector('[data-role="cell-decimals"]');const agg=section.querySelector('[data-role="cell-aggregation"]');col.innerHTML=popupTabSourceOptions(i);col.value=['text','colrow'].includes(cell.type)?'':cell.content;expr.value=cell.content;expr.placeholder=cell.type==='colrow'?'A1 / B5':'Enter text, value, or formula';fmt.value=cell.numberFormat;dec.value=String(cell.decimalPlaces);agg.value=cell.aggregation;const locked=cell.type==='text',isColRow=cell.type==='colrow';col.disabled=locked||isColRow;fmt.disabled=locked;dec.disabled=locked;agg.disabled=locked||isColRow;[col,fmt,dec,agg].forEach(x=>x.closest('label')?.classList.toggle('is-disabled',x.disabled));colWrap.style.display=isColRow?'none':'flex';}
+  function popupTabRenderGrid(section,i){
+    const d=state.popupTabDrafts?.[i];if(!d)return;const canvas=section.querySelector('.popup-tab-canvas');const rail=section.querySelector('.popup-tab-quartile-rail');canvas.style.setProperty('--popup-cols',d.grid.cols);canvas.replaceChildren();if(rail)rail.replaceChildren();
+    const rowRail=section.querySelector('.popup-tab-row-number-rail');if(rowRail){rowRail.replaceChildren();const head=document.createElement('div');head.className='popup-tab-row-number-head';head.setAttribute('aria-hidden','true');rowRail.appendChild(head);for(let r=0;r<d.grid.rows;r++){const n=document.createElement('div');n.className='popup-tab-row-number';n.textContent=String(r+1);rowRail.appendChild(n);}}
+    const colHead=section.querySelector('.popup-tab-col-letter-head');if(colHead){colHead.replaceChildren();for(const letter of popupColLetters(d.grid.cols)){const n=document.createElement('div');n.className='popup-tab-col-letter';n.textContent=letter;colHead.appendChild(n);}}
+    const anchor=state.popupTabSelectionAnchor?.tab===i?state.popupTabSelectionAnchor:{tab:i,r:0,c:0};const selected=state.popupTabSelected?.tab===i?state.popupTabSelected:{tab:i,r:0,c:0};const minR=Math.min(anchor.r,selected.r),maxR=Math.max(anchor.r,selected.r),minC=Math.min(anchor.c,selected.c),maxC=Math.max(anchor.c,selected.c);
+    if(i===0&&rail){const head=document.createElement('div');head.className='popup-tab-quartile-head';head.textContent='Quartile';rail.appendChild(head);for(let r=0;r<d.grid.rows;r++){const qLabel=document.createElement('label');qLabel.className='popup-row-quartile-toggle';qLabel.title='Use column 2 as a quartile basis';const q=document.createElement('input');q.type='checkbox';q.checked=!!d.grid.quartileRows?.[r];q.setAttribute('aria-label',`Include row ${r+1} in quartiles`);q.addEventListener('click',e=>e.stopPropagation());q.addEventListener('change',()=>{if(!Array.isArray(d.grid.quartileRows))d.grid.quartileRows=Array.from({length:d.grid.rows},()=>false);d.grid.quartileRows[r]=!!q.checked;});qLabel.appendChild(q);rail.appendChild(qLabel);}}
+    for(let r=0;r<d.grid.rows;r++){const row=document.createElement('div');row.className='subject-canvas-row';for(let c=0;c<d.grid.cols;c++){const cell=normalizePopupGridCell(d.grid.cells[r][c]),b=document.createElement('button');b.type='button';b.className='subject-canvas-cell';b.dataset.row=r;b.dataset.col=c;b.tabIndex=(selected.r===r&&selected.c===c)?0:-1;b.classList.toggle('selected',selected.r===r&&selected.c===c);b.classList.toggle('range-selected',r>=minR&&r<=maxR&&c>=minC&&c<=maxC);b.classList.toggle('popup-grid-value-cell',cell.type==='value');b.classList.toggle('popup-grid-formula-cell',cell.type==='formula'||cell.type==='colrow');b.textContent=cell.content||'';b.title=(cell.type==='formula'||cell.type==='colrow')?cell.content:'';
+      b.addEventListener('click',e=>{if(e.shiftKey&&state.popupTabSelectionAnchor?.tab===i){state.popupTabSelected={tab:i,r,c};}else{state.popupTabSelected={tab:i,r,c};state.popupTabSelectionAnchor={tab:i,r,c};}popupTabRenderGrid(section,i);popupTabRenderEditor(section,i);b.focus({preventScroll:true});});
+      b.addEventListener('keydown',e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();let nr=r,nc=c;if(e.key==='ArrowUp')nr=Math.max(0,r-1);if(e.key==='ArrowDown')nr=Math.min(d.grid.rows-1,r+1);if(e.key==='ArrowLeft')nc=Math.max(0,c-1);if(e.key==='ArrowRight')nc=Math.min(d.grid.cols-1,c+1);if(e.shiftKey&&state.popupTabSelectionAnchor?.tab===i)state.popupTabSelected={tab:i,r:nr,c:nc};else{state.popupTabSelected={tab:i,r:nr,c:nc};state.popupTabSelectionAnchor={tab:i,r:nr,c:nc};}popupTabRenderGrid(section,i);popupTabRenderEditor(section,i);requestAnimationFrame(()=>section.querySelector(`.subject-canvas-cell[data-row="${nr}"][data-col="${nc}"]`)?.focus({preventScroll:true}));}else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();for(let rr=minR;rr<=maxR;rr++)for(let cc=minC;cc<=maxC;cc++)d.grid.cells[rr][cc]=blankPopupGridCell();state.popupTabSelected={tab:i,r:minR,c:minC};state.popupTabSelectionAnchor={tab:i,r:minR,c:minC};popupTabRenderGrid(section,i);popupTabRenderEditor(section,i);}});
+      row.appendChild(b);}canvas.appendChild(row);}popupTabRenderEditor(section,i);
+  }
+  function popupTabGridToLegacyFields(){const d=state.popupTabDrafts?.[0];if(!d)return [];const out=[];for(let r=0;r<d.grid.rows;r++){const row=d.grid.cells[r]||[];const basis=normalizePopupGridCell(row[1]);const useQuartile=!!d.grid.quartileRows?.[r];for(let c=0;c<row.length;c++){const cell=normalizePopupGridCell(row[c]),f=String(cell.content||'').trim();if(!f||cell.type==='text'||cell.type==='colrow')continue;const prev=row[c-1];const title=prev&&normalizePopupGridCell(prev).type==='text'&&String(prev.content||'').trim()?String(prev.content).trim():f;out.push(normalizePopupField({formula:f,title,numberFormat:cell.numberFormat,decimalPlaces:cell.decimalPlaces,quartile:c===1&&useQuartile&&basis.type!=='text'}));}}return out;}
+  function renderPopupTabConfigSections(){
+    const host=el('popupTabConfigSections');if(!host)return;host.replaceChildren();
+    (state.popupTabDrafts||[]).forEach((tab,i)=>{
+      const section=document.createElement('section');section.className=`popup-tab-config-box ${i%2?'odd':'even'}`;section.dataset.tab=i;
+      const gridRows=normalizePopupGrid(tab.grid).rows,gridRowIds=normalizePopupGrid(tab.grid).rowIds||[];const filterRows=(tab.filters||[]).map((f,idx)=>{const scope=f.scope==='row'&&gridRowIds.includes(f.rowId)?'row':'all';const scopeOptions=[`<option value="all" ${scope==='all'?'selected':''}>All rows</option>`,...gridRowIds.map((id,r)=>`<option value="${esc(id)}" ${scope==='row'&&f.rowId===id?'selected':''}>Row ${r+1}</option>`)];const operator=['=','<','<=','>','>='].includes(f.operator)?f.operator:'=';return `<div class="popup-tab-filter-row"><select class="popup-tab-filter-scope" data-filter-scope="${idx}">${scopeOptions.join('')}</select><select data-filter-column="${idx}"><option value="">Choose column</option>${(state.primaryTabs?.[i]?.headers||[]).map(h=>`<option value="${esc(h)}" ${f.column===h?'selected':''}>${esc(h)}</option>`).join('')}</select><select class="popup-tab-filter-operator" data-filter-operator="${idx}">${['=','<','<=','>','>='].map(op=>`<option value="${op}" ${operator===op?'selected':''}>${op}</option>`).join('')}</select><input type="text" data-filter-value="${idx}" value="${esc(f.value||'')}" placeholder="Filter value"><button type="button" class="secondary" data-filter-remove="${idx}">×</button></div>`;}).join('');
+      section.innerHTML=`<div class="popup-tab-config-head"><div><strong>Tab: ${esc(tab.name)}</strong><span class="small muted">${i===0?'Primary store data':'Additional worksheet'}</span></div><label class="popup-marker-filter"><input type="checkbox" data-profile-filter="1" ${tab.filterOnProfile?'checked':''}> Filter on marker store profile#</label></div>${i>0?`<div class="popup-tab-filters"><div class="popup-tab-subtitle">Column filters - AND together</div><div class="popup-tab-filter-head"><span>Apply to</span><span>Column</span><span>Operator</span><span>Value</span><span aria-hidden="true"></span></div>${filterRows}<button type="button" class="secondary" data-filter-add="1">+ Add filter</button></div>`:''}<div class="subject-cell-editor popup-grid-editor"><div class="subject-cell-editor-title-row"><div><strong>Edit cell</strong> <span data-role="cell-label" class="small muted">A1</span></div>${i===0?'<div class="small muted">Tab 1 only: value/formula cells may be included in quartiles.</div>':''}</div><div class="subject-cell-editor-grid"><label>Type<select data-role="cell-type"><option value="text">Text</option><option value="value">Value</option><option value="formula">Formula</option><option value="colrow">Col / Row</option></select></label><label data-role="cell-column-wrap">Choose column<select data-role="cell-column"></select></label><label class="subject-cell-expression-field">Value / Formula<input data-role="cell-expression" type="text" autocomplete="off" placeholder="Enter text, value, or formula"></label><label>Number format<select data-role="cell-format"><option value="auto">Auto</option><option value="number">Number</option><option value="currency">Currency</option><option value="percentage">Percentage</option></select></label><label>Decimals<select data-role="cell-decimals"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label><label>Aggregation<select data-role="cell-aggregation"><option value="sum">Sum</option><option value="average">Average</option><option value="median">Median</option><option value="count">Count</option></select></label></div><div class="subject-table-edit-actions"><button type="button" class="subject-canvas-add-zone" data-add-row="1">＋ Add row</button><button type="button" class="subject-canvas-add-zone" data-add-col="1">＋ Add column</button><button type="button" class="subject-canvas-add-zone popup-grid-clear-btn" data-clear-selection="1">Clear</button></div></div><div class="subject-canvas-wrap"><div class="subject-canvas-title">Configured output grid (appears in popup)</div><div class="subject-canvas-scroll"><div class="popup-tab-grid-surface"><div class="popup-tab-row-number-rail" aria-hidden="true"></div><div class="popup-tab-quartile-rail${i===0?'':' is-hidden'}" aria-hidden="${i===0?'false':'true'}"></div><div class="popup-tab-grid-data"><div class="popup-tab-col-letter-head" aria-hidden="true"></div><div class="subject-canvas popup-tab-canvas" role="grid"></div></div></div></div></div>`;
+      host.appendChild(section);popupTabRenderGrid(section,i);
+      section.querySelector('[data-profile-filter]').addEventListener('change',e=>state.popupTabDrafts[i].filterOnProfile=!!e.target.checked);
+      section.querySelector('[data-filter-add]')?.addEventListener('click',()=>{state.popupTabDrafts[i].filters.push({column:'',value:'',operator:'=',scope:'all',rowId:''});renderPopupTabConfigSections();});
+      section.querySelectorAll('[data-filter-scope]').forEach(n=>n.addEventListener('change',e=>{const f=state.popupTabDrafts[i].filters[Number(e.target.dataset.filterScope)];if(!f)return;const value=e.target.value;f.scope=value==='all'?'all':'row';f.rowId=value==='all'?'':value;}));
+      section.querySelectorAll('[data-filter-column]').forEach(n=>n.addEventListener('change',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterColumn)].column=e.target.value));
+      section.querySelectorAll('[data-filter-operator]').forEach(n=>n.addEventListener('change',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterOperator)].operator=e.target.value));
+      section.querySelectorAll('[data-filter-value]').forEach(n=>n.addEventListener('input',e=>state.popupTabDrafts[i].filters[Number(e.target.dataset.filterValue)].value=e.target.value));
+      section.querySelectorAll('[data-filter-remove]').forEach(n=>n.addEventListener('click',()=>removePopupTabFilter(i,Number(n.dataset.filterRemove))));
+      section.querySelector('[data-add-row]').addEventListener('click',()=>{const d=state.popupTabDrafts[i];d.grid.rows++;d.grid.cells.push(Array.from({length:d.grid.cols},()=>blankPopupGridCell()));d.grid.rowIds=Array.isArray(d.grid.rowIds)?d.grid.rowIds:[];d.grid.rowIds.push(makePopupGridRowId());if(!Array.isArray(d.grid.quartileRows))d.grid.quartileRows=[];d.grid.quartileRows.push(false);renderPopupTabConfigSections();});
+      section.querySelector('[data-add-col]').addEventListener('click',()=>{const d=state.popupTabDrafts[i];d.grid.cols++;d.grid.cells.forEach(r=>r.push(blankPopupGridCell()));popupTabRenderGrid(section,i);});
+      section.querySelector('[data-clear-selection]').addEventListener('click',()=>{const d=state.popupTabDrafts[i],anchor=state.popupTabSelectionAnchor?.tab===i?state.popupTabSelectionAnchor:{tab:i,r:0,c:0},selected=state.popupTabSelected?.tab===i?state.popupTabSelected:{tab:i,r:0,c:0},minR=Math.min(anchor.r,selected.r),maxR=Math.max(anchor.r,selected.r),minC=Math.min(anchor.c,selected.c),maxC=Math.max(anchor.c,selected.c);for(let rr=minR;rr<=maxR;rr++)for(let cc=minC;cc<=maxC;cc++)d.grid.cells[rr][cc]=blankPopupGridCell();popupTabRenderGrid(section,i);});
+      section.querySelector('[data-role="cell-type"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i);z.cell.type=e.target.value;if(z.cell.type==='text')z.cell.quartile=false;if(z.cell.type==='colrow')z.cell.aggregation='sum';popupTabRenderGrid(section,i);});
+      section.querySelector('[data-role="cell-column"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i),chosen=e.target.value;if(!chosen)return;if(z.cell.type==='formula'){const cur=String(z.cell.content||'').trim();z.cell.content=cur?`${cur}${chosen}`:chosen;}else{z.cell.type='value';z.cell.content=chosen;}popupTabRenderGrid(section,i);});
+      section.querySelector('[data-role="cell-expression"]').addEventListener('input',e=>{const z=popupTabSelectedCell(i);z.cell.content=e.target.value;});
+      section.querySelector('[data-role="cell-format"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i);z.cell.numberFormat=e.target.value;z.cell.decimalPlaces=defaultTickerDecimals(z.cell.numberFormat);popupTabRenderEditor(section,i);});
+      section.querySelector('[data-role="cell-decimals"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i);z.cell.decimalPlaces=Number(e.target.value)||0;});
+      section.querySelector('[data-role="cell-aggregation"]').addEventListener('change',e=>{const z=popupTabSelectedCell(i);z.cell.aggregation=e.target.value;});
+    });
+  }
+
+  function openPopupConfig(){
+    if(!state.headers.length||!state.rows.length){alert('Load a financial workbook before configuring popups.');return;}
+    if(!state.popupHeader)loadPopupHeaderConfig();state.popupHeaderDraft=normalizePopupHeader(state.popupHeader);if(!Array.isArray(state.popupConfig)||!state.popupConfig.length)loadPopupConfig();state.popupConfigDraft=state.popupConfig.map(normalizePopupField);loadPopupTabConfigs();state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};renderPopupHeaderConfig();bindPopupHeaderConfig();state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));renderPopupTabConfigSections();el('popupDialog').showModal();
+  }
+  function applyPopupConfig(){
+    for(const [i,t] of (state.popupTabDrafts||[]).entries()){const issues=popupGridCircularIssues(normalizePopupGrid(t.grid));if(issues.length){alert(`Tab ${i+1} has invalid Col / Row references:\n\n${issues.slice(0,8).join('\n')}`);return;}}
+    const next=popupTabGridToLegacyFields();const mainHasColRow=popupGridHasColRow(state.popupTabDrafts?.[0]?.grid);if(!next.length&&!mainHasColRow){alert('Tab 1 needs at least one Value, Formula, or Col / Row cell.');return;}
+    state.popupConfig=next;state.popupConfigDraft=next.map(normalizePopupField);state.popupQuartileDraftChanged=true;state.popupQuartileDistributionCache.clear();state.popupHeader=normalizePopupHeader(state.popupHeaderDraft||state.popupHeader);savePopupConfig();savePopupHeaderConfig();state.popupTabConfigs=(state.popupTabDrafts||[]).map(t=>({name:t.name,filterOnProfile:!!t.filterOnProfile,filters:(t.filters||[]).filter(f=>f&&f.column&&((f.scope||'all')==='all'||normalizePopupGrid(t.grid).rowIds.includes(f.rowId))).map(f=>({column:f.column,value:String(f.value??''),operator:['=','<','<=','>','>='].includes(f.operator)?f.operator:'=',scope:f.scope==='row'?'row':'all',rowId:f.scope==='row'?f.rowId:''})),grid:normalizePopupGrid(t.grid)}));savePopupTabConfigs();refreshConfigUI();if(state.openPopupMarker){refreshOpenPopupCard().catch(err=>console.error('Popup refresh failed after save',err));}el('popupDialog').close();
+  }
+  function resetPopupDefaults(){loadPopupConfig();loadPopupTabConfigs();state.popupTabSelected={tab:0,r:0,c:0};state.popupTabSelectionAnchor={tab:0,r:0,c:0};renderPopupTabConfigSections();}
+
+  function popupTickerSelectedSet(){return new Set((state.popupTickerDraft||[]).map(m=>String(m.formula||'').trim()).filter(Boolean));}
+  function renderPopupTickerConfig(){
+    const wrap=el('popupTickerFieldList');
+    if(!wrap)return;
+    const headers=state.headers||[];
+    const options=[...headers,...popupVirtualNames()];
+    const selected=popupTickerSelectedSet();
+    wrap.replaceChildren();
+    if(!options.length){wrap.innerHTML='<div class="empty-message">Load a financial workbook first.</div>';return;}
+    const head=document.createElement('div');
+    head.className='popup-ticker-config-head';
+    head.innerHTML='<span>Column / field</span><span>Use</span>';
+    wrap.appendChild(head);
+    options.forEach(name=>{
+      const row=document.createElement('label');
+      row.className='popup-ticker-option-row';
+      const type=isPopupVirtualOperand(name)?'Census virtual':(state.types[name]==='numeric'?'Numeric':'Text');
+      row.innerHTML=`<span class="popup-ticker-option-title">${esc(name)} <small>${esc(type)}</small></span><input type="checkbox" class="popup-ticker-option-check" data-formula="${esc(name)}" ${selected.has(name)?'checked':''}>`;
+      wrap.appendChild(row);
+    });
+  }
+
+  function openPopupTickerConfig(){
+    state.popupTickerDraft=(state.popupTickerMetrics||[]).map(m=>({...m}));
+    renderPopupTickerConfig();el('popupTickerDialog').showModal();
+  }
+  function applyPopupTickerConfig(){
+    const next=(state.popupTickerDraft||[]).filter(m=>String(m.formula||'').trim()).map(m=>({formula:String(m.formula).trim(),title:String(m.title||m.formula).trim()||String(m.formula).trim()}));
+    state.popupTickerMetrics=next;state.popupTickerIndex=0;savePopupTickerConfig();el('popupTickerDialog').close();startPopupTicker();if(state.openPopupMarker)refreshOpenPopupCard();
+  }
+
+  // ---------- UI wiring ----------
+  el('secondaryFileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('secondaryFileStatus').textContent='Reading secondary locations locally…';try{afterSecondaryLoaded(file,await readSecondaryLocationsFile(file));}catch(err){el('secondaryFileStatus').textContent=`Could not read secondary file: ${err.message}`;}});
+  el('secondaryVisibilityToggle').addEventListener('change',e=>setSecondaryVisible(e.target.checked));
+  el('secondaryPopupConfigBtn').addEventListener('click',openSecondaryPopupConfig);
+  el('secondaryHoverConfigBtn').addEventListener('click',openSecondaryHoverConfig);
+  el('clearSecondaryBtn').addEventListener('click',clearSecondaryLocations);
+  el('secondaryPopupFields').addEventListener('click',e=>{const btn=e.target.closest('[data-secondary-popup-remove]');if(!btn)return;btn.parentElement?.remove();});
+  document.addEventListener('input',e=>{const input=e.target.closest('[data-secondary-edit-field]');if(!input)return;const root=input.closest('[data-secondary-popup-index]');if(!root)return;secondarySaveEditsFromPopup(root);});
+
+  el('secondaryPopupAddField').addEventListener('click',()=>{const list=el('secondaryPopupFields');const row=document.createElement('div');row.className='secondary-popup-field-row';const i=list.children.length+1;const opts=(state.secondaryHeaders||[]).map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');row.innerHTML=`<span class="field-index">${i}</span><select data-secondary-popup-field="1"><option value="">Choose field</option>${opts}</select><button type="button" class="secondary" data-secondary-popup-remove="${i-1}">×</button>`;list.appendChild(row);});
+  el('secondaryPopupApply').addEventListener('click',e=>{e.preventDefault();applySecondaryPopupConfig();});
+  el('secondaryPopupReset').addEventListener('click',e=>{e.preventDefault();resetSecondaryPopupConfig();});
+  el('secondaryHoverApply').addEventListener('click',e=>{e.preventDefault();applySecondaryHoverConfig();});
+  el('secondaryHoverReset').addEventListener('click',e=>{e.preventDefault();resetSecondaryHoverConfig();});
+  el('fileInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;el('fileStatus').textContent='Reading workbook locally…';try{afterWorkbookLoaded(file,await readFinancialFile(file));}catch(err){el('fileStatus').textContent=`Could not read file: ${err.message}`;}});
+  el('clearFileBtn').addEventListener('click',clearFinancial);
+  el('storeJumpForm').addEventListener('submit',e=>{e.preventDefault();goToStoreNumber();});
+  el('storeNumberInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();goToStoreNumber();}});
+  el('searchForm').addEventListener('submit',e=>{e.preventDefault();geocodeAndRadius(el('searchInput').value);});
+  rxSiteWire();
+  function getLeafletScaleKm(){
+    const node=document.querySelector('.leaflet-control-scale-line');
+    const text=String(node?.textContent||'').trim().replace(/\s+/g,' ');
+    const m=text.match(/([0-9]+(?:\.[0-9]+)?)\s*(km|m)\b/i);
+    if(m){
+      const value=Number(m[1]);
+      if(Number.isFinite(value)) return m[2].toLowerCase()==='m' ? value/1000 : value;
+    }
+    // Fallback: estimate the km represented by a 100px span at the map centre.
+    try{
+      const center=map.getCenter();
+      const p1=map.latLngToContainerPoint(center);
+      const p2=L.point(p1.x+100,p1.y);
+      const a=map.containerPointToLatLng(p1);
+      const b=map.containerPointToLatLng(p2);
+      const km=map.distance(a,b)/1000;
+      return Number.isFinite(km)&&km>0 ? km : 1;
+    }catch(_){ return 1; }
+  }
+  function defaultCircleRadiusMeters(){ return Math.max(10,getLeafletScaleKm()*1000); }
+  function destinationAtDistance(start, bearingDeg, distanceKm){
+    const radiusKm=6371.0088;
+    const delta=distanceKm/radiusKm;
+    const bearing=bearingDeg*Math.PI/180;
+    const lat1=start.lat*Math.PI/180;
+    const lon1=start.lng*Math.PI/180;
+    const sinLat2=Math.sin(lat1)*Math.cos(delta)+Math.cos(lat1)*Math.sin(delta)*Math.cos(bearing);
+    const lat2=Math.asin(Math.max(-1,Math.min(1,sinLat2)));
+    const lon2=lon1+Math.atan2(Math.sin(bearing)*Math.sin(delta)*Math.cos(lat1),Math.cos(delta)-Math.sin(lat1)*Math.sin(lat2));
+    return L.latLng(lat2*180/Math.PI,((lon2*180/Math.PI+540)%360)-180);
+  }
+  function defaultBoxBounds(center){
+    const km=Math.max(0.01,getLeafletScaleKm());
+    const halfKm=km/2;
+    const north=destinationAtDistance(center,0,halfKm);
+    const south=destinationAtDistance(center,180,halfKm);
+    const east=destinationAtDistance(center,90,halfKm);
+    const west=destinationAtDistance(center,270,halfKm);
+    return L.latLngBounds(
+      [south.lat,west.lng],
+      [north.lat,east.lng]
+    );
+  }
+  function circleRadiusLabelText(radiusMeters){
+    const km=radiusMeters/1000;
+    return `${km.toFixed(2)} km`;
+  }
+  function makeCircleRadiusLabel(latlng,radiusMeters){
+    return L.marker(latlng,{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'circle-radius-label',html:`<span>${circleRadiusLabelText(radiusMeters)}</span>`,iconSize:[54,24],iconAnchor:[27,31]})});
+  }
+  // Keep the resize handle / radius label on the east side of the circle.
+  // This is intentionally a lightweight local approximation because the visible
+  // selection circle itself is rendered by Leaflet's native L.Circle.
+  function circleEdgeLatLng(center,meters){
+    const latRad=center.lat*Math.PI/180;
+    const cosLat=Math.max(Math.cos(latRad),1e-6);
+    return L.latLng(center.lat,center.lng + meters/(111320*cosLat));
+  }
+  function updateCircleLabel(){
+    const circle=state.circleSelection?.circle;
+    const label=state.circleSelection?.label;
+    if(!circle||!label)return;
+    label.setLatLng(circleEdgeLatLng(circle.getLatLng(),circle.getRadius()));
+    const node=label.getElement()?.querySelector('span');
+    if(node)node.textContent=circleRadiusLabelText(circle.getRadius());
+  }
+
+  function rectangleDimensionsLabelText(bounds){
+    const dims=getRectangleDimensionsKm(bounds);
+    return `${dims.length.toFixed(2)} × ${dims.width.toFixed(2)} km`;
+  }
+  function makeRectangleDimensionsLabel(bounds){
+    return L.marker(bounds.getSouthEast(),{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'rectangle-dimensions-label',html:`<span>${rectangleDimensionsLabelText(bounds)}</span>`,iconSize:[94,24],iconAnchor:[47,-14]})});
+  }
+  function updateRectangleLabel(){
+    const rectangle=state.rectangleSelection?.rectangle;
+    const label=state.rectangleSelection?.label;
+    if(!rectangle||!label)return;
+    const bounds=rectangle.getBounds();
+    label.setLatLng(bounds.getSouthEast());
+    const node=label.getElement()?.querySelector('span');
+    if(node)node.textContent=rectangleDimensionsLabelText(bounds);
+  }
+
+  // ---------- Selection circle interaction ----------
+  function updateHeaderCensusIndicator(){
+    const wrap=el('headerCensusStatus');
+    const icon=el('headerCensusIcon');
+    const value=el('headerCensusShapeValue');
+    if(!wrap||!icon||!value)return;
+    const type=censusShapeType();
+    if(type==='circle'){
+      const km=state.circleSelection.circle.getRadius()/1000;
+      icon.className='header-census-icon circle';
+      value.textContent=`Circle ${km.toFixed(km<1?2:1)} km`;
+      wrap.classList.remove('hidden');
+      return;
+    }
+    if(type==='rectangle'){
+      const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
+      icon.className='header-census-icon rectangle';
+      value.textContent=`Box ${dims.length.toFixed(dims.length<10?2:1)} × ${dims.width.toFixed(dims.width<10?2:1)} km`;
+      wrap.classList.remove('hidden');
+      return;
+    }
+    if(censusGeoScopeType()){
+      icon.className='header-census-icon rectangle';
+      value.textContent=state.censusGeoSelection.code==='CA'?'Canada':state.censusGeoSelection.name;
+      wrap.classList.remove('hidden');
+      return;
+    }
+    icon.className='header-census-icon';
+    value.textContent='—';
+    wrap.classList.add('hidden');
+  }
+
+  function getRectangleDimensionsKm(bounds){
+    const north=bounds.getNorth(),south=bounds.getSouth(),east=bounds.getEast(),west=bounds.getWest();
+    const centerLat=(north+south)/2;
+    const widthMeters=map.distance(L.latLng(centerLat,west),L.latLng(centerLat,east));
+    const lengthMeters=map.distance(L.latLng(south,west),L.latLng(north,west));
+    return {width:widthMeters/1000,length:lengthMeters/1000};
+  }
+  function formatCircleRadiusInputValue(radiusMeters){
+    const km=radiusMeters/1000;
+    return km.toFixed(2);
+  }
+  function applyCircleRadiusInput(){
+    const input=el('censusShapeStatusValue');
+    const circle=state.circleSelection?.circle;
+    if(!input||!circle||censusShapeType()!=='circle')return;
+    const km=Number(input.value);
+    if(!Number.isFinite(km)||km<=0){
+      input.value=formatCircleRadiusInputValue(circle.getRadius());
+      return;
+    }
+    const radius=Math.max(10,km*1000);
+    circle.setRadius(radius);
+    updateCircleHandlePositions();
+    updateCensusShapeStatus();
+    invalidateCensusShapeCache();
+    scheduleCensusQuery(null,'circle resized by input');
+  }
+  function circleMoveHandleLatLng(circle){
+    const center=circle.getLatLng();
+    const westEdge=circleEdgeLatLng(center,-circle.getRadius());
+    try{
+      const edgePoint=map.latLngToContainerPoint(westEdge);
+      // Keep the crossed-arrows move handle clearly outside the circle stroke.
+      // The 14px screen-space offset remains visually consistent at every zoom.
+      return map.containerPointToLatLng(L.point(edgePoint.x-14,edgePoint.y));
+    }catch(_){
+      return circleEdgeLatLng(center,-(circle.getRadius()+18));
+    }
+  }
+  function updateCircleHandlePositions(){
+    const circle=state.circleSelection?.circle;
+    if(!circle||state.circleEditHandles.length<3)return;
+    const center=circle.getLatLng();
+    const eastEdge=circleEdgeLatLng(center,circle.getRadius());
+    const westMoveHandle=circleMoveHandleLatLng(circle);
+    state.circleEditHandles[0].setLatLng(center);
+    state.circleEditHandles[1].setLatLng(westMoveHandle);
+    state.circleEditHandles[2].setLatLng(eastEdge);
+    updateCircleLabel();
+  }
+  function updateCensusShapeStatus(){
+    const indicator=el('censusShapeIndicator');
+    const label=el('censusShapeStatusLabel');
+    const sizeControl=el('censusShapeSizeControl');
+    const value=el('censusShapeStatusValue');
+    const unit=el('censusShapeStatusUnit');
+    const clearBtn=el('clearCensusShapeBtn');
+    const type=censusShapeType();
+    if(!indicator||!label||!sizeControl||!value||!unit||!clearBtn)return;
+    if(type==='circle'){
+      sizeControl.classList.remove('hidden');
+      const km=state.circleSelection.circle.getRadius()/1000;
+      indicator.className='census-shape-indicator-circle';
+      indicator.setAttribute('aria-label','Circle Census Query active');
+      label.textContent='Circle';
+      value.disabled=false;
+      value.readOnly=false;
+      value.value=formatCircleRadiusInputValue(state.circleSelection.circle.getRadius());
+      value.setAttribute('aria-label','Circle radius in kilometres');
+      value.title='Set circle radius in kilometres';
+      unit.textContent='km radius';
+      clearBtn.disabled=false;
+    }else if(type==='rectangle'){
+      sizeControl.classList.remove('hidden');
+      const dims=getRectangleDimensionsKm(state.rectangleSelection.rectangle.getBounds());
+      indicator.className='census-shape-indicator-rectangle';
+      indicator.setAttribute('aria-label','Box Census Query active');
+      label.textContent='Box';
+      value.disabled=true;
+      value.readOnly=true;
+      value.value=`${dims.length.toFixed(2)} × ${dims.width.toFixed(2)}`;
+      value.setAttribute('aria-label','Box dimensions in kilometres');
+      value.title='Box dimensions';
+      unit.textContent='km';
+      clearBtn.disabled=false;
+    }else if(censusGeoScopeType()){
+      sizeControl.classList.add('hidden');
+      indicator.className='census-shape-indicator-rectangle';
+      indicator.setAttribute('aria-label','Census population geography active');
+      label.textContent=state.censusGeoSelection.code==='CA'?'Canada':state.censusGeoSelection.name;
+      value.disabled=true;
+      value.readOnly=true;
+      value.value='';
+      value.title='';
+      unit.textContent='';
+      clearBtn.disabled=false;
+    }else{
+      sizeControl.classList.add('hidden');
+      indicator.className='census-shape-indicator-off';
+      indicator.setAttribute('aria-label','No Census Query shape active');
+      label.textContent='No shape';
+      value.disabled=true;
+      value.readOnly=true;
+      value.value='';
+      value.title='';
+      unit.textContent='';
+      clearBtn.disabled=true;
+    }
+    updateHeaderCensusIndicator();
+  }
+  function createCensusEditHandle(latlng,{className,zIndexOffset,draggable=true,interactive=true}={}){
+    return L.marker(latlng,{
+      pane:draggable?'censusHandlePane':'censusCenterPane',
+      draggable,
+      interactive,
+      zIndexOffset,
+      icon:L.divIcon({className,html:'<span aria-hidden="true"></span>',iconSize:[20,20],iconAnchor:[10,10]})
+    }).addTo(map);
+  }
+  function invalidateCensusShapeCache(){
+    state.daProvinceCacheKey=null;
+    state.daProvinceCache=null;
+  }
+  function removeCircleHandles(){ state.circleEditHandles.forEach(h=>map.removeLayer(h)); state.circleEditHandles=[]; }
+  function removeRectangleHandles(){ state.rectangleEditHandles.forEach(h=>map.removeLayer(h)); state.rectangleEditHandles=[]; }
+  function removeAllCensusHandles(){removeCircleHandles();removeRectangleHandles();}
+
+  function updateRectangleHandles(){
+    const rectangle=state.rectangleSelection?.rectangle;
+    if(!rectangle||state.rectangleEditHandles.length<2)return;
+    const b=rectangle.getBounds();
+    state.rectangleEditHandles[0].setLatLng(b.getCenter());
+    if(state.rectangleEditHandles[1]) state.rectangleEditHandles[1].setLatLng(b.getNorthEast());
+    if(state.rectangleEditHandles[2]) state.rectangleEditHandles[2].setLatLng(b.getSouthEast());
+    updateRectangleLabel();
+  }
+  function showCircleHandles(){
+    removeCircleHandles();
+    const circle=state.circleSelection?.circle;if(!circle)return;
+    const center=circle.getLatLng();
+    const radius=circle.getRadius();
+    const westMoveHandle=circleMoveHandleLatLng(circle);
+    const eastEdge=circleEdgeLatLng(center,radius);
+    const centerHandle=createCensusEditHandle(center,{className:'circle-edit-handle circle-center-handle',zIndexOffset:0,draggable:false,interactive:false});
+    const moveHandle=createCensusEditHandle(westMoveHandle,{className:'circle-edit-handle circle-move-handle rectangle-move-handle',zIndexOffset:1801});
+    const sizeHandle=createCensusEditHandle(eastEdge,{className:'circle-edit-handle circle-size-handle',zIndexOffset:1802});
+    let circleMoveDragStartCenter=null;
+    let circleMoveDragStartHandle=null;
+    moveHandle.on('dragstart',()=>{
+      if(!state.circleSelection)return;
+      beginCensusShapeHandleDrag('circle moved');
+      circleMoveDragStartCenter=circle.getLatLng();
+      circleMoveDragStartHandle=moveHandle.getLatLng();
+    });
+    moveHandle.on('drag',e=>{
+      if(!state.circleSelection||!circleMoveDragStartCenter||!circleMoveDragStartHandle)return;
+      circle.__activeCentreLabel='';
+      const startHandlePoint=map.latLngToContainerPoint(circleMoveDragStartHandle);
+      const nextPoint=map.latLngToContainerPoint(e.target.getLatLng());
+      const nextCenterPoint=map.latLngToContainerPoint(circleMoveDragStartCenter);
+      const dx=nextPoint.x-startHandlePoint.x;
+      const dy=nextPoint.y-startHandlePoint.y;
+      const nextCenter=map.containerPointToLatLng(L.point(nextCenterPoint.x+dx,nextCenterPoint.y+dy));
+      circle.setLatLng(nextCenter);
+      updateActiveGeographicCentreFromShape();
+      updateCircleHandlePositions();
+      updateCensusShapeStatus();
+      invalidateCensusShapeCache();
+    });
+    moveHandle.on('dragend',()=>{
+      circleMoveDragStartCenter=null;
+      circleMoveDragStartHandle=null;
+      endCensusShapeHandleDrag('circle moved');
+    });
+    sizeHandle.on('dragstart',()=>{
+      if(!state.circleSelection)return;
+      beginCensusShapeHandleDrag('circle resized by handle');
+    });
+    sizeHandle.on('drag',e=>{
+      if(!state.circleSelection)return;
+      const centerNow=circle.getLatLng();
+      const nextRadius=Math.max(10,map.distance(centerNow,e.target.getLatLng()));
+      circle.setRadius(nextRadius);
+      updateCircleHandlePositions();
+      updateCensusShapeStatus();
+      invalidateCensusShapeCache();
+    });
+    sizeHandle.on('dragend',()=>{
+      endCensusShapeHandleDrag('circle resized by handle');
+    });
+    state.circleEditHandles=[centerHandle,moveHandle,sizeHandle];
+  }
+  function showRectangleHandles(){
+    removeRectangleHandles();
+    const rectangle=state.rectangleSelection?.rectangle;if(!rectangle)return;
+    const b0=rectangle.getBounds();
+    const centerHandle=createCensusEditHandle(b0.getCenter(),{className:'rectangle-edit-handle rectangle-center-handle',zIndexOffset:0,draggable:false,interactive:false});
+    const moveStart=b0.getNorthEast();
+    const moveHandle=createCensusEditHandle(moveStart,{className:'rectangle-edit-handle rectangle-move-handle',zIndexOffset:1801});
+    const cornerHandle=createCensusEditHandle(b0.getSouthEast(),{className:'rectangle-edit-handle rectangle-corner-handle',zIndexOffset:1802});
+    moveHandle.on('dragstart',()=>{
+      if(!state.rectangleSelection)return;
+      beginCensusShapeHandleDrag('rectangle moved');
+    });
+    moveHandle.on('drag',e=>{
+      if(!state.rectangleSelection)return;
+      const current=rectangle.getBounds();
+      const currentPoint=map.latLngToContainerPoint(current.getNorthEast());
+      const nextPoint=map.latLngToContainerPoint(e.target.getLatLng());
+      const dLatLng=map.containerPointToLatLng(L.point(currentPoint.x+(nextPoint.x-currentPoint.x),currentPoint.y+(nextPoint.y-currentPoint.y)));
+      const dLat=dLatLng.lat-current.getNorthEast().lat;
+      const dLng=dLatLng.lng-current.getNorthEast().lng;
+      const nb=L.latLngBounds(
+        [current.getSouth()+dLat,current.getWest()+dLng],
+        [current.getNorth()+dLat,current.getEast()+dLng]
+      );
+      rectangle.setBounds(nb);
+      updateActiveGeographicCentreFromShape();
+      updateRectangleLabel();
+      centerHandle.setLatLng(nb.getCenter());
+      moveHandle.setLatLng(nb.getNorthEast());
+      cornerHandle.setLatLng(nb.getSouthEast());
+      updateCensusShapeStatus();
+      invalidateCensusShapeCache();
+    });
+    moveHandle.on('dragend',()=>{
+      endCensusShapeHandleDrag('rectangle moved');
+    });
+    cornerHandle.on('dragstart',()=>{ beginCensusShapeHandleDrag('rectangle resized'); });
+    cornerHandle.on('drag',e=>{
+      if(!state.rectangleSelection)return;
+      const current=rectangle.getBounds();
+      const fixedNW=current.getNorthWest();
+      const pointer=e.target.getLatLng();
+      const minLatDelta=Math.max(0.0001, Math.abs(current.getNorth()-current.getSouth())*0.001);
+      const minLngDelta=Math.max(0.0001, Math.abs(current.getEast()-current.getWest())*0.001);
+      const south=Math.min(fixedNW.lat-minLatDelta,pointer.lat);
+      const east=Math.max(fixedNW.lng+minLngDelta,pointer.lng);
+      const nb=L.latLngBounds(fixedNW,L.latLng(south,east));
+      rectangle.setBounds(nb);
+      updateActiveGeographicCentreFromShape();
+      moveHandle.setLatLng(nb.getNorthEast());
+      cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
+      updateCensusShapeStatus();
+      updateRectangleLabel();
+    });
+    cornerHandle.on('dragend',()=>{
+      if(!state.rectangleSelection)return;
+      const nb=rectangle.getBounds();
+      cornerHandle.setLatLng(nb.getSouthEast());
+      centerHandle.setLatLng(nb.getCenter());
+      updateCensusShapeStatus();
+      updateRectangleLabel();
+      invalidateCensusShapeCache();
+      endCensusShapeHandleDrag('rectangle resized');
+    });
+    state.rectangleEditHandles=[centerHandle,moveHandle,cornerHandle];
+  }
+  function showActiveCensusShapeHandles(){ if(censusShapeType()==='circle')showCircleHandles(); else if(censusShapeType()==='rectangle')showRectangleHandles(); }
+  function exitCensusDrawMode(){
+    state.circleDrawMode=false;state.rectangleDrawMode=false;state.censusShapeDrawing=null;state.circleDrawing=null;
+    state.markerClickSuppressed=false;map.getContainer().style.cursor='';removeAllCensusHandles();
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Circle';
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Box';
+  }
+  function clearCensusShape({keepDrawingMode=false}={}){
+    CENSUS_DEBUG.log('scope:clear',{hadShape:!!censusShapeType(),hadGeo:!!censusGeoScopeType()});
+    removeAllCensusHandles();
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    state.censusRequestId++;
+    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
+    if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
+    state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;    rxCheckSurroundingClear();rxCheckSurroundingUpdateUi();
+    clearActiveGeographicCentre();
+    state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    clearCensusGeoSelection();
+    // The shape is only the spatial metric scope. Filters and viewport-driven
+    // highlights remain active when the shape is removed.
+    clearDaOverlay();
+    updateCensusShapeStatus();
+    if(!keepDrawingMode)exitCensusDrawMode();
+    resetCensusPopulationSummary();
+    state.daSelectionResult=null;
+    setCensusScope('viewport',{reason:'Census shape cleared',generation:state.censusScopeGeneration});
+    if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+    setDaTestStatus('Draw a Census Query circle or rectangle to calculate Census data.');
+    if(state.rows.length) updateSelection();
+  }
+  function clearCensusShapeOnly({keepGeoScope=false}={}){
+    CENSUS_DEBUG.log('shape:clearOnly',{hadShape:!!censusShapeType(),keepGeoScope});
+    removeAllCensusHandles();
+    if(state.daRefreshTimer){clearTimeout(state.daRefreshTimer);state.daRefreshTimer=null;}
+    state.censusRequestId++;
+    if(state.circleSelection?.label)map.removeLayer(state.circleSelection.label);
+    if(state.circleSelection?.circle)map.removeLayer(state.circleSelection.circle);
+    if(state.rectangleSelection?.label)map.removeLayer(state.rectangleSelection.label);
+    if(state.rectangleSelection?.rectangle)map.removeLayer(state.rectangleSelection.rectangle);
+    state.circleSelection=null;state.rectangleSelection=null;state.circleDrawing=null;state.censusShapeDrawing=null;
+    clearActiveGeographicCentre();
+    state.daProvinceCacheKey=null;state.daProvinceCache=null;
+    clearDaOverlay();
+    state.daSelectionResult=null;
+    updateCensusShapeStatus();
+    if(el('censusDaList'))el('censusDaList').innerHTML='<div class="empty-message">Draw a Census Query circle or rectangle to see qualifying DAs.</div>';
+    if(!keepGeoScope) clearCensusGeoSelection();
+  }
+
+  function clearCircle(){clearCensusShape();}
+  function createOrReplaceCircle(center,radiusMeters,reason='circle draw',centreLabel=''){
+    CENSUS_DEBUG.log('circle:create:start',{lat:center.lat,lng:center.lng,radiusMeters,reason});
+    clearCensusShape();
+    state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
+    const radius=Math.max(10,radiusMeters);
+    const circle=L.circle(center,{pane:'selectionCirclePane',radius,color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineCap:'round',lineJoin:'round'}).addTo(map);
+    circle.on('click',e=>{
+      const secondaryHit=state.secondaryVisible?secondaryHitTest(e.latlng,11):null;
+      if(secondaryHit){
+        L.DomEvent.stopPropagation(e);
+        showSecondaryPopup(secondaryHit);
+        return;
+      }
+      L.DomEvent.stopPropagation(e);showCircleHandles();
+    });
+    const label=makeCircleRadiusLabel(circleEdgeLatLng(center,radius),radius).addTo(map);
+    state.circleSelection={circle,label};
+    rxCheckSurroundingUpdateUi();
+    circle.__activeCentreLabel=String(centreLabel||'');
+    updateActiveGeographicCentreFromShape();
+    setCensusScope('circle',{reason, generation:state.censusScopeGeneration});
+    updateCensusShapeStatus();showCircleHandles();
+    requestAnimationFrame(()=>{ if(state.circleSelection?.circle===circle) showCircleHandles(); });
+    CENSUS_DEBUG.log('circle:create:handles',{count:state.circleEditHandles.length});
+    scheduleCensusQuery(null,reason);
+  }
+  function createOrReplaceRectangle(bounds,reason='rectangle draw'){
+    clearCensusShape();
+    state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger=reason;
+    const rectangle=L.rectangle(bounds,{pane:'selectionCirclePane',color:'#d33e46',weight:3,opacity:1,fillOpacity:0,interactive:true,lineJoin:'round'}).addTo(map);
+    rectangle.on('click',e=>{
+      const secondaryHit=state.secondaryVisible?secondaryHitTest(e.latlng,11):null;
+      if(secondaryHit){
+        L.DomEvent.stopPropagation(e);
+        showSecondaryPopup(secondaryHit);
+        return;
+      }
+      L.DomEvent.stopPropagation(e);showRectangleHandles();
+    });
+    const label=makeRectangleDimensionsLabel(bounds).addTo(map);
+    state.rectangleSelection={rectangle,label};
+    rxCheckSurroundingUpdateUi();
+    updateActiveGeographicCentreFromShape();
+    setCensusScope('box',{reason, generation:state.censusScopeGeneration});
+    updateCensusShapeStatus();showRectangleHandles();
+    scheduleCensusQuery(null,reason);
+  }
+  function enterCircleDrawMode(){
+    if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
+    exitCensusDrawMode();state.circleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
+    el('drawCircleBtn').querySelector('span:last-child').textContent='Click map';removeAllCensusHandles();
+  }
+  function enterRectangleDrawMode(){
+    if(censusShapeType()||censusGeoScopeType()) clearCensusShape();
+    exitCensusDrawMode();state.rectangleDrawMode=true;state.markerClickSuppressed=true;map.getContainer().style.cursor='crosshair';
+    el('drawRectangleBtn').querySelector('span:last-child').textContent='Click map';removeAllCensusHandles();
+  }
+  el('drawCircleBtn').addEventListener('click',()=>{if(state.circleDrawMode){exitCensusDrawMode();return;}enterCircleDrawMode();});
+  el('drawRectangleBtn').addEventListener('click',()=>{if(state.rectangleDrawMode){exitCensusDrawMode();return;}enterRectangleDrawMode();});
+  el('clearCensusShapeBtn').addEventListener('click',()=>{clearCensusShape();});
+  el('censusShapeStatusValue')?.addEventListener('change',applyCircleRadiusInput);
+  el('censusShapeStatusValue')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applyCircleRadiusInput();e.target.blur();}});
+  el('censusGeoSelect')?.addEventListener('change',e=>{
+    const scope=String(e.target.value||'');
+    CENSUS_DEBUG.log('geoScope:change',{scope});
+    Promise.resolve(setCensusGeoScope(scope)).catch(err=>{
+      console.error('[CENSUS GEO] scope selection failed',err);
+      setDaTestStatus(`Census geography selection failed: ${err.message||err}`);
+    });
+  });
+
+  map.on('mousemove',e=>{
+    if(!state.secondaryVisible){
+      if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='';
+      return;
+    }
+    const hit=secondaryHitTest(e.latlng,10);
+    if(hit){
+      showUnifiedHover(secondaryHoverOwner,L.latLng(hit.lat,hit.lng),secondaryHoverHtml(hit.row));
+      state.secondaryHoverRow=hit;
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='pointer';
+    }else{
+      if(state.secondaryHoverRow){hideUnifiedHover(secondaryHoverOwner);state.secondaryHoverRow=null;}
+      if(!state.circleDrawMode&&!state.rectangleDrawMode)map.getContainer().style.cursor='';
+    }
+  });
+  map.on('click',e=>{
+    const hit=secondaryHitTest(e.latlng,11);
+    if(hit){
+      if((state.circleDrawMode||state.rectangleDrawMode)&&!state.censusShapeDrawing){
+        const mode=state.circleDrawMode?'circle':'rectangle';
+        exitCensusDrawMode();
+        if(mode==='circle') createOrReplaceCircle(L.latLng(hit.lat,hit.lng),defaultCircleRadiusMeters(),'circle centered on secondary location');
+        else createOrReplaceRectangle(defaultBoxBounds(L.latLng(hit.lat,hit.lng)),'box centered on secondary location');
+        if(e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);
+        return;
+      }
+      showSecondaryPopup(hit);
+      if(e.originalEvent)L.DomEvent.stopPropagation(e.originalEvent);
+      return;
+    }
+  });
+  map.on('click',e=>{
+    if((!state.circleDrawMode&&!state.rectangleDrawMode)||state.censusShapeDrawing)return;
+    try{
+      const center=e.latlng;
+      const mode=state.circleDrawMode?'circle':'rectangle';
+      exitCensusDrawMode();
+      if(mode==='circle'){
+        createOrReplaceCircle(center,defaultCircleRadiusMeters(),'circle default from map scale');
+      }else{
+        createOrReplaceRectangle(defaultBoxBounds(center),'box default from map scale');
+      }
+    }catch(err){
+      console.error('Census Query default-shape creation failed:',err);
+      exitCensusDrawMode();
+    }
+  });
+
+  map.on('click',e=>{
+    if(state.circleDrawMode)return;
+    if(state.circleSelection && e.originalEvent?.target===state.circleSelection.circle?._path)return;
+    unspiderfyMarkers();
+    if(state.openPopupMarker)closeStorePopup();
+  });
+  map.on('dragstart',()=>{
+    hideUnifiedHover();
+    unspiderfyMarkers();
+    if(state.programmaticMoveDepth===0) state.userMapInteraction = true;
+  });
+  map.on('zoomstart',()=>{
+    hideUnifiedHover();
+    unspiderfyMarkers();
+    if(state.programmaticMoveDepth===0) state.userMapInteraction = true;
+  });
+  function clearOffscreenTransientVisuals(){
+    const bounds=map.getBounds();
+    // Navigation/result highlights are viewport-bound and should not linger once
+    // the user pans/zooms them completely off-screen. Census shape DA overlays
+    // are intentionally excluded: an active Census shape owns those results.
+    if(state.navigationResultLatLng && !bounds.contains(state.navigationResultLatLng)){
+      clearNavigationResult();
+    }
+    if(!censusShapeType() && state.daLayer){
+      clearDaOverlay();
+      state.daSelectionResult=null;
+    }
+  }
+
+  map.on('moveend',()=>{
+    if(state.circleSelection?.circle && state.circleEditHandles.length){
+      updateCircleHandlePositions();
+    }
+    if(state.rectangleSelection?.rectangle){
+      updateRectangleHandles();
+      updateRectangleLabel();
+    }
+    const programmatic = state.programmaticMoveDepth > 0 || Date.now() < state.programmaticMoveUntil;
+    if(programmatic){
+      if(state.userMapInteraction){state.initialNationalView=false;state.mapReadyForViewport=true;state.daActivationTrigger='map pan/zoom';}
+      state.programmaticMoveDepth=Math.max(0,state.programmaticMoveDepth-1);
+    } else {
+      state.initialNationalView=false;
+      state.mapReadyForViewport=true;
+      state.daActivationTrigger=state.daActivationTrigger||'map pan/zoom';
+    }
+    state.userMapInteraction=false;
+    clearOffscreenTransientVisuals();
+    requestAnimationFrame(()=>showActiveCensusShapeHandles());
+    updateHeaderGeography();
+    state.viewportSelectedRows=getViewportSelectedRows();
+    if(censusScopeType()==='viewport') updateSelection();
+    else { updateGroups(); updateDistribution(); updateSelectionState(); refreshMarkerStyles(); }
+    refreshMunicipalityLabels();
+    // Viewport movement is navigation-only for Census DA selection; ordinary store selection
+    // can still follow the viewport when no Census shape is active.
+  });
+  map.on('zoomend',()=>{ refreshMunicipalityLabels(); hideUnifiedHover(); });
+  window.addEventListener('resize',()=>{map.invalidateSize(false);updateSelection();refreshMunicipalityLabels();});
+  window.addEventListener('resize',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);});
+  window.addEventListener('scroll',()=>{if(state.subjectDistributionPopup?.layer.classList.contains('open'))positionSubjectDistributionPopup(state.subjectDistributionPopup.card);},true);
+
+  el('selectedStoresBtn').addEventListener('click',()=>{renderSelectedStoresConfig(el('selectedStoresSearch').value);el('selectedStoresDialog').showModal();});
+  el('selectedStoresSearch').addEventListener('input',e=>renderSelectedStoresConfig(e.target.value));
+  el('selectedStoresClear').addEventListener('click',()=>{renderSelectedStoresConfig('');});
+  el('selectedStoresApply').addEventListener('click',()=>{state.selectedStoreColumns=selectedStoreCheckedValues();refreshConfigUI();updateSelectedStoresList();});
+  el('exportSelectedBtn').addEventListener('click',exportSelectedStores);
+  el('exportSelectedDABtn').addEventListener('click',exportSelectedDAs);
+  el('groupsBtn').addEventListener('click',()=>{renderChecklist('groupsList',state.groups,'group',el('groupSearch').value);el('groupsDialog').showModal();});
+
+  el('groupSearch').addEventListener('input',e=>renderChecklist('groupsList',checkedValues('groupsList'),'group',e.target.value));
+
+  el('groupsClear').addEventListener('click',()=>renderChecklist('groupsList',[],'group',el('groupSearch').value));
+
+  el('groupsApply').addEventListener('click',()=>{state.groups=[...new Set(checkedValues('groupsList'))];state.distributionBinKey=null;state.distributionBinKey2=null;state.selectedGroupKey=null;state.selectedStoreRow=null;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
+  el('distributionBtn')?.addEventListener('click',()=>{state.distributionDialogTarget=1;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
+  el('distributionBtn2')?.addEventListener('click',()=>{state.distributionDialogTarget=2;renderDistributionList(el('distributionSearch').value);el('distributionDialog').showModal();});
+  el('distributionSearch').addEventListener('input',e=>renderDistributionList(e.target.value));
+  el('distributionClear').addEventListener('click',()=>{if(state.distributionDialogTarget===2){state.distributionSubject2=null;state.distributionBinKey2=null;}else{state.distributionSubject=null;state.distributionBinKey=null;}renderDistributionList(el('distributionSearch').value);updateDistribution();refreshConfigUI();refreshMarkerStyles();});
+  el('distributionApply').addEventListener('click',()=>{const checked=el('distributionList').querySelector('input[type=radio]:checked');if(state.distributionDialogTarget===2){state.distributionSubject2=checked?checked.value:null;state.distributionBinKey2=null;}else{state.distributionSubject=checked?checked.value:null;state.distributionBinKey=null;}state.selectedGroupKey=null;state.selectedStoreRow=null;state.distributionBinKey=state.distributionDialogTarget===2?null:state.distributionBinKey;state.distributionBinKey2=state.distributionDialogTarget===1?null:state.distributionBinKey2;refreshConfigUI();updateGroups();updateDistribution();refreshMarkerStyles();});
+  el('filterBtn').addEventListener('click',()=>openFilterDialog());
+  el('filterDiagnosticToggle').addEventListener('click',toggleFilterDiagnostic);
+  el('clearFiltersBtn').addEventListener('click',()=>{state.filters=[];state.filterDraft=[];rebuildFilterPassCache();state.filteredRows=[...state.rows];redrawAfterFilterChange();updateSelection();updateFilterUI();});
+  el('addFilterBtn').addEventListener('click',()=>{state.filterDraft.push(filterDraftBlank());renderFilterRows();});
+  el('clearAllFilters').addEventListener('click',()=>{state.filterDraft=[filterDraftBlank(),filterDraftBlank(),filterDraftBlank()];const errorBox=el('filterError');if(errorBox)errorBox.textContent='';renderFilterRows();});
+  el('applyFiltersBtn').addEventListener('click',async e=>{e.preventDefault();await applyFilters();});
+  el('filterPickerSelectAll').addEventListener('click',()=>{const list=el('filterValuePickerList');const checks=[...list.querySelectorAll('.filter-picker-check')];const all=checks.length&&checks.every(c=>c.checked);checks.forEach(c=>c.checked=!all);el('filterPickerSelectAll').textContent=all?'Select all':'Clear all';});
+  el('filterPickerApply').addEventListener('click',e=>{e.preventDefault();applyFilterValuePicker();el('filterValueDialog').close();});
+  el('filterPickerCancel').addEventListener('click',e=>{e.preventDefault();state.filterValuePickerIndex=null;el('filterValueDialog').close();});
+
+  function setLeftPanelCollapsed(collapsed){
+    state.leftPanelCollapsed=!!collapsed;
+    document.body.classList.toggle('left-panel-collapsed',state.leftPanelCollapsed);
+    const toggle=el('leftPanelToggle');
+    if(toggle){
+      toggle.setAttribute('aria-expanded',String(!state.leftPanelCollapsed));
+      toggle.setAttribute('aria-label',state.leftPanelCollapsed?'Expand controls':'Collapse controls');
+      const icon=toggle.querySelector('span');
+      if(icon)icon.textContent=state.leftPanelCollapsed?'›':'‹';
+    }
+    requestAnimationFrame(()=>map.invalidateSize(false));
+  }
+
+  el('leftPanelToggle').addEventListener('click',()=>setLeftPanelCollapsed(!state.leftPanelCollapsed));
+  wireCensusAmenityCategoryButtons();
+  rxCheckSurroundingWire();
+  el('censusThreshold').addEventListener('change',()=>{state.filterCensusCache=new WeakMap();state.popupQuartileDistributionCache.clear();state.popupCensusCache.clear();scheduleCensusQuery(null,'threshold change');});
+  el('censusDelay')?.addEventListener('change',()=>{ state.daDelayMs=getDaDelayMs(); });
+  el('censusDelay')?.addEventListener('input',()=>{ state.daDelayMs=getDaDelayMs(); });
+  el('censusThreshold').addEventListener('input',()=>{ state.filterCensusCache=new WeakMap(); state.popupQuartileDistributionCache.clear(); state.popupCensusCache.clear(); clearTimeout(state.daThresholdTimer); state.daThresholdTimer=setTimeout(()=>scheduleCensusQuery(0,'threshold change'),250); });
+  el('showSelectedDAs')?.addEventListener('change',(event)=>{
+    state.showDaOverlay = !!event.target.checked;
+    clearDaOverlay();
+    const canRender = map.getZoom() >= CONFIG.daMinRenderZoom;
+    if (state.showDaOverlay && canRender && state.daSelectionResult?.selected?.length) {
+      const features = state.daSelectionResult.selected.map(item => item.feature);
+      state.daLayer = L.geoJSON(turf.featureCollection(features), {pane:'daSelectionPane', interactive:false, style:daStyle}).addTo(map);
+    }
+  });
+
+  if(typeof L==='undefined')el('geoStatus').textContent='Mapping library did not load. Refresh the page and try again.';
+  if(typeof XLSX==='undefined')el('fileStatus').textContent='Excel reader library did not load. Refresh the page and try again.';
+  if(typeof turf==='undefined')el('censusNote').textContent='Geospatial calculation library did not load. Refresh the page and try again.';
+  if(typeof RBush==='undefined')el('censusNote').textContent='DA spatial-index library did not load. Refresh the page and try again.';
+  loadMarkerAnimationConfig();
+  populateMarkerAnimationControls();
+  wireMarkerAnimationControls();
+  setupTicker();
+  loadHelpConfig();
+  el('helpConfigBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openHelpConfig();});
+  el('helpApply').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();applyHelpConfig();});
+  el('helpReset').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();state.helpConfig={...HELP_DEFAULTS};renderHelpConfig();});
+  applyAllHelpTooltips();
+  loadHeaderCsdLookup();
+  // Load the user's saved marker sizes BEFORE the icon manifest is allowed to merge/save.
+  // The manifest may add new icon types, but must never overwrite existing user settings.
+  loadMarkerConfig();
+  loadSecondaryMarkerIconManifest().finally(()=>{
+    initMarkerConfig(true);
+    updateSelection();
+    updateHeaderGeography();
+  });
+})();
