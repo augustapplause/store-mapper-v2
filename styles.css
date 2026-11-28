@@ -1496,7 +1496,14 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-site-analysis-box .rx-site-analysis-active-centre{margin-top:0;background:#fff}
 .census-site-analysis-box .rx-site-analysis-detail-view{margin-top:0}
 
-/* v1.338: geometry-only Check Surrounding overlay */
+/* v1.340: Check Surrounding geometry controls */
+.rx-check-surrounding-controls{display:flex;align-items:stretch;gap:6px;width:100%;}
+.rx-check-surrounding-controls .rx-check-surrounding-button{flex:1;min-width:0;}
+.rx-check-surrounding-radius{display:flex;align-items:center;gap:4px;flex:0 0 auto;height:100%;padding:0 7px;border:1px solid #7890a0;border-radius:7px;background:#fff;box-shadow:0 2px 0 rgba(37,62,80,.28),0 3px 5px rgba(0,0,0,.12);color:#405767;font-size:11px;font-weight:700;box-sizing:border-box;}
+.rx-check-surrounding-radius span{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.03em;}
+.rx-check-surrounding-radius input{width:64px;min-width:64px;height:30px;padding:4px 6px;border:0;border-left:1px solid #d2dce2;border-radius:0 5px 5px 0;background:transparent;color:#163043;font-size:13px;font-weight:700;text-align:right;box-sizing:border-box;outline:none;}
+.rx-check-surrounding-radius input:focus{box-shadow:inset 0 0 0 2px rgba(108,207,226,.35);border-radius:4px;}
+
 .rx-check-surrounding-button{background:linear-gradient(#58758b,#3f5b70)!important;border-color:#2d4658!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 2px 0 #253e50,0 3px 5px rgba(0,0,0,.16)!important}
 .rx-check-surrounding-button:hover{background:linear-gradient(#66849a,#49667b)!important}
 .rx-check-surrounding-status{margin-top:0}
