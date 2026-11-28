@@ -1,4 +1,4 @@
-/* Store Explorer - v1.345
+/* Store Explorer - v1.346
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -967,12 +967,10 @@
     const centre=state.activeGeographicCentre;
     const status=el('rxSiteAnalysisStatus');
     const go=el('rxSiteAnalysisGo');
-    const subjectButton=el('rxSiteAnalysisSubjectCircleGo');
     const value=el('rxSiteAnalysisActiveCentre');
     const source=el('rxSiteAnalysisActiveCentreSource');
     const ready=!!centre && !!state.rxSiteAnalysis.enabled;
     if(go) go.disabled=!ready;
-    if(subjectButton) subjectButton.disabled=!state.circleSelection?.circle;
     if(value) value.textContent=rxSiteFormatCentreLabel(centre);
     if(source) source.textContent=centre ? `Source: ${centre.source}` : 'Source: none';
     if(status && !state.rxSiteAnalysis.overlay){
@@ -994,10 +992,44 @@
     return L.latLng(lat2*180/Math.PI,((lng2*180/Math.PI+540)%360)-180);
   }
 
+  function rxCheckSurroundingRestorePanel(){
+    const searchView=el('rxSiteAnalysisSearchView');
+    const detailView=el('rxSiteAnalysisDetailView');
+    const radiusInput=el('rxSiteAnalysisInnerRadius');
+    const subtitle=el('rxSiteAnalysisDetailSubtitle');
+    const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
+    if(searchView)searchView.classList.remove('hidden');
+    if(detailView)detailView.classList.add('hidden');
+    if(radiusInput)radiusInput.disabled=false;
+    if(heading)heading.textContent='Subject Site';
+    if(subtitle)subtitle.textContent='(per sq km)';
+    state.rxSiteAnalysis.detailViewMode='search';
+    state.rxSiteAnalysis.subject=null;
+    rxSiteUpdateActiveCentreUi();
+  }
+
+  function rxCheckSurroundingRenderCloseButton(){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(!overlay)return;
+    if(overlay.closeButton?.parentNode)overlay.closeButton.parentNode.removeChild(overlay.closeButton);
+    const container=map.getContainer();
+    const close=document.createElement('button');
+    close.type='button';
+    close.className='rx-site-map-close';
+    close.setAttribute('aria-label','Close Site Analysis');
+    close.innerHTML='<span>Close Site Analysis</span><b>×</b>';
+    close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();rxCheckSurroundingClearToMap();});
+    close.style.pointerEvents='auto';
+    container.appendChild(close);
+    overlay.closeButton=close;
+  }
+
   function rxCheckSurroundingClear({updateUi=true}={}){
     const overlay=state.rxCheckSurrounding?.overlay;
+    if(overlay?.closeButton?.parentNode)overlay.closeButton.parentNode.removeChild(overlay.closeButton);
     if(overlay?.layer && map.hasLayer(overlay.layer))map.removeLayer(overlay.layer);
     state.rxCheckSurrounding={overlay:null};
+    rxCheckSurroundingRestorePanel();
     if(updateUi)rxCheckSurroundingUpdateUi();
   }
 
@@ -1047,7 +1079,8 @@
     });
 
     layer.addTo(map);
-    state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius,quadrantLabels}};
+    state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius,quadrantLabels,closeButton:null}};
+    rxCheckSurroundingRenderCloseButton();
     return true;
   }
 
@@ -1198,12 +1231,14 @@
         e.stopPropagation();
         const status=el('rxCheckSurroundingStatus');
         try{
+          if(state.rxSiteAnalysis.overlay)rxSiteOverlayClear();
           const rendered=rxCheckSurroundingRenderGeometry();
           if(!rendered){if(status)status.textContent='Draw a Census circle first.';return;}
           if(status)status.textContent='Geometry rendered • calculating surrounding quadrants…';
           const result=await rxCheckSurroundingAnalyze();
           rxCheckSurroundingRenderAnnotations(result);
-          if(status)status.textContent='Surrounding quadrants calculated • amenities outside subject circle only.';
+          await rxSiteAnalyzeSubjectCircle();
+          if(status)status.textContent='Surrounding quadrants calculated • subject-circle comparison shown in Site Analysis.';
         }catch(err){
           console.error('Check Surrounding analysis failed',err);
           if(status)status.textContent=`Geometry rendered • analysis failed: ${err.message}`;
@@ -1536,9 +1571,11 @@
       const detailView=el('rxSiteAnalysisDetailView');
       const subjectAddress=el('rxSiteAnalysisSubjectAddress');
       const subtitle=el('rxSiteAnalysisDetailSubtitle');
+      const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
       const radiusInput=el('rxSiteAnalysisInnerRadius');
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
+      if(heading)heading.textContent='Subject Circle';
       if(subjectAddress)subjectAddress.textContent='Subject Circle';
       if(subtitle)subtitle.textContent='Subject circle • per sq km';
       if(radiusInput){radiusInput.value=radiusKm.toFixed(1);radiusInput.disabled=true;}
@@ -1636,19 +1673,7 @@
 
   function rxSiteWire(){
     const g=el('rxSiteAnalysisGo');
-    const subjectButton=el('rxSiteAnalysisSubjectCircleGo');
     const back=el('rxSiteAnalysisBack');
-    if(subjectButton&&!subjectButton.dataset.bound){
-      subjectButton.dataset.bound='1';
-      subjectButton.addEventListener('click',async e=>{
-        e.preventDefault();
-        e.stopPropagation();
-        subjectButton.disabled=true;
-        try{await rxSiteAnalyzeSubjectCircle();}
-        catch(err){const status=el('rxSiteAnalysisStatus');if(status)status.textContent=`Analysis failed: ${err.message}`;}
-        finally{subjectButton.disabled=false;rxSiteUpdateActiveCentreUi();}
-      });
-    }
     if(back&&!back.dataset.bound){
       back.dataset.bound='1';
       back.addEventListener('click',e=>{
@@ -1661,6 +1686,8 @@
         const radiusInput=el('rxSiteAnalysisInnerRadius');
         if(radiusInput)radiusInput.disabled=false;
         const subtitle=el('rxSiteAnalysisDetailSubtitle');
+        const heading=el('rxSiteAnalysisDetailView')?.querySelector('h2');
+        if(heading)heading.textContent='Subject Site';
         if(subtitle)subtitle.textContent='(per sq km)';
         state.rxSiteAnalysis.detailViewMode='search';
         rxSiteUpdateActiveCentreUi();

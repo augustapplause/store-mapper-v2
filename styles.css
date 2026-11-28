@@ -1496,7 +1496,7 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .census-site-analysis-box .rx-site-analysis-active-centre{margin-top:0;background:#fff}
 .census-site-analysis-box .rx-site-analysis-detail-view{margin-top:0}
 
-/* v1.345: Check Surrounding geometry + fixed-screen quadrant annotations */
+/* v1.346: Check Surrounding toggles Subject Circle alternate view + viewport close */
 .rx-check-surrounding-controls{display:flex;align-items:stretch;gap:6px;width:100%;}
 .rx-check-surrounding-controls .rx-check-surrounding-button{flex:1;min-width:0;}
 .rx-check-surrounding-radius{display:flex;align-items:center;gap:4px;flex:0 0 auto;height:100%;padding:0 7px;border:1px solid #7890a0;border-radius:7px;background:#fff;box-shadow:0 2px 0 rgba(37,62,80,.28),0 3px 5px rgba(0,0,0,.12);color:#405767;font-size:11px;font-weight:700;box-sizing:border-box;}
@@ -1524,10 +1524,10 @@ body.left-panel-collapsed .left-panel-toggle{left:0;}
 .rx-quadrant-density{font-size:10px;white-space:nowrap;}
 .rx-surrounding-title{background:transparent;border:0;border-radius:0;color:#c9232c;font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif;font-size:11px;font-weight:300;letter-spacing:.13em;line-height:1;padding:3px 4px;white-space:nowrap;text-shadow:none;-webkit-text-stroke:5px rgba(255,255,255,.74);paint-order:stroke fill;}
 
-/* v1.345: surrounding counts + competitor density and subject-circle alternate view */
+/* v1.346: surrounding counts + competitor density and Subject Circle alternate view */
 .rx-quadrant-card-subtotal{display:flex;justify-content:flex-end;gap:6px;margin-top:3px;font-size:9px;letter-spacing:.05em;}
 .rx-quadrant-card-subtotal strong{font-size:10px;font-weight:300;}
-.rx-site-analysis-primary-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.rx-site-analysis-primary-buttons{display:grid;grid-template-columns:1fr;gap:8px;}
 .rx-site-analysis-primary-buttons .rx-site-analysis-run-button{margin-top:0;}
 .rx-site-analysis-detail-head{position:relative;}
 .rx-site-analysis-detail-head-main{min-width:0;flex:1;}
