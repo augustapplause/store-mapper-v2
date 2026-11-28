@@ -1,4 +1,4 @@
-/* Store Explorer - v1.348
+/* Store Explorer - v1.349
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -1067,14 +1067,19 @@
     L.circle(center,{radius:outerRadius,color:'#6ccfe2',weight:2,opacity:.95,fillColor:'#4bb6cc',fillOpacity:.035,interactive:false}).addTo(layer);
     L.circle(center,{radius:innerRadius,color:'#ffffff',weight:2,opacity:.95,fill:false,interactive:false}).addTo(layer);
 
-    const north=rxCheckSurroundingDestination(center,outerRadius,0);
-    const east=rxCheckSurroundingDestination(center,outerRadius,90);
-    const south=rxCheckSurroundingDestination(center,outerRadius,180);
-    const west=rxCheckSurroundingDestination(center,outerRadius,270);
-    L.polyline([south,north],{color:'#102b3a',weight:5,opacity:.75,interactive:false,lineCap:'butt'}).addTo(layer);
-    L.polyline([west,east],{color:'#102b3a',weight:5,opacity:.75,interactive:false,lineCap:'butt'}).addTo(layer);
-    L.polyline([south,north],{color:'#8fe3f0',weight:2,opacity:.98,dashArray:'8 6',interactive:false,lineCap:'butt'}).addTo(layer);
-    L.polyline([west,east],{color:'#8fe3f0',weight:2,opacity:.98,dashArray:'8 6',interactive:false,lineCap:'butt'}).addTo(layer);
+    const northInner=rxCheckSurroundingDestination(center,innerRadius,0);
+    const northOuter=rxCheckSurroundingDestination(center,outerRadius,0);
+    const eastInner=rxCheckSurroundingDestination(center,innerRadius,90);
+    const eastOuter=rxCheckSurroundingDestination(center,outerRadius,90);
+    const southInner=rxCheckSurroundingDestination(center,innerRadius,180);
+    const southOuter=rxCheckSurroundingDestination(center,outerRadius,180);
+    const westInner=rxCheckSurroundingDestination(center,innerRadius,270);
+    const westOuter=rxCheckSurroundingDestination(center,outerRadius,270);
+    const axisSegments=[[southInner,southOuter],[northInner,northOuter],[westInner,westOuter],[eastInner,eastOuter]];
+    for(const segment of axisSegments){
+      L.polyline(segment,{color:'#102b3a',weight:5,opacity:.75,interactive:false,lineCap:'butt'}).addTo(layer);
+      L.polyline(segment,{color:'#8fe3f0',weight:2,opacity:.98,dashArray:'8 6',interactive:false,lineCap:'butt'}).addTo(layer);
+    }
 
     const labels=['NE','SE','SW','NW'];
     const offsets=[45,135,225,315];
@@ -1242,16 +1247,6 @@
 
   function rxCheckSurroundingWire(){
     const button=el('rxCheckSurroundingBtn');
-    if(clear&&!clear.dataset.bound){
-      clear.dataset.bound='1';
-      const clearHandler=e=>{
-        e.preventDefault();
-        e.stopPropagation();
-        rxCheckSurroundingClearToMap();
-      };
-      clear.addEventListener('pointerdown',clearHandler);
-      clear.addEventListener('click',clearHandler);
-    }
     if(!document.body.dataset.rxCheckSurroundingEscapeBound){
       document.body.dataset.rxCheckSurroundingEscapeBound='1';
       document.addEventListener('keydown',e=>{
