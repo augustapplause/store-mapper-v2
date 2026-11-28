@@ -1,4 +1,4 @@
-/* Store Explorer - v1.343
+/* Store Explorer - v1.345
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -967,10 +967,12 @@
     const centre=state.activeGeographicCentre;
     const status=el('rxSiteAnalysisStatus');
     const go=el('rxSiteAnalysisGo');
+    const subjectButton=el('rxSiteAnalysisSubjectCircleGo');
     const value=el('rxSiteAnalysisActiveCentre');
     const source=el('rxSiteAnalysisActiveCentreSource');
     const ready=!!centre && !!state.rxSiteAnalysis.enabled;
     if(go) go.disabled=!ready;
+    if(subjectButton) subjectButton.disabled=!state.circleSelection?.circle;
     if(value) value.textContent=rxSiteFormatCentreLabel(centre);
     if(source) source.textContent=centre ? `Source: ${centre.source}` : 'Source: none';
     if(status && !state.rxSiteAnalysis.overlay){
@@ -1059,10 +1061,10 @@
     const result={
       areaKm2:quadrantAreaKm2,
       quadrants:{
-        NE:{total:0,retail:0,food:0,health:0,community:0},
-        SE:{total:0,retail:0,food:0,health:0,community:0},
-        SW:{total:0,retail:0,food:0,health:0,community:0},
-        NW:{total:0,retail:0,food:0,health:0,community:0}
+        NE:{total:0,retail:0,food:0,health:0,community:0,competitor:0},
+        SE:{total:0,retail:0,food:0,health:0,community:0,competitor:0},
+        SW:{total:0,retail:0,food:0,health:0,community:0,competitor:0},
+        NW:{total:0,retail:0,food:0,health:0,community:0,competitor:0}
       }
     };
 
@@ -1086,8 +1088,21 @@
       if(r.mask&AMENITY_CATEGORY_MASKS.community)q.community++;
     }
 
+    const competitorCandidates=secondaryProximityCandidates(center.lat,center.lng,outerKm);
+    const maxMeters=outerKm*1000;
+    for(const item of competitorCandidates){
+      if(!item||!Number.isFinite(item.lat)||!Number.isFinite(item.lng))continue;
+      const distanceMeters=map.distance(origin,L.latLng(item.lat,item.lng));
+      if(distanceMeters<=innerKm*1000+0.001 || distanceMeters>maxMeters+0.001)continue;
+      const bearing=rxCheckSurroundingBearingDeg(center,{lat:item.lat,lng:item.lng});
+      if(bearing===null)continue;
+      const quadrant=bearing<90?'NE':bearing<180?'SE':bearing<270?'SW':'NW';
+      result.quadrants[quadrant].competitor++;
+    }
+
     for(const q of Object.values(result.quadrants)){
       q.density=quadrantAreaKm2>0?q.total/quadrantAreaKm2:0;
+      q.competitorDensity=quadrantAreaKm2>0?q.competitor/quadrantAreaKm2:0;
     }
     return result;
   }
@@ -1095,17 +1110,21 @@
   function rxCheckSurroundingRenderAnnotations(result){
     const overlay=state.rxCheckSurrounding?.overlay;
     if(!overlay||!result)return;
-    const {layer,center,outerRadius}=overlay;
+    const {layer,center}=overlay;
     for(const marker of overlay.quadrantLabels||[])layer.removeLayer(marker);
     const configs=[
-      {key:'NE',bearing:45,rotation:-2.5},
-      {key:'SE',bearing:135,rotation:2.5},
-      {key:'SW',bearing:225,rotation:-2},
-      {key:'NW',bearing:315,rotation:2}
+      {key:'NW',dx:-125,dy:-85,rotation:-1.2},
+      {key:'NE',dx:125,dy:-85,rotation:1.2},
+      {key:'SW',dx:-125,dy:85,rotation:-1.0},
+      {key:'SE',dx:125,dy:85,rotation:1.0}
     ];
-    const labels={retail:'Retail',food:'Food / Leisure',health:'Health / Services',community:'Community / Recreation'};
+    const labels={retail:'Retail',food:'Food / Leisure',health:'Health / Services',community:'Community / Recreation',competitor:'Competitor'};
+    const iconWidth=230;
+    const iconHeight=148;
     for(const cfg of configs){
       const q=result.quadrants[cfg.key];
+      const anchorX=iconWidth/2-cfg.dx;
+      const anchorY=iconHeight/2-cfg.dy;
       const html=`<div class="rx-quadrant-card" style="transform:rotate(${cfg.rotation}deg)">
         <div class="rx-quadrant-card-title">${cfg.key}</div>
         <div class="rx-quadrant-card-area">${result.areaKm2.toFixed(2)} km² SURROUNDING</div>
@@ -1114,14 +1133,18 @@
           <tr><td>${labels.food}</td><td>${fmtInt(q.food)}</td></tr>
           <tr><td>${labels.health}</td><td>${fmtInt(q.health)}</td></tr>
           <tr><td>${labels.community}</td><td>${fmtInt(q.community)}</td></tr>
+          <tr><td>${labels.competitor}</td><td>${fmtInt(q.competitor)}</td></tr>
         </tbody></table>
-        <div class="rx-quadrant-card-total"><span>TOTAL</span><strong>${fmtInt(q.total)}</strong><span class="rx-quadrant-density">${q.density.toFixed(1)} / km²</span></div>
+        <div class="rx-quadrant-card-total">
+          <span>TOTAL</span><strong>${fmtInt(q.total)}</strong><span class="rx-quadrant-density">${q.density.toFixed(1)} / km²</span>
+        </div>
+        <div class="rx-quadrant-card-subtotal">
+          <span>COMP DENS</span><strong>${q.competitorDensity.toFixed(1)} / km²</strong>
+        </div>
       </div>`;
-      const point=rxCheckSurroundingDestination(center,outerRadius*.76,cfg.bearing);
-      L.marker(point,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[168,126],iconAnchor:[84,63]}),interactive:false,zIndexOffset:1500}).addTo(layer);
+      L.marker(center,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[iconWidth,iconHeight],iconAnchor:[anchorX,anchorY]}),interactive:false,zIndexOffset:1500}).addTo(layer);
     }
-    const titlePoint=rxCheckSurroundingDestination(center,outerRadius*.18,45);
-    L.marker(titlePoint,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[190,28],iconAnchor:[95,14]}),interactive:false,zIndexOffset:1501}).addTo(layer);
+    L.marker(center,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[260,32],iconAnchor:[130,16]}),interactive:false,zIndexOffset:1501}).addTo(layer);
   }
 
   function rxCheckSurroundingUpdateUi(){
@@ -1494,12 +1517,49 @@
     state.rxSiteAnalysis.overlay={layer,closeButton:close,subject,mapState,escHandler:esc};
   }
 
+  async function rxSiteAnalyzeSubjectCircle(){
+    const circle=state.circleSelection?.circle;
+    if(!circle)return;
+    const centre=circle.getLatLng();
+    const radiusKm=Math.max(0.1,Number(circle.getRadius())/1000);
+    const status=el('rxSiteAnalysisStatus');
+    if(status)status.textContent='Calculating Subject Circle…';
+    try{
+      state.rxSiteAnalysis.detailMode='density';
+      state.rxSiteAnalysis.detailViewMode='subjectCircle';
+      const modeToggle=el('rxSiteAnalysisModeToggle');
+      if(modeToggle)modeToggle.checked=false;
+      const densities=await rxSiteBuildAmenityDetail(centre.lat,centre.lng,radiusKm,radiusKm);
+      const subject={address:'Subject Circle',lat:centre.lat,lng:centre.lng,amenityDensityDetail:densities};
+      state.rxSiteAnalysis.subject=subject;
+      const searchView=el('rxSiteAnalysisSearchView');
+      const detailView=el('rxSiteAnalysisDetailView');
+      const subjectAddress=el('rxSiteAnalysisSubjectAddress');
+      const subtitle=el('rxSiteAnalysisDetailSubtitle');
+      const radiusInput=el('rxSiteAnalysisInnerRadius');
+      if(searchView)searchView.classList.add('hidden');
+      if(detailView)detailView.classList.remove('hidden');
+      if(subjectAddress)subjectAddress.textContent='Subject Circle';
+      if(subtitle)subtitle.textContent='Subject circle • per sq km';
+      if(radiusInput){radiusInput.value=radiusKm.toFixed(1);radiusInput.disabled=true;}
+      rxSiteWireRadiusInputs();
+      rxSiteRenderAmenityDetail(densities);
+      const back=el('rxSiteAnalysisBack');
+      if(back)back.textContent='Back';
+      if(status)status.textContent='Subject Circle active • actual Census circle radius.';
+    }catch(err){
+      if(status)status.textContent=`Subject Circle failed: ${err.message}`;
+      throw err;
+    }
+  }
+
   async function rxSiteAnalyzeCentre(centre){
     if(!state.rxSiteAnalysis.enabled||!centre)return;
     const status=el('rxSiteAnalysisStatus');
     if(status)status.textContent='Calculating Site Analysis…';
     try{
       state.rxSiteAnalysis.detailMode='density';
+      state.rxSiteAnalysis.detailViewMode='4km';
       const modeToggle=el('rxSiteAnalysisModeToggle');
       if(modeToggle)modeToggle.checked=false;
       const densities=await rxSiteBuildAmenityDetail(centre.lat,centre.lng);
@@ -1514,6 +1574,10 @@
       const detailView=el('rxSiteAnalysisDetailView');
       const subjectAddress=el('rxSiteAnalysisSubjectAddress');
       if(subjectAddress)subjectAddress.textContent=subject.address;
+      const detailSubtitle=el('rxSiteAnalysisDetailSubtitle');
+      const detailRadiusInput=el('rxSiteAnalysisInnerRadius');
+      if(detailSubtitle)detailSubtitle.textContent='(per sq km)';
+      if(detailRadiusInput)detailRadiusInput.disabled=false;
       if(searchView)searchView.classList.add('hidden');
       if(detailView)detailView.classList.remove('hidden');
       rxSiteRenderAmenityDetail(subject.amenityDensityDetail);
@@ -1572,6 +1636,36 @@
 
   function rxSiteWire(){
     const g=el('rxSiteAnalysisGo');
+    const subjectButton=el('rxSiteAnalysisSubjectCircleGo');
+    const back=el('rxSiteAnalysisBack');
+    if(subjectButton&&!subjectButton.dataset.bound){
+      subjectButton.dataset.bound='1';
+      subjectButton.addEventListener('click',async e=>{
+        e.preventDefault();
+        e.stopPropagation();
+        subjectButton.disabled=true;
+        try{await rxSiteAnalyzeSubjectCircle();}
+        catch(err){const status=el('rxSiteAnalysisStatus');if(status)status.textContent=`Analysis failed: ${err.message}`;}
+        finally{subjectButton.disabled=false;rxSiteUpdateActiveCentreUi();}
+      });
+    }
+    if(back&&!back.dataset.bound){
+      back.dataset.bound='1';
+      back.addEventListener('click',e=>{
+        e.preventDefault();
+        e.stopPropagation();
+        const searchView=el('rxSiteAnalysisSearchView');
+        const detailView=el('rxSiteAnalysisDetailView');
+        if(searchView)searchView.classList.remove('hidden');
+        if(detailView)detailView.classList.add('hidden');
+        const radiusInput=el('rxSiteAnalysisInnerRadius');
+        if(radiusInput)radiusInput.disabled=false;
+        const subtitle=el('rxSiteAnalysisDetailSubtitle');
+        if(subtitle)subtitle.textContent='(per sq km)';
+        state.rxSiteAnalysis.detailViewMode='search';
+        rxSiteUpdateActiveCentreUi();
+      });
+    }
     if(g&&!g.dataset.bound){
       g.dataset.bound='1';
       g.addEventListener('click',async e=>{

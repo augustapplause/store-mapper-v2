@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Store Explorer v1.343</title>
+  <title>Store Explorer v1.345</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-      <link rel="stylesheet" href="styles.css?v=1.343" />
+      <link rel="stylesheet" href="styles.css?v=1.345" />
 </head>
 <body>
   <header class="topbar">
     <div class="header-main">
       <div class="header-copy">
-        <h1><span>Store Explorer <span class="version-badge">v1.343</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
+        <h1><span>Store Explorer <span class="version-badge">v1.345</span></span><span id="headerGeography" class="header-geography">Canada</span></h1>
         <div class="subtitle">Geographic store performance + census context <span id="headerCensusStatus" class="header-census-status hidden" aria-label="Census query shape active"><span id="headerCensusIcon" class="header-census-icon" aria-hidden="true"></span><span id="headerCensusShapeValue">—</span></span></div>
       </div>
       <div class="ticker-wrap" aria-label="Ticker metrics">
@@ -204,7 +204,10 @@
         <div class="census-site-analysis-box" id="rxSiteAnalysisCard">
           <div id="rxSiteAnalysisSearchView">
             <div class="census-site-analysis-action">
-              <button id="rxSiteAnalysisGo" type="button" class="rx-site-analysis-run-button">Analyze 4 km directions</button>
+              <div class="rx-site-analysis-primary-buttons">
+                <button id="rxSiteAnalysisGo" type="button" class="rx-site-analysis-run-button">Analyze 4 km directions</button>
+                <button id="rxSiteAnalysisSubjectCircleGo" type="button" class="rx-site-analysis-run-button rx-site-analysis-subject-button">Subject Circle</button>
+              </div>
               <div class="rx-check-surrounding-controls">
                 <button id="rxCheckSurroundingBtn" type="button" class="rx-site-analysis-run-button rx-check-surrounding-button" disabled>Check Surrounding</button>
                 <button id="rxClearSurroundingBtn" type="button" class="rx-site-analysis-run-button rx-clear-surrounding-button" disabled>Clear</button>
@@ -224,7 +227,8 @@
           </div>
           <div id="rxSiteAnalysisDetailView" class="rx-site-analysis-detail-view hidden" aria-live="polite">
           <div class="rx-site-analysis-detail-head">
-            <div>
+            <button id="rxSiteAnalysisBack" type="button" class="rx-site-analysis-detail-back">Back</button>
+            <div class="rx-site-analysis-detail-head-main">
               <h2>Subject Site</h2>
               <div id="rxSiteAnalysisDetailSubtitle" class="rx-site-analysis-detail-subtitle">(per sq km)</div>
               <div id="rxSiteAnalysisSubjectAddress" class="rx-site-analysis-subject-address">—</div>
@@ -537,7 +541,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/rbush@4.0.1/rbush.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.22.0/dist/proj4.js" crossorigin=""></script>
-  <script src="app.js?v=1.343"></script>
+  <script src="app.js?v=1.345"></script>
 
 
 </body>
