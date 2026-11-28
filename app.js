@@ -1,4 +1,4 @@
-/* Store Explorer - v1.340
+/* Store Explorer - v1.342
    Financial workbook processing is entirely client-side. Workbook data is never uploaded.
    DA spatial selection is activated only by an explicit Census Query circle or rectangle; province/Canada Census population scopes use precomputed totals; the map viewport governs marker visibility and fallback metric selection:
    Census Query shape -> provincial DA GeoJSON -> browser spatial index -> active shape intersections -> threshold -> selected DA geometries.
@@ -992,10 +992,21 @@
     return L.latLng(lat2*180/Math.PI,((lng2*180/Math.PI+540)%360)-180);
   }
 
-  function rxCheckSurroundingClear(){
+  function rxCheckSurroundingClear({updateUi=true}={}){
     const overlay=state.rxCheckSurrounding?.overlay;
-    if(overlay?.layer)map.removeLayer(overlay.layer);
+    if(overlay?.layer && map.hasLayer(overlay.layer))map.removeLayer(overlay.layer);
     state.rxCheckSurrounding={overlay:null};
+    if(updateUi)rxCheckSurroundingUpdateUi();
+  }
+
+  function rxCheckSurroundingBearingDeg(center, point){
+    const p=Math.PI/180;
+    const lat1=center.lat*p;
+    const lat2=point.lat*p;
+    const dLon=(point.lng-center.lng)*p;
+    const y=Math.sin(dLon)*Math.cos(lat2);
+    const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
   }
 
   function rxCheckSurroundingRenderGeometry(){
@@ -1020,44 +1031,149 @@
     L.polyline([south,north],{color:'#8fe3f0',weight:2,opacity:.98,dashArray:'8 6',interactive:false,lineCap:'butt'}).addTo(layer);
     L.polyline([west,east],{color:'#8fe3f0',weight:2,opacity:.98,dashArray:'8 6',interactive:false,lineCap:'butt'}).addTo(layer);
 
-    const offsets=[45,135,225,315];
     const labels=['NE','SE','SW','NW'];
+    const offsets=[45,135,225,315];
     offsets.forEach((bearing,i)=>{
       const point=rxCheckSurroundingDestination(center,outerRadius*.72,bearing);
-      L.marker(point,{icon:L.divIcon({className:'rx-surrounding-label-wrap',html:`<div class="rx-surrounding-label">${labels[i]}</div>`,iconSize:[48,28],iconAnchor:[24,14]}),interactive:false,zIndexOffset:1200}).addTo(layer);
+      L.marker(point,{icon:L.divIcon({className:'rx-surrounding-label-wrap',html:`<div class="rx-surrounding-label">${labels[i]}</div>`,iconSize:[54,30],iconAnchor:[27,15]}),interactive:false,zIndexOffset:1200}).addTo(layer);
     });
-
-    const titlePoint=rxCheckSurroundingDestination(center,outerRadius*.22,45);
-    L.marker(titlePoint,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[190,28],iconAnchor:[95,14]}),interactive:false,zIndexOffset:1201}).addTo(layer);
 
     layer.addTo(map);
     state.rxCheckSurrounding={overlay:{layer,center,innerRadius,outerRadius}};
     return true;
   }
 
+  async function rxCheckSurroundingAnalyze(){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(!overlay)return null;
+    const {center,innerRadius,outerRadius}=overlay;
+    const innerKm=innerRadius/1000;
+    const outerKm=outerRadius/1000;
+    const quadrantAreaKm2=Math.PI*(outerKm*outerKm-innerKm*innerKm)/4;
+    const result={
+      areaKm2:quadrantAreaKm2,
+      quadrants:{
+        NE:{total:0,retail:0,food:0,health:0,community:0},
+        SE:{total:0,retail:0,food:0,health:0,community:0},
+        SW:{total:0,retail:0,food:0,health:0,community:0},
+        NW:{total:0,retail:0,food:0,health:0,community:0}
+      }
+    };
+
+    const asset=await loadAmenityAsset();
+    const view=new DataView(asset.buffer);
+    const ids=amenityIndicesWithinRadius(center.lat,center.lng,outerKm);
+    const origin=L.latLng(center.lat,center.lng);
+
+    for(const i of ids){
+      const r=amenityReadRecord(i,view);
+      const distanceKm=map.distance(origin,L.latLng(r.lat,r.lon))/1000;
+      if(distanceKm<=innerKm || distanceKm>outerKm)continue;
+      const bearing=rxCheckSurroundingBearingDeg(center,r);
+      const quadrant=bearing<90?'NE':bearing<180?'SE':bearing<270?'SW':'NW';
+      const q=result.quadrants[quadrant];
+      q.total++;
+      if(r.mask&AMENITY_CATEGORY_MASKS.retail)q.retail++;
+      if(r.mask&AMENITY_CATEGORY_MASKS.food)q.food++;
+      if(r.mask&AMENITY_CATEGORY_MASKS.health)q.health++;
+      if(r.mask&AMENITY_CATEGORY_MASKS.community)q.community++;
+    }
+
+    for(const q of Object.values(result.quadrants)){
+      q.density=quadrantAreaKm2>0?q.total/quadrantAreaKm2:0;
+    }
+    return result;
+  }
+
+  function rxCheckSurroundingRenderAnnotations(result){
+    const overlay=state.rxCheckSurrounding?.overlay;
+    if(!overlay||!result)return;
+    const {layer,center,outerRadius}=overlay;
+    const configs=[
+      {key:'NE',bearing:45,rotation:-3},
+      {key:'SE',bearing:135,rotation:3},
+      {key:'SW',bearing:225,rotation:-2},
+      {key:'NW',bearing:315,rotation:2}
+    ];
+    const labels={retail:'Retail',food:'Food / Leisure',health:'Health / Services',community:'Community / Recreation'};
+    for(const cfg of configs){
+      const q=result.quadrants[cfg.key];
+      const html=`<div class="rx-quadrant-card" style="transform:rotate(${cfg.rotation}deg)">
+        <div class="rx-quadrant-card-title">${cfg.key}</div>
+        <div class="rx-quadrant-card-area">${result.areaKm2.toFixed(2)} km² SURROUNDING</div>
+        <table><tbody>
+          <tr><td>${labels.retail}</td><td>${fmtInt(q.retail)}</td></tr>
+          <tr><td>${labels.food}</td><td>${fmtInt(q.food)}</td></tr>
+          <tr><td>${labels.health}</td><td>${fmtInt(q.health)}</td></tr>
+          <tr><td>${labels.community}</td><td>${fmtInt(q.community)}</td></tr>
+        </tbody></table>
+        <div class="rx-quadrant-card-total"><span>TOTAL</span><strong>${fmtInt(q.total)}</strong><span class="rx-quadrant-density">${q.density.toFixed(1)} / km²</span></div>
+      </div>`;
+      const point=rxCheckSurroundingDestination(center,outerRadius*.67,cfg.bearing);
+      L.marker(point,{icon:L.divIcon({className:'rx-quadrant-card-wrap',html,iconSize:[220,158],iconAnchor:[110,79]}),interactive:false,zIndexOffset:1500}).addTo(layer);
+    }
+    const titlePoint=rxCheckSurroundingDestination(center,outerRadius*.18,45);
+    L.marker(titlePoint,{icon:L.divIcon({className:'rx-surrounding-title-wrap',html:'<div class="rx-surrounding-title">SURROUNDING / 4 QUADRANTS</div>',iconSize:[190,28],iconAnchor:[95,14]}),interactive:false,zIndexOffset:1501}).addTo(layer);
+  }
+
   function rxCheckSurroundingUpdateUi(){
     const button=el('rxCheckSurroundingBtn');
+    const clear=el('rxClearSurroundingBtn');
     const status=el('rxCheckSurroundingStatus');
     const ready=!!state.circleSelection?.circle;
+    const active=!!state.rxCheckSurrounding?.overlay;
     if(button)button.disabled=!ready;
-    if(status)status.textContent=ready?'Ready • draws surrounding quadrants only.':'Draw a Census circle to enable.';
+    if(clear)clear.disabled=!active;
+    if(status&&!active)status.textContent=ready?'Ready • draws surrounding quadrants.':'Draw a Census circle to enable.';
+  }
+
+  function rxCheckSurroundingClearToMap(){
+    const had=!!state.rxCheckSurrounding?.overlay;
+    rxCheckSurroundingClear({updateUi:false});
+    const status=el('rxCheckSurroundingStatus');
+    if(status)status.textContent=had?'Surrounding quadrants cleared.':(state.circleSelection?.circle?'Ready • draws surrounding quadrants.':'Draw a Census circle to enable.');
+    rxCheckSurroundingUpdateUi();
   }
 
   function rxCheckSurroundingWire(){
     const button=el('rxCheckSurroundingBtn');
-    if(button&&!button.dataset.bound){
-      button.dataset.bound='1';
-      button.addEventListener('click',e=>{
+    const clear=el('rxClearSurroundingBtn');
+    if(clear&&!clear.dataset.bound){
+      clear.dataset.bound='1';
+      clear.addEventListener('click',e=>{
         e.preventDefault();
         e.stopPropagation();
+        rxCheckSurroundingClearToMap();
+      });
+    }
+    if(!document.body.dataset.rxCheckSurroundingEscapeBound){
+      document.body.dataset.rxCheckSurroundingEscapeBound='1';
+      document.addEventListener('keydown',e=>{
+        if(e.key!=='Escape')return;
+        if(!state.rxCheckSurrounding?.overlay)return;
+        const target=e.target;
+        if(target && (target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.tagName==='SELECT'||target.isContentEditable))return;
+        e.preventDefault();
+        e.stopPropagation();
+        rxCheckSurroundingClearToMap();
+      },true);
+    }
+    if(button&&!button.dataset.bound){
+      button.dataset.bound='1';
+      button.addEventListener('click',async e=>{
+        e.preventDefault();
+        e.stopPropagation();
+        const status=el('rxCheckSurroundingStatus');
         try{
           const rendered=rxCheckSurroundingRenderGeometry();
-          const status=el('rxCheckSurroundingStatus');
-          if(status)status.textContent=rendered?'Geometry rendered • analysis not yet enabled.':'Draw a Census circle first.';
+          if(!rendered){if(status)status.textContent='Draw a Census circle first.';return;}
+          if(status)status.textContent='Geometry rendered • calculating surrounding quadrants…';
+          const result=await rxCheckSurroundingAnalyze();
+          rxCheckSurroundingRenderAnnotations(result);
+          if(status)status.textContent='Surrounding quadrants calculated • amenities outside subject circle only.';
         }catch(err){
-          console.error('Check Surrounding geometry failed',err);
-          const status=el('rxCheckSurroundingStatus');
-          if(status)status.textContent=`Geometry failed: ${err.message}`;
+          console.error('Check Surrounding analysis failed',err);
+          if(status)status.textContent=`Geometry rendered • analysis failed: ${err.message}`;
         }
       });
     }
